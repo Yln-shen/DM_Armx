@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.h

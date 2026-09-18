@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/mujoco_pkg/launch/joint_slider_gui.launch.py

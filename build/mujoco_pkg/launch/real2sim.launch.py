@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/src/mujoco_pkg/launch/real2sim.launch.py

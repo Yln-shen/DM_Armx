@@ -1,1 +1,0 @@
-ament_cmake_symlink_install_targets("TARGET_FILES" "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_py/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_c.so" "TARGETS" "rebotarm_msgs_s__rosidl_typesupport_c" "DESTINATION" "lib/python3.12/site-packages/rebotarm_msgs")

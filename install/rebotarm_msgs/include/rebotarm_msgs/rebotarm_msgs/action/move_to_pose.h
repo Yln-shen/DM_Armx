@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/move_to_pose.h

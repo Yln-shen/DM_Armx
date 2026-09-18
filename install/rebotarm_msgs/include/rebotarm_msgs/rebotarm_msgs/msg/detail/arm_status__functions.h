@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__functions.h

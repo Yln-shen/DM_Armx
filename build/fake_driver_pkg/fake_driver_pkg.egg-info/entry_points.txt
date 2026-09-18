@@ -1,2 +1,0 @@
-[console_scripts]
-fake_driver = fake_driver_pkg.fake_driver:main

@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_typesupport_introspection_c/rebotarm_msgs/srv/detail/move_to_pose_ik__rosidl_typesupport_introspection_c.h

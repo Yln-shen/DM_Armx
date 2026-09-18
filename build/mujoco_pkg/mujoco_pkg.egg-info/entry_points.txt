@@ -1,8 +1,0 @@
-[console_scripts]
-joint_slider_gui = mujoco_pkg.joint_slider_gui:main
-mujoco_physics_grasp = mujoco_pkg.mujoco_physics_grasp:main
-mujoco_torque_control = mujoco_pkg.mujoco_torque_control:main
-real2sim_sync = mujoco_pkg.real2sim_sync:main
-sim_color_detector = mujoco_pkg.sim_color_detector:main
-sim_rgb_camera = mujoco_pkg.sim_rgb_camera:main
-sim_task_server = mujoco_pkg.sim_task_server:main

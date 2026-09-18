@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_typesupport_fastrtps_c/rebotarm_msgs/srv/detail/set_gripper__rosidl_typesupport_fastrtps_c.h

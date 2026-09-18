@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/mujoco_pkg/launch/sim_task_server.launch.py

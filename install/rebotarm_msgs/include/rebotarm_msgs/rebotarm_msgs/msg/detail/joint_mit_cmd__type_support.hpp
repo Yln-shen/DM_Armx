@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_cpp/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.hpp

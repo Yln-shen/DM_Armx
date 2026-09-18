@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_cpp/rebotarm_msgs/srv/detail/gripper_command__traits.hpp

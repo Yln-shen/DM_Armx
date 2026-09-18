@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/src/mujoco_pkg/launch/sim_rgb_camera.launch.py

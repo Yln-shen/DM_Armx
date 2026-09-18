@@ -1,9 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/ylnn/DM_Armx/build/rebotarm_msgs/cmake_install.cmake",
-		"/home/ylnn/DM_Armx/build/rebotarm_msgs/rebotarm_msgs__py/cmake_install.cmake",
-		"/home/ylnn/DM_Armx/build/rebotarm_msgs/rebotarm_msgs__rs/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

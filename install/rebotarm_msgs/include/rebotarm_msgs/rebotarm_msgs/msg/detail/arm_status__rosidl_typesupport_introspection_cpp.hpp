@@ -1,1 +1,0 @@
-/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_typesupport_introspection_cpp/rebotarm_msgs/msg/detail/arm_status__rosidl_typesupport_introspection_cpp.hpp
