@@ -1,0 +1,13 @@
+package.xml
+setup.cfg
+setup.py
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/PKG-INFO
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/SOURCES.txt
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/dependency_links.txt
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/entry_points.txt
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/requires.txt
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/top_level.txt
+../../build/fake_driver_pkg/fake_driver_pkg.egg-info/zip-safe
+fake_driver_pkg/__init__.py
+fake_driver_pkg/fake_driver.py
+resource/fake_driver_pkg

@@ -1,0 +1,17 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from rebotarm_msgs/msg/JointPosVelCmd.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Time.idl"
+
+module rebotarm_msgs {
+  module msg {
+    struct JointPosVelCmd {
+      double pos;
+
+      double vlim;
+
+      builtin_interfaces::msg::Time stamp;
+    };
+  };
+};

@@ -1,0 +1,17 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from rebotarm_msgs/srv/SetZero.srv
+// generated code does not contain a copyright notice
+
+
+module rebotarm_msgs {
+  module srv {
+    struct SetZero_Request {
+      string joint_name;
+    };
+    struct SetZero_Response {
+      boolean success;
+
+      string message;
+    };
+  };
+};

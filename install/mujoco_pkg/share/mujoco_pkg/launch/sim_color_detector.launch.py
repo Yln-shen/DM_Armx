@@ -1,0 +1,1 @@
+/home/ylnn/DM_Armx/build/mujoco_pkg/launch/sim_color_detector.launch.py

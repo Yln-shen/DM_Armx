@@ -1,0 +1,36 @@
+{
+  "type_description_msg": {
+    "type_description": {
+      "type_name": "rebotarm_msgs/srv/SetGripper_Request",
+      "fields": [
+        {
+          "name": "position",
+          "type": {
+            "type_id": 11,
+            "capacity": 0,
+            "string_capacity": 0,
+            "nested_type_name": ""
+          },
+          "default_value": ""
+        },
+        {
+          "name": "max_effort",
+          "type": {
+            "type_id": 11,
+            "capacity": 0,
+            "string_capacity": 0,
+            "nested_type_name": ""
+          },
+          "default_value": ""
+        }
+      ]
+    },
+    "referenced_type_descriptions": []
+  },
+  "type_hashes": [
+    {
+      "type_name": "rebotarm_msgs/srv/SetGripper_Request",
+      "hash_string": "RIHS01_26f92f18bb6bb10b855532544d4a2dcbf4bb10fac07e3889266e71554026cec8"
+    }
+  ]
+}

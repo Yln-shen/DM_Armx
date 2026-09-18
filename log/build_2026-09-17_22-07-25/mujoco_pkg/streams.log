@@ -1,0 +1,24 @@
+[0.460s] Invoking command in '/home/ylnn/DM_Armx/build/mujoco_pkg': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/ylnn/DM_Armx/build/mujoco_pkg/build --no-deps symlink_data
+[0.589s] running develop
+[0.638s] running egg_info
+[0.644s] writing mujoco_pkg.egg-info/PKG-INFO
+[0.644s] writing dependency_links to mujoco_pkg.egg-info/dependency_links.txt
+[0.644s] writing entry points to mujoco_pkg.egg-info/entry_points.txt
+[0.644s] writing requirements to mujoco_pkg.egg-info/requires.txt
+[0.644s] writing top-level names to mujoco_pkg.egg-info/top_level.txt
+[0.656s] reading manifest file 'mujoco_pkg.egg-info/SOURCES.txt'
+[0.657s] writing manifest file 'mujoco_pkg.egg-info/SOURCES.txt'
+[0.663s] running build_ext
+[0.663s] Creating /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco-pkg.egg-link (link to .)
+[0.663s] Installing joint_slider_gui script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.663s] Installing mujoco_physics_grasp script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.664s] Installing mujoco_torque_control script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.664s] Installing real2sim_sync script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.664s] Installing sim_color_detector script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.664s] Installing sim_rgb_camera script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.664s] Installing sim_task_server script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.664s] 
+[0.664s] Installed /home/ylnn/DM_Armx/build/mujoco_pkg
+[0.664s] running symlink_data
+[0.664s] symbolically linking /home/ylnn/DM_Armx/build/mujoco_pkg/launch/slider_real2sim.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.679s] Invoked command in '/home/ylnn/DM_Armx/build/mujoco_pkg' returned '0': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/ylnn/DM_Armx/build/mujoco_pkg/build --no-deps symlink_data

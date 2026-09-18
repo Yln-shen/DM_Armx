@@ -1,0 +1,289 @@
+[0.078s] colcon DEBUG Command line arguments: ['/home/ylnn/DM_Armx/.pixi/envs/default/bin/colcon', 'build', '--symlink-install']
+[0.078s] colcon DEBUG Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=True, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=16, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, verb_parser=<colcon_defaults.argument_parser.defaults.DefaultArgumentsDecorator object at 0x78e492245940>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x78e492365700>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x78e492365700>>)
+[0.096s] colcon.colcon_core.package_discovery Level 1 discover_packages(colcon_meta) check parameters
+[0.096s] colcon.colcon_core.package_discovery Level 1 discover_packages(recursive) check parameters
+[0.096s] colcon.colcon_core.package_discovery Level 1 discover_packages(ignore) check parameters
+[0.096s] colcon.colcon_core.package_discovery Level 1 discover_packages(path) check parameters
+[0.096s] colcon.colcon_core.package_discovery Level 1 discover_packages(colcon_meta) discover
+[0.096s] colcon.colcon_core.package_discovery Level 1 discover_packages(recursive) discover
+[0.096s] colcon.colcon_core.package_discovery INFO Crawling recursively for packages in '/home/ylnn/DM_Armx'
+[0.096s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.096s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'ignore'
+[0.096s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'ignore_ament_install'
+[0.096s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['colcon_pkg']
+[0.096s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'colcon_pkg'
+[0.096s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['colcon_meta']
+[0.097s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'colcon_meta'
+[0.097s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['ros']
+[0.097s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'ros'
+[0.112s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['cmake', 'python']
+[0.112s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'cmake'
+[0.112s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'python'
+[0.112s] colcon.colcon_core.package_identification Level 1 _identify(.) by extensions ['python_setup_py']
+[0.112s] colcon.colcon_core.package_identification Level 1 _identify(.) by extension 'python_setup_py'
+[0.112s] colcon.colcon_core.package_identification Level 1 _identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(build) by extension 'ignore'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(build) ignored
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['ignore', 'ignore_ament_install']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'ignore'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'ignore_ament_install'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['colcon_pkg']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'colcon_pkg'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['colcon_meta']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'colcon_meta'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['ros']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'ros'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['cmake', 'python']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'cmake'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'python'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extensions ['python_setup_py']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(docs) by extension 'python_setup_py'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(install) by extension 'ignore'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(install) ignored
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(log) by extension 'ignore'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(log) ignored
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['ignore', 'ignore_ament_install']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'ignore'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'ignore_ament_install'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['colcon_pkg']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'colcon_pkg'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['colcon_meta']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'colcon_meta'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['ros']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'ros'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['cmake', 'python']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'cmake'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'python'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extensions ['python_setup_py']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src) by extension 'python_setup_py'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extensions ['ignore', 'ignore_ament_install']
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extension 'ignore'
+[0.113s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extension 'ignore_ament_install'
+[0.114s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extensions ['colcon_pkg']
+[0.114s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extension 'colcon_pkg'
+[0.114s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extensions ['colcon_meta']
+[0.114s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extension 'colcon_meta'
+[0.114s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extensions ['ros']
+[0.114s] colcon.colcon_core.package_identification Level 1 _identify(src/fake_driver_pkg) by extension 'ros'
+[0.115s] colcon.colcon_core.package_identification DEBUG Package 'src/fake_driver_pkg' with type 'ros.ament_python' and name 'fake_driver_pkg'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extensions ['ignore', 'ignore_ament_install']
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extension 'ignore'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extension 'ignore_ament_install'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extensions ['colcon_pkg']
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extension 'colcon_pkg'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extensions ['colcon_meta']
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extension 'colcon_meta'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extensions ['ros']
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/mujoco_pkg) by extension 'ros'
+[0.115s] colcon.colcon_core.package_identification DEBUG Package 'src/mujoco_pkg' with type 'ros.ament_python' and name 'mujoco_pkg'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extensions ['ignore', 'ignore_ament_install']
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extension 'ignore'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extension 'ignore_ament_install'
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extensions ['colcon_pkg']
+[0.115s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extension 'colcon_pkg'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extensions ['colcon_meta']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extension 'colcon_meta'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extensions ['ros']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(src/rebotarm_msgs) by extension 'ros'
+[0.116s] colcon.colcon_core.package_identification DEBUG Package 'src/rebotarm_msgs' with type 'ros.ament_cmake' and name 'rebotarm_msgs'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extensions ['ignore', 'ignore_ament_install']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'ignore'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'ignore_ament_install'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extensions ['colcon_pkg']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'colcon_pkg'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extensions ['colcon_meta']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'colcon_meta'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extensions ['ros']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'ros'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extensions ['cmake', 'python']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'cmake'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'python'
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extensions ['python_setup_py']
+[0.116s] colcon.colcon_core.package_identification Level 1 _identify(tools) by extension 'python_setup_py'
+[0.116s] colcon.colcon_core.package_discovery Level 1 discover_packages(recursive) using defaults
+[0.116s] colcon.colcon_core.package_discovery Level 1 discover_packages(ignore) discover
+[0.116s] colcon.colcon_core.package_discovery Level 1 discover_packages(ignore) using defaults
+[0.116s] colcon.colcon_core.package_discovery Level 1 discover_packages(path) discover
+[0.116s] colcon.colcon_core.package_discovery Level 1 discover_packages(path) using defaults
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'cmake_target' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'cmake_clean_cache' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'cmake_clean_first' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'cmake_force_configure' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'ament_cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'catkin_cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'rebotarm_msgs' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.124s] colcon.colcon_core.verb DEBUG Building package 'rebotarm_msgs' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/ylnn/DM_Armx/build/rebotarm_msgs', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/ylnn/DM_Armx/install/rebotarm_msgs', 'merge_install': False, 'path': '/home/ylnn/DM_Armx/src/rebotarm_msgs', 'symlink_install': True, 'test_result_base': None}
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'cmake_target' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'cmake_clean_cache' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'cmake_clean_first' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'cmake_force_configure' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'ament_cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'catkin_cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'fake_driver_pkg' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.124s] colcon.colcon_core.verb DEBUG Building package 'fake_driver_pkg' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/ylnn/DM_Armx/build/fake_driver_pkg', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/ylnn/DM_Armx/install/fake_driver_pkg', 'merge_install': False, 'path': '/home/ylnn/DM_Armx/src/fake_driver_pkg', 'symlink_install': True, 'test_result_base': None}
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'cmake_target' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'cmake_clean_cache' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'cmake_clean_first' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'cmake_force_configure' from command line to 'False'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'ament_cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'catkin_cmake_args' from command line to 'None'
+[0.124s] colcon.colcon_core.verb Level 5 set package 'mujoco_pkg' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.124s] colcon.colcon_core.verb DEBUG Building package 'mujoco_pkg' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/ylnn/DM_Armx/build/mujoco_pkg', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/ylnn/DM_Armx/install/mujoco_pkg', 'merge_install': False, 'path': '/home/ylnn/DM_Armx/src/mujoco_pkg', 'symlink_install': True, 'test_result_base': None}
+[0.125s] colcon.colcon_core.executor INFO Executing jobs using 'parallel' executor
+[0.125s] colcon.colcon_parallel_executor.executor.parallel DEBUG run_until_complete
+[0.125s] colcon.colcon_ros.task.ament_cmake.build INFO Building ROS package in '/home/ylnn/DM_Armx/src/rebotarm_msgs' with build type 'ament_cmake'
+[0.125s] colcon.colcon_cmake.task.cmake.build INFO Building CMake package in '/home/ylnn/DM_Armx/src/rebotarm_msgs'
+[0.126s] colcon.colcon_core.plugin_system INFO Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.127s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.127s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[0.133s] colcon.colcon_core.event_handler.log_command DEBUG Invoking command in '/home/ylnn/DM_Armx/build/rebotarm_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/ylnn/DM_Armx/.pixi/envs/default DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PIXI_PROMPT=(DM_Armx) /home/ylnn/DM_Armx/.pixi/envs/default/bin/cmake --build /home/ylnn/DM_Armx/build/rebotarm_msgs -- -j16 -l16
+[0.368s] colcon.colcon_core.event_handler.log_command DEBUG Invoked command in '/home/ylnn/DM_Armx/build/rebotarm_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/ylnn/DM_Armx/.pixi/envs/default DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PIXI_PROMPT=(DM_Armx) /home/ylnn/DM_Armx/.pixi/envs/default/bin/cmake --build /home/ylnn/DM_Armx/build/rebotarm_msgs -- -j16 -l16
+[0.375s] colcon.colcon_core.event_handler.log_command DEBUG Invoking command in '/home/ylnn/DM_Armx/build/rebotarm_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/ylnn/DM_Armx/.pixi/envs/default DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PIXI_PROMPT=(DM_Armx) /home/ylnn/DM_Armx/.pixi/envs/default/bin/cmake --install /home/ylnn/DM_Armx/build/rebotarm_msgs
+[0.439s] colcon.colcon_core.environment Level 1 create_environment_scripts_only(rebotarm_msgs)
+[0.439s] colcon.colcon_core.event_handler.log_command DEBUG Invoked command in '/home/ylnn/DM_Armx/build/rebotarm_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/ylnn/DM_Armx/.pixi/envs/default DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PIXI_PROMPT=(DM_Armx) /home/ylnn/DM_Armx/.pixi/envs/default/bin/cmake --install /home/ylnn/DM_Armx/build/rebotarm_msgs
+[0.441s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs' for CMake module files
+[0.441s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs' for CMake config files
+[0.442s] colcon.colcon_core.shell Level 1 create_environment_hook('rebotarm_msgs', 'cmake_prefix_path')
+[0.442s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/cmake_prefix_path.ps1'
+[0.443s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/cmake_prefix_path.dsv'
+[0.444s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/cmake_prefix_path.sh'
+[0.444s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib'
+[0.445s] colcon.colcon_core.shell Level 1 create_environment_hook('rebotarm_msgs', 'ld_library_path_lib')
+[0.445s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/ld_library_path_lib.ps1'
+[0.445s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/ld_library_path_lib.dsv'
+[0.446s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/ld_library_path_lib.sh'
+[0.446s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/bin'
+[0.446s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/pkgconfig/rebotarm_msgs.pc'
+[0.447s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages'
+[0.447s] colcon.colcon_core.shell Level 1 create_environment_hook('rebotarm_msgs', 'pythonpath')
+[0.448s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/pythonpath.ps1'
+[0.448s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/pythonpath.dsv'
+[0.448s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/pythonpath.sh'
+[0.449s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/bin'
+[0.449s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.ps1'
+[0.450s] colcon.colcon_core.shell INFO Creating package descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.dsv'
+[0.451s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.sh'
+[0.452s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.bash'
+[0.452s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.zsh'
+[0.453s] colcon.colcon_core.environment Level 1 create_file_with_runtime_dependencies(/home/ylnn/DM_Armx/install/rebotarm_msgs/share/colcon-core/packages/rebotarm_msgs)
+[0.454s] colcon.colcon_core.environment Level 1 create_environment_scripts_only(rebotarm_msgs)
+[0.454s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs' for CMake module files
+[0.455s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs' for CMake config files
+[0.456s] colcon.colcon_core.shell Level 1 create_environment_hook('rebotarm_msgs', 'cmake_prefix_path')
+[0.456s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/cmake_prefix_path.ps1'
+[0.456s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/cmake_prefix_path.dsv'
+[0.457s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/cmake_prefix_path.sh'
+[0.457s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib'
+[0.457s] colcon.colcon_core.shell Level 1 create_environment_hook('rebotarm_msgs', 'ld_library_path_lib')
+[0.458s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/ld_library_path_lib.ps1'
+[0.459s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/ld_library_path_lib.dsv'
+[0.460s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/ld_library_path_lib.sh'
+[0.460s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/bin'
+[0.460s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/pkgconfig/rebotarm_msgs.pc'
+[0.460s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages'
+[0.460s] colcon.colcon_core.shell Level 1 create_environment_hook('rebotarm_msgs', 'pythonpath')
+[0.461s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/pythonpath.ps1'
+[0.461s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/pythonpath.dsv'
+[0.461s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/hook/pythonpath.sh'
+[0.462s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/rebotarm_msgs/bin'
+[0.462s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.ps1'
+[0.463s] colcon.colcon_core.shell INFO Creating package descriptor '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.dsv'
+[0.463s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.sh'
+[0.464s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.bash'
+[0.464s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.zsh'
+[0.465s] colcon.colcon_core.environment Level 1 create_file_with_runtime_dependencies(/home/ylnn/DM_Armx/install/rebotarm_msgs/share/colcon-core/packages/rebotarm_msgs)
+[0.465s] colcon.colcon_ros.task.ament_python.build INFO Building ROS package in '/home/ylnn/DM_Armx/src/fake_driver_pkg' with build type 'ament_python'
+[0.465s] colcon.colcon_core.shell Level 1 create_environment_hook('fake_driver_pkg', 'ament_prefix_path')
+[0.466s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/hook/ament_prefix_path.ps1'
+[0.466s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/hook/ament_prefix_path.dsv'
+[0.467s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/hook/ament_prefix_path.sh'
+[0.468s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.468s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[0.470s] colcon.colcon_ros.task.ament_python.build INFO Building ROS package in '/home/ylnn/DM_Armx/src/mujoco_pkg' with build type 'ament_python'
+[0.471s] colcon.colcon_core.shell Level 1 create_environment_hook('mujoco_pkg', 'ament_prefix_path')
+[0.471s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/hook/ament_prefix_path.ps1'
+[0.471s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/hook/ament_prefix_path.dsv'
+[0.472s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/hook/ament_prefix_path.sh'
+[0.472s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.472s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[0.585s] colcon.colcon_core.task.python.build INFO Building Python package in '/home/ylnn/DM_Armx/src/fake_driver_pkg'
+[0.585s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.585s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[0.698s] colcon.colcon_core.task.python.build INFO Building Python package in '/home/ylnn/DM_Armx/src/mujoco_pkg'
+[0.698s] colcon.colcon_core.shell INFO Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.698s] colcon.colcon_core.shell DEBUG Skip shell extension 'dsv' for command environment
+[0.893s] colcon.colcon_core.task.python.build DEBUG Available setuptools commands: bdist_egg, bdist, build_ext, sdist, install_lib, build, dist_info, check, clean, develop, alias, symlink_data, editable_wheel, bdist_dumb, build_scripts, bdist_rpm, install, saveopts, bdist_wheel, easy_install, install_scripts, build_py, rotate, install_data, egg_info, build_clib, install_headers, setopt, install_egg_info
+[0.894s] colcon.colcon_core.task.python.build DEBUG Available setuptools commands: bdist_egg, bdist, build_ext, sdist, install_lib, build, dist_info, check, clean, develop, alias, symlink_data, editable_wheel, bdist_dumb, build_scripts, bdist_rpm, install, saveopts, bdist_wheel, easy_install, install_scripts, build_py, rotate, install_data, egg_info, build_clib, install_headers, setopt, install_egg_info
+[1.029s] colcon.colcon_core.task.python.build DEBUG Available setuptools 'develop' options: --install-dir, --upgrade, --user, --no-find-links, --optimize, --zip-ok, --index-url, --build-directory, --allow-hosts, --multi-version, --always-unzip, --help, --no-user-cfg, --no-deps, --egg-path, --prefix, --verbose, --script-dir, --version, --editable, --uninstall, --record, --dry-run, --quiet, --site-dirs, --always-copy, --find-links, --exclude-scripts, --local-snapshots-ok
+[1.030s] colcon.colcon_core.event_handler.log_command DEBUG Invoking command in '/home/ylnn/DM_Armx/build/mujoco_pkg': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/ylnn/DM_Armx/build/mujoco_pkg/build --no-deps symlink_data
+[1.033s] colcon.colcon_core.task.python.build DEBUG Available setuptools 'develop' options: --install-dir, --upgrade, --user, --no-find-links, --optimize, --zip-ok, --index-url, --build-directory, --allow-hosts, --multi-version, --always-unzip, --help, --no-user-cfg, --no-deps, --egg-path, --prefix, --verbose, --script-dir, --version, --editable, --uninstall, --record, --dry-run, --quiet, --site-dirs, --always-copy, --find-links, --exclude-scripts, --local-snapshots-ok
+[1.034s] colcon.colcon_core.event_handler.log_command DEBUG Invoking command in '/home/ylnn/DM_Armx/build/fake_driver_pkg': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PYTHONPATH=/home/ylnn/DM_Armx/build/fake_driver_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/fake_driver_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/ylnn/DM_Armx/build/fake_driver_pkg/build --no-deps symlink_data
+[1.248s] colcon.colcon_core.shell Level 1 create_environment_hook('mujoco_pkg', 'pythonpath_develop')
+[1.248s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/build/mujoco_pkg/share/mujoco_pkg/hook/pythonpath_develop.ps1'
+[1.249s] colcon.colcon_core.event_handler.log_command DEBUG Invoked command in '/home/ylnn/DM_Armx/build/mujoco_pkg' returned '0': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/ylnn/DM_Armx/build/mujoco_pkg/build --no-deps symlink_data
+[1.249s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/build/mujoco_pkg/share/mujoco_pkg/hook/pythonpath_develop.dsv'
+[1.249s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/build/mujoco_pkg/share/mujoco_pkg/hook/pythonpath_develop.sh'
+[1.250s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg' for CMake module files
+[1.250s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg' for CMake config files
+[1.250s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg/lib'
+[1.250s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg/bin'
+[1.250s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg/lib/pkgconfig/mujoco_pkg.pc'
+[1.250s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages'
+[1.250s] colcon.colcon_core.shell Level 1 create_environment_hook('mujoco_pkg', 'pythonpath')
+[1.251s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/hook/pythonpath.ps1'
+[1.251s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/hook/pythonpath.dsv'
+[1.251s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/hook/pythonpath.sh'
+[1.252s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/mujoco_pkg/bin'
+[1.252s] colcon.colcon_core.environment Level 1 create_environment_scripts_only(mujoco_pkg)
+[1.252s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/package.ps1'
+[1.252s] colcon.colcon_core.shell INFO Creating package descriptor '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/package.dsv'
+[1.252s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/package.sh'
+[1.253s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/package.bash'
+[1.253s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/package.zsh'
+[1.253s] colcon.colcon_core.environment Level 1 create_file_with_runtime_dependencies(/home/ylnn/DM_Armx/install/mujoco_pkg/share/colcon-core/packages/mujoco_pkg)
+[1.255s] colcon.colcon_core.shell Level 1 create_environment_hook('fake_driver_pkg', 'pythonpath_develop')
+[1.255s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/build/fake_driver_pkg/share/fake_driver_pkg/hook/pythonpath_develop.ps1'
+[1.256s] colcon.colcon_core.event_handler.log_command DEBUG Invoked command in '/home/ylnn/DM_Armx/build/fake_driver_pkg' returned '0': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PYTHONPATH=/home/ylnn/DM_Armx/build/fake_driver_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/fake_driver_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/ylnn/DM_Armx/build/fake_driver_pkg/build --no-deps symlink_data
+[1.256s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/build/fake_driver_pkg/share/fake_driver_pkg/hook/pythonpath_develop.dsv'
+[1.256s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/build/fake_driver_pkg/share/fake_driver_pkg/hook/pythonpath_develop.sh'
+[1.256s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg' for CMake module files
+[1.257s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg' for CMake config files
+[1.257s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg/lib'
+[1.257s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg/bin'
+[1.257s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg/lib/pkgconfig/fake_driver_pkg.pc'
+[1.257s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg/lib/python3.12/site-packages'
+[1.257s] colcon.colcon_core.shell Level 1 create_environment_hook('fake_driver_pkg', 'pythonpath')
+[1.257s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/hook/pythonpath.ps1'
+[1.257s] colcon.colcon_core.shell INFO Creating environment descriptor '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/hook/pythonpath.dsv'
+[1.258s] colcon.colcon_core.shell INFO Creating environment hook '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/hook/pythonpath.sh'
+[1.258s] colcon.colcon_core.environment Level 1 checking '/home/ylnn/DM_Armx/install/fake_driver_pkg/bin'
+[1.258s] colcon.colcon_core.environment Level 1 create_environment_scripts_only(fake_driver_pkg)
+[1.258s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/package.ps1'
+[1.259s] colcon.colcon_core.shell INFO Creating package descriptor '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/package.dsv'
+[1.259s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/package.sh'
+[1.259s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/package.bash'
+[1.259s] colcon.colcon_core.shell INFO Creating package script '/home/ylnn/DM_Armx/install/fake_driver_pkg/share/fake_driver_pkg/package.zsh'
+[1.260s] colcon.colcon_core.environment Level 1 create_file_with_runtime_dependencies(/home/ylnn/DM_Armx/install/fake_driver_pkg/share/colcon-core/packages/fake_driver_pkg)
+[1.260s] colcon.colcon_parallel_executor.executor.parallel DEBUG closing loop
+[1.260s] colcon.colcon_parallel_executor.executor.parallel DEBUG loop closed
+[1.260s] colcon.colcon_parallel_executor.executor.parallel DEBUG run_until_complete finished with '0'
+[1.260s] colcon.colcon_core.event_reactor DEBUG joining thread
+[1.260s] colcon.colcon_core.event_reactor DEBUG joined thread
+[1.260s] colcon.colcon_core.shell INFO Creating prefix script '/home/ylnn/DM_Armx/install/local_setup.ps1'
+[1.261s] colcon.colcon_core.shell INFO Creating prefix util module '/home/ylnn/DM_Armx/install/_local_setup_util_ps1.py'
+[1.262s] colcon.colcon_core.shell INFO Creating prefix chain script '/home/ylnn/DM_Armx/install/setup.ps1'
+[1.262s] colcon.colcon_core.shell INFO Creating prefix script '/home/ylnn/DM_Armx/install/local_setup.sh'
+[1.262s] colcon.colcon_core.shell INFO Creating prefix util module '/home/ylnn/DM_Armx/install/_local_setup_util_sh.py'
+[1.263s] colcon.colcon_core.shell INFO Creating prefix chain script '/home/ylnn/DM_Armx/install/setup.sh'
+[1.263s] colcon.colcon_core.shell INFO Creating prefix script '/home/ylnn/DM_Armx/install/local_setup.bash'
+[1.264s] colcon.colcon_core.shell INFO Creating prefix chain script '/home/ylnn/DM_Armx/install/setup.bash'
+[1.264s] colcon.colcon_core.shell INFO Creating prefix script '/home/ylnn/DM_Armx/install/local_setup.zsh'
+[1.265s] colcon.colcon_core.shell INFO Creating prefix chain script '/home/ylnn/DM_Armx/install/setup.zsh'

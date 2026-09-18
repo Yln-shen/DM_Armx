@@ -1,0 +1,1 @@
+/home/ylnn/DM_Armx/src/mujoco_pkg/launch/slider_real2sim.launch.py

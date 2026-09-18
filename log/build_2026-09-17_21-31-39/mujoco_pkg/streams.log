@@ -1,0 +1,29 @@
+[0.350s] Invoking command in '/home/ylnn/DM_Armx/src/mujoco_pkg': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/mujoco_pkg build --build-base /home/ylnn/DM_Armx/build/mujoco_pkg/build install --record /home/ylnn/DM_Armx/build/mujoco_pkg/install.log --install-scripts $base/lib/mujoco_pkg --single-version-externally-managed install_data
+[0.472s] running egg_info
+[0.477s] creating ../../build/mujoco_pkg/mujoco_pkg.egg-info
+[0.477s] writing ../../build/mujoco_pkg/mujoco_pkg.egg-info/PKG-INFO
+[0.477s] writing dependency_links to ../../build/mujoco_pkg/mujoco_pkg.egg-info/dependency_links.txt
+[0.477s] writing requirements to ../../build/mujoco_pkg/mujoco_pkg.egg-info/requires.txt
+[0.477s] writing top-level names to ../../build/mujoco_pkg/mujoco_pkg.egg-info/top_level.txt
+[0.478s] writing manifest file '../../build/mujoco_pkg/mujoco_pkg.egg-info/SOURCES.txt'
+[0.489s] reading manifest file '../../build/mujoco_pkg/mujoco_pkg.egg-info/SOURCES.txt'
+[0.489s] adding license file 'LICENSE'
+[0.489s] writing manifest file '../../build/mujoco_pkg/mujoco_pkg.egg-info/SOURCES.txt'
+[0.489s] running build
+[0.489s] running build_py
+[0.489s] creating /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.489s] copying mujoco_pkg/__init__.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.490s] running install
+[0.492s] running install_lib
+[0.497s] creating /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.497s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/__init__.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.497s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/__init__.py to __init__.cpython-312.pyc
+[0.498s] running install_data
+[0.498s] creating /home/ylnn/DM_Armx/install/mujoco_pkg/share/ament_index/resource_index/packages
+[0.498s] copying resource/mujoco_pkg -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/ament_index/resource_index/packages
+[0.498s] copying package.xml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg
+[0.498s] running install_egg_info
+[0.503s] Copying ../../build/mujoco_pkg/mujoco_pkg.egg-info to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg-0.0.0-py3.12.egg-info
+[0.504s] running install_scripts
+[0.531s] writing list of installed files to '/home/ylnn/DM_Armx/build/mujoco_pkg/install.log'
+[0.544s] Invoked command in '/home/ylnn/DM_Armx/src/mujoco_pkg' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/mujoco_pkg build --build-base /home/ylnn/DM_Armx/build/mujoco_pkg/build install --record /home/ylnn/DM_Armx/build/mujoco_pkg/install.log --install-scripts $base/lib/mujoco_pkg --single-version-externally-managed install_data

@@ -1,0 +1,27 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from rebotarm_msgs/msg/ArmStatus.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module rebotarm_msgs {
+  module msg {
+    struct ArmStatus {
+      std_msgs::msg::Header header;
+
+      string mode;
+
+      boolean enabled;
+
+      boolean control_loop_active;
+
+      string state_machine;
+
+      sequence<string> joint_names;
+
+      sequence<uint8> per_joint_status_code;
+
+      sequence<string> error_codes;
+    };
+  };
+};

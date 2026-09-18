@@ -1,0 +1,29 @@
+// generated from rosidl_adapter/resource/action.idl.em
+// with input from rebotarm_msgs/action/MoveToPose.action
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Pose.idl"
+
+module rebotarm_msgs {
+  module action {
+    struct MoveToPose_Goal {
+      geometry_msgs::msg::Pose target_pose;
+
+      double duration;
+    };
+    struct MoveToPose_Result {
+      boolean success;
+
+      string message;
+
+      geometry_msgs::msg::Pose final_pose;
+    };
+    struct MoveToPose_Feedback {
+      geometry_msgs::msg::Pose current_pose;
+
+      double progress;
+
+      double time_elapsed;
+    };
+  };
+};

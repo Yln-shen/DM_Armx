@@ -1,0 +1,501 @@
+-- The C compiler identification is GNU 15.2.0
+-- The CXX compiler identification is GNU 15.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 2.5.6 (/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake/cmake)
+-- Found Python3: /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3 (found version "3.12.14") found components: Interpreter
+-- Override CMake install command with custom implementation using symlinks instead of copying resources
+-- Found rosidl_default_generators: 1.6.1 (/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_default_generators/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found rosidl_adapter: 4.6.9 (/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_adapter/cmake)
+-- Found builtin_interfaces: 2.0.4 (/home/ylnn/DM_Armx/.pixi/envs/default/share/builtin_interfaces/cmake)
+-- Found geometry_msgs: 5.3.8 (/home/ylnn/DM_Armx/.pixi/envs/default/share/geometry_msgs/cmake)
+-- Found ament_cmake_ros: 0.12.1 (/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake_ros/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found python_cmake_module: 0.11.1 (/home/ylnn/DM_Armx/.pixi/envs/default/share/python_cmake_module/cmake)
+-- Found PythonExtra: /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3
+-- Found Python3: /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3 (found version "3.12.14") found components: Interpreter Development NumPy Development.Module Development.Embed
+-- Found Python3: /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3 (found version "3.12.14") found components: Interpreter
+-- Configuring done (3.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /home/ylnn/DM_Armx/build/rebotarm_msgs
+[  1%] Generating type hashes for ROS interfaces
+[  2%] Generating Rust code for ROS interfaces
+[  2%] Built target ament_cmake_python_symlink_rebotarm_msgs
+running egg_info
+creating rebotarm_msgs.egg-info
+writing rebotarm_msgs.egg-info/PKG-INFO
+writing dependency_links to rebotarm_msgs.egg-info/dependency_links.txt
+writing top-level names to rebotarm_msgs.egg-info/top_level.txt
+writing manifest file 'rebotarm_msgs.egg-info/SOURCES.txt'
+reading manifest file 'rebotarm_msgs.egg-info/SOURCES.txt'
+writing manifest file 'rebotarm_msgs.egg-info/SOURCES.txt'
+[  2%] Built target ament_cmake_python_build_rebotarm_msgs_egg
+[  2%] Built target rebotarm_msgs__rosidl_generator_type_description
+[  3%] Generating C code for ROS interfaces
+[  3%] Generating C++ code for ROS interfaces
+[  3%] Built target rebotarm_msgs__rs
+[  3%] Built target rebotarm_msgs__cpp
+[  3%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__description.c.o
+[  6%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__description.c.o
+[  6%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__functions.c.o
+[  6%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.c.o
+[  7%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.c.o
+[  7%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__functions.c.o
+[  7%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__functions.c.o
+[  8%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__type_support.c.o
+[  9%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__functions.c.o
+[ 10%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__description.c.o
+[ 11%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__description.c.o
+[ 12%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__description.c.o
+[ 12%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.c.o
+[ 13%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__functions.c.o
+[ 14%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__type_support.c.o
+[ 15%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__description.c.o
+[ 16%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__functions.c.o
+[ 16%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__type_support.c.o
+[ 17%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__description.c.o
+[ 18%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.c.o
+[ 19%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__functions.c.o
+[ 20%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__description.c.o
+[ 21%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__functions.c.o
+[ 21%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__type_support.c.o
+[ 21%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__description.c.o
+[ 22%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__type_support.c.o
+[ 23%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__functions.c.o
+[ 24%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__functions.c.o
+[ 24%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__type_support.c.o
+[ 25%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__description.c.o
+[ 25%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__description.c.o
+[ 26%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__type_support.c.o
+[ 27%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__functions.c.o
+[ 28%] Linking C shared library librebotarm_msgs__rosidl_generator_c.so
+[ 28%] Built target rebotarm_msgs__rosidl_generator_c
+[ 31%] Generating C type support dispatch for ROS interfaces
+[ 31%] Generating C++ introspection for ROS interfaces
+[ 32%] Generating C introspection for ROS interfaces
+[ 31%] Generating C type support for eProsima Fast-RTPS
+[ 32%] Generating C++ type support for eProsima Fast-RTPS
+[ 32%] Generating C++ type support dispatch for ROS interfaces
+[ 34%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_pos_vel_cmd__type_support.cpp.o
+[ 34%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_state__type_support.cpp.o
+[ 34%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/arm_status__type_support.cpp.o
+[ 36%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_mode__type_support.cpp.o
+[ 36%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_gripper__type_support.cpp.o
+[ 37%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/gripper_command__type_support.cpp.o
+[ 38%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/move_to_pose_ik__type_support.cpp.o
+[ 39%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_cmd__type_support.cpp.o
+[ 34%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_zero__type_support.cpp.o
+[ 40%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_mit_cmd__type_support.cpp.o
+[ 40%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/action/move_to_pose__type_support.cpp.o
+[ 41%] Linking CXX shared library librebotarm_msgs__rosidl_typesupport_c.so
+[ 41%] Built target rebotarm_msgs__rosidl_typesupport_c
+[ 42%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/msg/joint_mit_cmd__type_support.cpp.o
+[ 42%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/msg/joint_motor_cmd__type_support.cpp.o
+[ 44%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/msg/joint_motor_state__type_support.cpp.o
+[ 44%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/msg/joint_pos_vel_cmd__type_support.cpp.o
+[ 44%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/srv/set_mode__type_support.cpp.o
+[ 45%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/srv/move_to_pose_ik__type_support.cpp.o
+[ 48%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/srv/set_zero__type_support.cpp.o
+[ 48%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/msg/arm_status__type_support.cpp.o
+[ 48%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/srv/gripper_command__type_support.cpp.o
+[ 48%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/srv/set_gripper__type_support.cpp.o
+[ 49%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.cpp.o
+[ 50%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.cpp.o
+[ 51%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/rebotarm_msgs/action/move_to_pose__type_support.cpp.o
+[ 52%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.cpp.o
+[ 53%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.c.o
+[ 53%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.c.o
+[ 54%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/srv/detail/set_zero__type_support.cpp.o
+[ 55%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/srv/detail/set_mode__type_support.cpp.o
+[ 56%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/msg/detail/arm_status__type_support.cpp.o
+[ 57%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/msg/detail/joint_motor_state__type_support.c.o
+[ 59%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/msg/detail/arm_status__type_support.c.o
+[ 59%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.c.o
+[ 59%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/srv/detail/set_mode__type_support.c.o
+[ 60%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/action/detail/move_to_pose__type_support.cpp.o
+[ 61%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/srv/detail/set_zero__type_support.c.o
+[ 62%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.c.o
+[ 63%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/msg/detail/dds_fastrtps/joint_motor_cmd__type_support.cpp.o
+[ 63%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/srv/detail/set_gripper__type_support.c.o
+[ 64%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/srv/detail/gripper_command__type_support.c.o
+[ 65%] Building C object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/rebotarm_msgs/action/detail/move_to_pose__type_support.c.o
+[ 66%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/msg/detail/dds_fastrtps/joint_pos_vel_cmd__type_support.cpp.o
+[ 66%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/msg/detail/dds_fastrtps/joint_mit_cmd__type_support.cpp.o
+[ 67%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/msg/detail/dds_fastrtps/joint_motor_state__type_support.cpp.o
+[ 69%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.cpp.o
+[ 69%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/srv/detail/set_gripper__type_support.cpp.o
+[ 69%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/srv/detail/gripper_command__type_support.cpp.o
+[ 69%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support_c.cpp.o
+[ 70%] Linking C shared library librebotarm_msgs__rosidl_typesupport_introspection_c.so
+[ 70%] Built target rebotarm_msgs__rosidl_typesupport_introspection_c
+[ 71%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/rebotarm_msgs/msg/detail/joint_motor_state__type_support.cpp.o
+[ 72%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support_c.cpp.o
+[ 72%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support_c.cpp.o
+[ 73%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/msg/detail/joint_motor_state__type_support_c.cpp.o
+[ 74%] Linking CXX shared library librebotarm_msgs__rosidl_typesupport_cpp.so
+[ 74%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/msg/detail/arm_status__type_support_c.cpp.o
+[ 75%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/srv/detail/set_mode__type_support_c.cpp.o
+[ 76%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/srv/detail/dds_fastrtps/set_mode__type_support.cpp.o
+[ 77%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/msg/detail/dds_fastrtps/arm_status__type_support.cpp.o
+[ 77%] Built target rebotarm_msgs__rosidl_typesupport_cpp
+[ 77%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support_c.cpp.o
+[ 78%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/srv/detail/set_gripper__type_support_c.cpp.o
+[ 79%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/srv/detail/set_zero__type_support_c.cpp.o
+[ 81%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/srv/detail/dds_fastrtps/move_to_pose_ik__type_support.cpp.o
+[ 81%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/srv/detail/gripper_command__type_support_c.cpp.o
+[ 82%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/srv/detail/dds_fastrtps/set_gripper__type_support.cpp.o
+[ 83%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/rebotarm_msgs/action/detail/move_to_pose__type_support_c.cpp.o
+[ 83%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/srv/detail/dds_fastrtps/set_zero__type_support.cpp.o
+[ 83%] Linking CXX shared library librebotarm_msgs__rosidl_typesupport_introspection_cpp.so
+[ 83%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/action/detail/dds_fastrtps/move_to_pose__type_support.cpp.o
+[ 84%] Building CXX object CMakeFiles/rebotarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/rebotarm_msgs/srv/detail/dds_fastrtps/gripper_command__type_support.cpp.o
+[ 84%] Built target rebotarm_msgs__rosidl_typesupport_introspection_cpp
+[ 84%] Linking CXX shared library librebotarm_msgs__rosidl_typesupport_fastrtps_c.so
+[ 84%] Built target rebotarm_msgs__rosidl_typesupport_fastrtps_c
+[ 85%] Linking CXX shared library librebotarm_msgs__rosidl_typesupport_fastrtps_cpp.so
+[ 85%] Built target rebotarm_msgs__rosidl_typesupport_fastrtps_cpp
+[ 85%] Built target rebotarm_msgs
+[ 86%] Generating Python code for ROS interfaces
+[ 86%] Built target rebotarm_msgs__py
+[ 87%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/msg/_joint_motor_state_s.c.o
+[ 88%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/msg/_joint_mit_cmd_s.c.o
+[ 88%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/msg/_joint_motor_cmd_s.c.o
+[ 90%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/msg/_joint_pos_vel_cmd_s.c.o
+[ 90%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/srv/_move_to_pose_ik_s.c.o
+[ 91%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/msg/_arm_status_s.c.o
+[ 92%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/srv/_set_mode_s.c.o
+[ 92%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/srv/_set_zero_s.c.o
+[ 93%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/srv/_set_gripper_s.c.o
+[ 93%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/srv/_gripper_command_s.c.o
+[ 94%] Building C object CMakeFiles/rebotarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/rebotarm_msgs/action/_move_to_pose_s.c.o
+[ 95%] Linking C shared library librebotarm_msgs__rosidl_generator_py.so
+[ 95%] Built target rebotarm_msgs__rosidl_generator_py
+[ 96%] Building C object CMakeFiles/rebotarm_msgs_s__rosidl_typesupport_fastrtps_c.dir/rosidl_generator_py/rebotarm_msgs/_rebotarm_msgs_s.ep.rosidl_typesupport_fastrtps_c.c.o
+[ 96%] Building C object CMakeFiles/rebotarm_msgs_s__rosidl_typesupport_c.dir/rosidl_generator_py/rebotarm_msgs/_rebotarm_msgs_s.ep.rosidl_typesupport_c.c.o
+[ 97%] Building C object CMakeFiles/rebotarm_msgs_s__rosidl_typesupport_introspection_c.dir/rosidl_generator_py/rebotarm_msgs/_rebotarm_msgs_s.ep.rosidl_typesupport_introspection_c.c.o
+[ 98%] Linking C shared module rosidl_generator_py/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_introspection_c.so
+[ 99%] Linking C shared module rosidl_generator_py/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_fastrtps_c.so
+[100%] Linking C shared module rosidl_generator_py/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_c.so
+[100%] Built target rebotarm_msgs_s__rosidl_typesupport_introspection_c
+[100%] Built target rebotarm_msgs_s__rosidl_typesupport_c
+[100%] Built target rebotarm_msgs_s__rosidl_typesupport_fastrtps_c
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/ament_index/resource_index/rosidl_interfaces/rebotarm_msgs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMotorCmd.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMitCmd.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointPosVelCmd.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMotorState.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/ArmStatus.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetMode.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetZero.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/MoveToPoseIK.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetGripper.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/GripperCommand.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/action/MoveToPose.json
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/move_to_pose.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/arm_status.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_mit_cmd.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_motor_cmd.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_motor_state.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_pos_vel_cmd.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/rosidl_generator_c__visibility_control.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__functions.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__struct.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__type_support.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/gripper_command.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/move_to_pose_ik.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/set_gripper.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/set_mode.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/set_zero.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__rosidl_typesupport_fastrtps_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/rosidl_typesupport_introspection_c__visibility_control.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__rosidl_typesupport_introspection_c.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/move_to_pose.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/arm_status.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_mit_cmd.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_motor_cmd.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_motor_state.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/joint_pos_vel_cmd.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/rosidl_generator_cpp__visibility_control.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__builder.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__struct.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__traits.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__type_support.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/gripper_command.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/move_to_pose_ik.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/set_gripper.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/set_mode.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/set_zero.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__rosidl_typesupport_fastrtps_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/action/detail/move_to_pose__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/arm_status__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_mit_cmd__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_cmd__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_motor_state__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/gripper_command__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/move_to_pose_ik__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_gripper__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_mode__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/include/rebotarm_msgs/rebotarm_msgs/srv/detail/set_zero__rosidl_typesupport_introspection_cpp.hpp
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/environment/pythonpath.sh
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/environment/pythonpath.dsv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs-0.1.0-py3.12.egg-info/PKG-INFO
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs-0.1.0-py3.12.egg-info/SOURCES.txt
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs-0.1.0-py3.12.egg-info/dependency_links.txt
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs-0.1.0-py3.12.egg-info/top_level.txt
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/__init__.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/_rebotarm_msgs_s.ep.rosidl_typesupport_c.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/_rebotarm_msgs_s.ep.rosidl_typesupport_fastrtps_c.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/_rebotarm_msgs_s.ep.rosidl_typesupport_introspection_c.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/action/__init__.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/action/_move_to_pose.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/action/_move_to_pose_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/__init__.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_arm_status.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_arm_status_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_mit_cmd.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_mit_cmd_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_motor_cmd.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_motor_cmd_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_motor_state.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_motor_state_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_pos_vel_cmd.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_pos_vel_cmd_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_c.so
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_fastrtps_c.so
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_introspection_c.so
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/__init__.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_gripper_command.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_gripper_command_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_move_to_pose_ik.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_move_to_pose_ik_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_gripper.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_gripper_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_mode.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_mode_s.c
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_zero.py
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_zero_s.c
+-- Up-to-date symlink: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_fastrtps_c.so
+-- Up-to-date symlink: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_introspection_c.so
+-- Up-to-date symlink: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/rebotarm_msgs_s__rosidl_typesupport_c.so
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/Cargo.toml
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/build.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/action.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/action/rmw.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/lib.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/msg.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/msg/rmw.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/srv.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/rust/src/srv/rmw.rs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMotorCmd.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMitCmd.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointPosVelCmd.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMotorState.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/ArmStatus.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetMode.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetZero.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/MoveToPoseIK.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetGripper.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/GripperCommand.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/action/MoveToPose.idl
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMotorCmd.msg
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMitCmd.msg
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointPosVelCmd.msg
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/JointMotorState.msg
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/msg/ArmStatus.msg
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetMode.srv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetZero.srv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/MoveToPoseIK.srv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/SetGripper.srv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/srv/GripperCommand.srv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/action/MoveToPose.action
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/ament_index/resource_index/package_run_dependencies/rebotarm_msgs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/ament_index/resource_index/parent_prefix_path/rebotarm_msgs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/environment/ament_prefix_path.sh
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/environment/ament_prefix_path.dsv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/environment/path.sh
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/environment/path.dsv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/local_setup.bash
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/local_setup.sh
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/local_setup.zsh
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/local_setup.dsv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.dsv
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/ament_index/resource_index/packages/rebotarm_msgs
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rosidl_cmake-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/ament_cmake_export_libraries-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/ament_cmake_export_targets-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rosidl_cmake_aggregate_target-extras.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgsConfig.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgsConfig-version.cmake
+-- Symlinking: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/package.xml
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_generator_c.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_generator_c.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_fastrtps_c.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_fastrtps_c.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_introspection_c.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_introspection_c.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_c.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_c.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_fastrtps_cpp.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_fastrtps_cpp.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_introspection_cpp.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_introspection_cpp.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_cpp.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_typesupport_cpp.so" to ""
+Listing '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/__init__.py'...
+Listing '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/action'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/action/__init__.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/action/_move_to_pose.py'...
+Listing '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/__init__.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_arm_status.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_mit_cmd.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_motor_cmd.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_motor_state.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/msg/_joint_pos_vel_cmd.py'...
+Listing '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/__init__.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_gripper_command.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_move_to_pose_ik.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_gripper.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_mode.py'...
+Compiling '/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages/rebotarm_msgs/srv/_set_zero.py'...
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_generator_py.so
+-- Set non-toolchain portion of runtime path of "/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/librebotarm_msgs__rosidl_generator_py.so" to ""
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_generator_cExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_generator_cExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_typesupport_fastrtps_cExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_introspection_cExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_introspection_cExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_cExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_cExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_generator_cppExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_typesupport_fastrtps_cppExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_introspection_cppExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_cppExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/rebotarm_msgs__rosidl_typesupport_cppExport-noconfig.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_generator_pyExport.cmake
+-- Installing: /home/ylnn/DM_Armx/install/rebotarm_msgs/share/rebotarm_msgs/cmake/export_rebotarm_msgs__rosidl_generator_pyExport-noconfig.cmake

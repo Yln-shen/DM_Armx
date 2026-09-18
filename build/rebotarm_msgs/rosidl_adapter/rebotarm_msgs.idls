@@ -1,0 +1,11 @@
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:msg/JointMotorCmd.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:msg/JointMitCmd.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:msg/JointPosVelCmd.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:msg/JointMotorState.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:msg/ArmStatus.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:srv/SetMode.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:srv/SetZero.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:srv/MoveToPoseIK.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:srv/SetGripper.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:srv/GripperCommand.idl
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_adapter/rebotarm_msgs:action/MoveToPose.idl

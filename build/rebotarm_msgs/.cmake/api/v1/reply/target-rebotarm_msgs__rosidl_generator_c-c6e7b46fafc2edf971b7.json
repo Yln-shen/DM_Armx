@@ -1,0 +1,1652 @@
+{
+	"artifacts" : 
+	[
+		{
+			"path" : "librebotarm_msgs__rosidl_generator_c.so"
+		}
+	],
+	"backtrace" : 5,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_library",
+			"include",
+			"ament_execute_extensions",
+			"rosidl_generate_interfaces",
+			"_install",
+			"ament_cmake_symlink_install_targets",
+			"install",
+			"target_link_libraries",
+			"set_target_properties",
+			"find_package",
+			"add_dependencies",
+			"add_custom_command",
+			"add_definitions",
+			"target_include_directories"
+		],
+		"files" : 
+		[
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_generator_c/cmake/rosidl_generator_c_generate_interfaces.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake_core/cmake/core/ament_execute_extensions.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_cmake/cmake/rosidl_generate_interfaces.cmake",
+			"CMakeLists.txt",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake_core/cmake/symlink_install/ament_cmake_symlink_install_targets.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake_core/cmake/symlink_install/install.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rcutils/cmake/rcutilsExport.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rcutils/cmake/ament_cmake_export_targets-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rcutils/cmake/rcutilsConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_runtime_c/cmake/ament_cmake_export_dependencies-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_runtime_c/cmake/rosidl_runtime_cConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_typesupport_fastrtps_c/cmake/ament_cmake_export_dependencies-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_typesupport_fastrtps_c/cmake/rosidl_typesupport_fastrtps_cConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_typesupport_c/cmake/rosidl_typesupport_c-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_typesupport_c/cmake/rosidl_typesupport_cConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_core_generators/cmake/rosidl_core_generators-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_core_generators/cmake/rosidl_core_generatorsConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_default_generators/cmake/ament_cmake_export_dependencies-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_default_generators/cmake/rosidl_default_generatorsConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake_ros/cmake/ament_cmake_ros-extras.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/ament_cmake_ros/cmake/ament_cmake_rosConfig.cmake",
+			"/home/ylnn/DM_Armx/.pixi/envs/default/share/rosidl_typesupport_fastrtps_c/cmake/rosidl_typesupport_fastrtps_c_generate_interfaces.cmake"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 3
+			},
+			{
+				"command" : 3,
+				"file" : 3,
+				"line" : 10,
+				"parent" : 0
+			},
+			{
+				"command" : 2,
+				"file" : 2,
+				"line" : 280,
+				"parent" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 48,
+				"parent" : 2
+			},
+			{
+				"file" : 0,
+				"parent" : 3
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 143,
+				"parent" : 4
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 200,
+				"parent" : 4
+			},
+			{
+				"command" : 5,
+				"file" : 5,
+				"line" : 37,
+				"parent" : 6
+			},
+			{
+				"command" : 4,
+				"file" : 4,
+				"line" : 50,
+				"parent" : 7
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 165,
+				"parent" : 4
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 165,
+				"parent" : 4
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 165,
+				"parent" : 4
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 165,
+				"parent" : 4
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 165,
+				"parent" : 4
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 165,
+				"parent" : 4
+			},
+			{
+				"command" : 7,
+				"file" : 0,
+				"line" : 170,
+				"parent" : 4
+			},
+			{
+				"command" : 9,
+				"file" : 3,
+				"line" : 5,
+				"parent" : 0
+			},
+			{
+				"file" : 18,
+				"parent" : 16
+			},
+			{
+				"command" : 1,
+				"file" : 18,
+				"line" : 41,
+				"parent" : 17
+			},
+			{
+				"file" : 17,
+				"parent" : 18
+			},
+			{
+				"command" : 9,
+				"file" : 17,
+				"line" : 21,
+				"parent" : 19
+			},
+			{
+				"file" : 16,
+				"parent" : 20
+			},
+			{
+				"command" : 1,
+				"file" : 16,
+				"line" : 41,
+				"parent" : 21
+			},
+			{
+				"file" : 15,
+				"parent" : 22
+			},
+			{
+				"command" : 9,
+				"file" : 15,
+				"line" : 21,
+				"parent" : 23
+			},
+			{
+				"file" : 14,
+				"parent" : 24
+			},
+			{
+				"command" : 1,
+				"file" : 14,
+				"line" : 41,
+				"parent" : 25
+			},
+			{
+				"file" : 13,
+				"parent" : 26
+			},
+			{
+				"command" : 9,
+				"file" : 13,
+				"line" : 13,
+				"parent" : 27
+			},
+			{
+				"file" : 12,
+				"parent" : 28
+			},
+			{
+				"command" : 1,
+				"file" : 12,
+				"line" : 41,
+				"parent" : 29
+			},
+			{
+				"file" : 11,
+				"parent" : 30
+			},
+			{
+				"command" : 9,
+				"file" : 11,
+				"line" : 21,
+				"parent" : 31
+			},
+			{
+				"file" : 10,
+				"parent" : 32
+			},
+			{
+				"command" : 1,
+				"file" : 10,
+				"line" : 41,
+				"parent" : 33
+			},
+			{
+				"file" : 9,
+				"parent" : 34
+			},
+			{
+				"command" : 9,
+				"file" : 9,
+				"line" : 21,
+				"parent" : 35
+			},
+			{
+				"file" : 8,
+				"parent" : 36
+			},
+			{
+				"command" : 1,
+				"file" : 8,
+				"line" : 41,
+				"parent" : 37
+			},
+			{
+				"file" : 7,
+				"parent" : 38
+			},
+			{
+				"command" : 1,
+				"file" : 7,
+				"line" : 9,
+				"parent" : 39
+			},
+			{
+				"file" : 6,
+				"parent" : 40
+			},
+			{
+				"command" : 8,
+				"file" : 6,
+				"line" : 61,
+				"parent" : 41
+			},
+			{
+				"command" : 10,
+				"file" : 0,
+				"line" : 174,
+				"parent" : 4
+			},
+			{
+				"command" : 11,
+				"file" : 0,
+				"line" : 118,
+				"parent" : 4
+			},
+			{
+				"command" : 8,
+				"file" : 0,
+				"line" : 152,
+				"parent" : 4
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 48,
+				"parent" : 2
+			},
+			{
+				"file" : 21,
+				"parent" : 46
+			},
+			{
+				"command" : 9,
+				"file" : 21,
+				"line" : 21,
+				"parent" : 47
+			},
+			{
+				"file" : 20,
+				"parent" : 48
+			},
+			{
+				"command" : 1,
+				"file" : 20,
+				"line" : 41,
+				"parent" : 49
+			},
+			{
+				"file" : 19,
+				"parent" : 50
+			},
+			{
+				"command" : 12,
+				"file" : 19,
+				"line" : 25,
+				"parent" : 51
+			},
+			{
+				"command" : 13,
+				"file" : 0,
+				"line" : 158,
+				"parent" : 4
+			}
+		]
+	},
+	"codemodelVersion" : 
+	{
+		"major" : 2,
+		"minor" : 11
+	},
+	"compileDependencies" : 
+	[
+		{
+			"backtrace" : 14,
+			"id" : "builtin_interfaces::builtin_interfaces__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 9,
+			"id" : "geometry_msgs::geometry_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 10,
+			"id" : "std_msgs::std_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 13,
+			"id" : "service_msgs::service_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 11,
+			"id" : "action_msgs::action_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 12,
+			"id" : "unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_runtime_c::rosidl_runtime_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_typesupport_interface::rosidl_typesupport_interface::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rcutils::rcutils::@6890427a1f51a3e7e1df"
+		}
+	],
+	"compileGroups" : 
+	[
+		{
+			"compileCommandFragments" : 
+			[
+				{
+					"fragment" : "-std=gnu11 -fPIC"
+				},
+				{
+					"backtrace" : 45,
+					"fragment" : "-Wall"
+				}
+			],
+			"defines" : 
+			[
+				{
+					"define" : "ROSIDL_GENERATOR_C_BUILDING_DLL_rebotarm_msgs"
+				},
+				{
+					"backtrace" : 52,
+					"define" : "ROS_PACKAGE_NAME=\"rebotarm_msgs\""
+				}
+			],
+			"includes" : 
+			[
+				{
+					"backtrace" : 53,
+					"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c"
+				},
+				{
+					"backtrace" : 14,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/builtin_interfaces"
+				},
+				{
+					"backtrace" : 14,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/rosidl_runtime_c"
+				},
+				{
+					"backtrace" : 14,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/rcutils"
+				},
+				{
+					"backtrace" : 14,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/rosidl_typesupport_interface"
+				},
+				{
+					"backtrace" : 9,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/geometry_msgs"
+				},
+				{
+					"backtrace" : 9,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/std_msgs"
+				},
+				{
+					"backtrace" : 13,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/service_msgs"
+				},
+				{
+					"backtrace" : 11,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/action_msgs"
+				},
+				{
+					"backtrace" : 11,
+					"isSystem" : true,
+					"path" : "/home/ylnn/DM_Armx/.pixi/envs/default/include/unique_identifier_msgs"
+				}
+			],
+			"language" : "C",
+			"languageStandard" : 
+			{
+				"backtraces" : 
+				[
+					45
+				],
+				"standard" : "11"
+			},
+			"sourceIndexes" : 
+			[
+				44,
+				45,
+				46,
+				47,
+				48,
+				49,
+				50,
+				51,
+				52,
+				53,
+				54,
+				55,
+				56,
+				57,
+				58,
+				59,
+				60,
+				61,
+				62,
+				63,
+				64,
+				65,
+				66,
+				67,
+				68,
+				69,
+				70,
+				71,
+				72,
+				73,
+				74,
+				75,
+				76
+			]
+		}
+	],
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 43,
+			"id" : "rebotarm_msgs__rosidl_generator_type_description::@6890427a1f51a3e7e1df"
+		}
+	],
+	"id" : "rebotarm_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df",
+	"install" : 
+	{
+		"destinations" : 
+		[
+			{
+				"backtrace" : 8,
+				"path" : "lib"
+			},
+			{
+				"backtrace" : 8,
+				"path" : "lib"
+			}
+		],
+		"prefix" : 
+		{
+			"path" : "/home/ylnn/DM_Armx/install/rebotarm_msgs"
+		}
+	},
+	"interfaceCompileDependencies" : 
+	[
+		{
+			"backtrace" : 14,
+			"id" : "builtin_interfaces::builtin_interfaces__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 9,
+			"id" : "geometry_msgs::geometry_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 10,
+			"id" : "std_msgs::std_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 13,
+			"id" : "service_msgs::service_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 11,
+			"id" : "action_msgs::action_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 12,
+			"id" : "unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_runtime_c::rosidl_runtime_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_typesupport_interface::rosidl_typesupport_interface::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rcutils::rcutils::@6890427a1f51a3e7e1df"
+		}
+	],
+	"interfaceLinkLibraries" : 
+	[
+		{
+			"backtrace" : 14,
+			"id" : "builtin_interfaces::builtin_interfaces__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 9,
+			"id" : "geometry_msgs::geometry_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 10,
+			"id" : "std_msgs::std_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 13,
+			"id" : "service_msgs::service_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 11,
+			"id" : "action_msgs::action_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 12,
+			"id" : "unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_runtime_c::rosidl_runtime_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_typesupport_interface::rosidl_typesupport_interface::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rcutils::rcutils::@6890427a1f51a3e7e1df"
+		}
+	],
+	"link" : 
+	{
+		"commandFragments" : 
+		[
+			{
+				"fragment" : "-shared",
+				"role" : "flags"
+			},
+			{
+				"fragment" : "-Wl,-rpath,/home/ylnn/DM_Armx/.pixi/envs/default/lib:",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 9,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/libgeometry_msgs__rosidl_generator_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 10,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/libstd_msgs__rosidl_generator_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 11,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/libaction_msgs__rosidl_generator_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 12,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/libunique_identifier_msgs__rosidl_generator_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 13,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/libservice_msgs__rosidl_generator_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 14,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/libbuiltin_interfaces__rosidl_generator_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 15,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/librosidl_runtime_c.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 15,
+				"fragment" : "/home/ylnn/DM_Armx/.pixi/envs/default/lib/librcutils.so",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 42,
+				"fragment" : "-ldl",
+				"role" : "libraries"
+			},
+			{
+				"backtrace" : 42,
+				"fragment" : "-latomic",
+				"role" : "libraries"
+			}
+		],
+		"language" : "C"
+	},
+	"linkLibraries" : 
+	[
+		{
+			"backtrace" : 14,
+			"id" : "builtin_interfaces::builtin_interfaces__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 9,
+			"id" : "geometry_msgs::geometry_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 10,
+			"id" : "std_msgs::std_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 13,
+			"id" : "service_msgs::service_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 11,
+			"id" : "action_msgs::action_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 12,
+			"id" : "unique_identifier_msgs::unique_identifier_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_runtime_c::rosidl_runtime_c::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rosidl_typesupport_interface::rosidl_typesupport_interface::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 15,
+			"id" : "rcutils::rcutils::@6890427a1f51a3e7e1df"
+		}
+	],
+	"name" : "rebotarm_msgs__rosidl_generator_c",
+	"nameOnDisk" : "librebotarm_msgs__rosidl_generator_c.so",
+	"orderDependencies" : 
+	[
+		{
+			"backtrace" : 44,
+			"id" : "Python3::Interpreter::@6890427a1f51a3e7e1df"
+		},
+		{
+			"backtrace" : 43,
+			"id" : "rebotarm_msgs__rosidl_generator_type_description::@6890427a1f51a3e7e1df"
+		}
+	],
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "Header Files",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+				28,
+				29,
+				30,
+				31,
+				32,
+				33,
+				34,
+				35,
+				36,
+				37,
+				38,
+				39,
+				40,
+				41,
+				42,
+				43
+			]
+		},
+		{
+			"name" : "Source Files",
+			"sourceIndexes" : 
+			[
+				44,
+				45,
+				46,
+				47,
+				48,
+				49,
+				50,
+				51,
+				52,
+				53,
+				54,
+				55,
+				56,
+				57,
+				58,
+				59,
+				60,
+				61,
+				62,
+				63,
+				64,
+				65,
+				66,
+				67,
+				68,
+				69,
+				70,
+				71,
+				72,
+				73,
+				74,
+				75,
+				76
+			]
+		},
+		{
+			"name" : "CMake Rules",
+			"sourceIndexes" : 
+			[
+				77
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/joint_motor_cmd.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/joint_mit_cmd.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/joint_pos_vel_cmd.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/joint_motor_state.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/arm_status.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/set_mode.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/set_zero.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/move_to_pose_ik.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/set_gripper.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/gripper_command.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/move_to_pose.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__functions.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__struct.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__type_support.h",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_cmd__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_mit_cmd__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_pos_vel_cmd__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/joint_motor_state__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/detail/arm_status__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_mode__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_zero__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/move_to_pose_ik__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/set_gripper__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/srv/detail/gripper_command__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__description.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__functions.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 5,
+			"backtraces" : 
+			[
+				5
+			],
+			"compileGroupIndex" : 0,
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/action/detail/move_to_pose__type_support.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"backtraces" : 
+			[
+				0
+			],
+			"isGenerated" : true,
+			"path" : "/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_c/rebotarm_msgs/msg/joint_motor_cmd.h.rule",
+			"sourceGroupIndex" : 2
+		}
+	],
+	"type" : "SHARED_LIBRARY"
+}

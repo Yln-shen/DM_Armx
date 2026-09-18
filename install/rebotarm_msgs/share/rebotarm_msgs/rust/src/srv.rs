@@ -1,0 +1,1 @@
+/home/ylnn/DM_Armx/build/rebotarm_msgs/rosidl_generator_rs/rebotarm_msgs/rust/src/srv.rs

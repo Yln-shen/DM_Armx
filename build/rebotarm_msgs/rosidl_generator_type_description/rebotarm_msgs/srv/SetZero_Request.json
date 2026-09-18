@@ -1,0 +1,26 @@
+{
+  "type_description_msg": {
+    "type_description": {
+      "type_name": "rebotarm_msgs/srv/SetZero_Request",
+      "fields": [
+        {
+          "name": "joint_name",
+          "type": {
+            "type_id": 17,
+            "capacity": 0,
+            "string_capacity": 0,
+            "nested_type_name": ""
+          },
+          "default_value": ""
+        }
+      ]
+    },
+    "referenced_type_descriptions": []
+  },
+  "type_hashes": [
+    {
+      "type_name": "rebotarm_msgs/srv/SetZero_Request",
+      "hash_string": "RIHS01_e0e663a6bcb71082121b8bbbf8138576169ba854bf03ce17e419bf2bfec6fe34"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/link.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/action/move_to_pose__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/action/move_to_pose__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/arm_status__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/arm_status__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_mit_cmd__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_mit_cmd__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_cmd__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_cmd__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_state__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_state__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_pos_vel_cmd__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/msg/joint_pos_vel_cmd__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/gripper_command__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/gripper_command__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/move_to_pose_ik__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/move_to_pose_ik__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_gripper__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_gripper__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_mode__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_mode__type_support.cpp.o.d"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_zero__type_support.cpp.o"
+  "CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/rebotarm_msgs/srv/set_zero__type_support.cpp.o.d"
+  "librebotarm_msgs__rosidl_typesupport_c.pdb"
+  "librebotarm_msgs__rosidl_typesupport_c.so"
+  "rosidl_typesupport_c/rebotarm_msgs/action/move_to_pose__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/msg/arm_status__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/msg/joint_mit_cmd__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_cmd__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/msg/joint_motor_state__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/msg/joint_pos_vel_cmd__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/srv/gripper_command__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/srv/move_to_pose_ik__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/srv/set_gripper__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/srv/set_mode__type_support.cpp"
+  "rosidl_typesupport_c/rebotarm_msgs/srv/set_zero__type_support.cpp"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/rebotarm_msgs__rosidl_typesupport_c.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

@@ -1,0 +1,73 @@
+[0.433s] Invoking command in '/home/ylnn/DM_Armx/build/mujoco_pkg': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PS1=(DM_Armx) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --uninstall --editable --build-directory /home/ylnn/DM_Armx/build/mujoco_pkg/build
+[0.552s] running develop
+[0.602s] Removing /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco-pkg.egg-link (link to .)
+[0.616s] Invoked command in '/home/ylnn/DM_Armx/build/mujoco_pkg' returned '0': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PS1=(DM_Armx) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --uninstall --editable --build-directory /home/ylnn/DM_Armx/build/mujoco_pkg/build
+[0.617s] Invoking command in '/home/ylnn/DM_Armx/src/mujoco_pkg': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PS1=(DM_Armx) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/mujoco_pkg build --build-base /home/ylnn/DM_Armx/build/mujoco_pkg/build install --record /home/ylnn/DM_Armx/build/mujoco_pkg/install.log --install-scripts $base/lib/mujoco_pkg --single-version-externally-managed install_data --force
+[0.735s] running egg_info
+[0.740s] writing ../../build/mujoco_pkg/mujoco_pkg.egg-info/PKG-INFO
+[0.741s] writing dependency_links to ../../build/mujoco_pkg/mujoco_pkg.egg-info/dependency_links.txt
+[0.741s] writing entry points to ../../build/mujoco_pkg/mujoco_pkg.egg-info/entry_points.txt
+[0.741s] writing requirements to ../../build/mujoco_pkg/mujoco_pkg.egg-info/requires.txt
+[0.741s] writing top-level names to ../../build/mujoco_pkg/mujoco_pkg.egg-info/top_level.txt
+[0.753s] reading manifest file '../../build/mujoco_pkg/mujoco_pkg.egg-info/SOURCES.txt'
+[0.753s] adding license file 'LICENSE'
+[0.754s] writing manifest file '../../build/mujoco_pkg/mujoco_pkg.egg-info/SOURCES.txt'
+[0.754s] running build
+[0.754s] running build_py
+[0.754s] creating /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/mujoco_physics_grasp.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/sim_task_server.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/__init__.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/sim_rgb_camera.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/sim_color_detector.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/joint_slider_gui.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/real2sim_sync.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] copying mujoco_pkg/mujoco_torque_control.py -> /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg
+[0.754s] running install
+[0.756s] running install_lib
+[0.762s] creating /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/mujoco_physics_grasp.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/sim_task_server.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/__init__.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/sim_rgb_camera.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/sim_color_detector.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/joint_slider_gui.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/real2sim_sync.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.762s] copying /home/ylnn/DM_Armx/build/mujoco_pkg/build/lib/mujoco_pkg/mujoco_torque_control.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg
+[0.763s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/mujoco_physics_grasp.py to mujoco_physics_grasp.cpython-312.pyc
+[0.765s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/sim_task_server.py to sim_task_server.cpython-312.pyc
+[0.768s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/__init__.py to __init__.cpython-312.pyc
+[0.768s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/sim_rgb_camera.py to sim_rgb_camera.cpython-312.pyc
+[0.771s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/sim_color_detector.py to sim_color_detector.cpython-312.pyc
+[0.773s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/joint_slider_gui.py to joint_slider_gui.cpython-312.pyc
+[0.775s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/real2sim_sync.py to real2sim_sync.cpython-312.pyc
+[0.778s] byte-compiling /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg/mujoco_torque_control.py to mujoco_torque_control.cpython-312.pyc
+[0.780s] running install_data
+[0.780s] copying resource/mujoco_pkg -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/ament_index/resource_index/packages
+[0.780s] copying package.xml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg
+[0.780s] copying launch/real2sim.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.780s] copying launch/sim_rgb_camera.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.780s] copying launch/mujoco_torque_control.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.780s] copying launch/sim_color_detector.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.780s] copying launch/joint_slider_gui.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.780s] copying launch/mujoco_physics_grasp.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.780s] copying launch/sim_task_server.launch.py -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/launch
+[0.781s] copying config/joint_map_kinematic.yaml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/config
+[0.781s] copying config/joint_map.yaml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/config
+[0.781s] copying models/rebotarm_b601_colored.xml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/models
+[0.781s] copying models/simple_rebotarm.xml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/models
+[0.781s] copying models/rebotarm_b601_kinematic.xml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/models
+[0.781s] copying models/rebotarm_b601_stl.xml -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/models
+[0.781s] copying description/ReBot_Arm_DM.urdf -> /home/ylnn/DM_Armx/install/mujoco_pkg/share/mujoco_pkg/description
+[0.781s] running install_egg_info
+[0.787s] Copying ../../build/mujoco_pkg/mujoco_pkg.egg-info to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages/mujoco_pkg-0.1.0-py3.12.egg-info
+[0.788s] running install_scripts
+[0.817s] Installing joint_slider_gui script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.817s] Installing mujoco_physics_grasp script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.817s] Installing mujoco_torque_control script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.817s] Installing real2sim_sync script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.818s] Installing sim_color_detector script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.818s] Installing sim_rgb_camera script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.818s] Installing sim_task_server script to /home/ylnn/DM_Armx/install/mujoco_pkg/lib/mujoco_pkg
+[0.818s] writing list of installed files to '/home/ylnn/DM_Armx/build/mujoco_pkg/install.log'
+[0.829s] Invoked command in '/home/ylnn/DM_Armx/src/mujoco_pkg' returned '0': AMENT_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs:${CMAKE_PREFIX_PATH} DEBUGINFOD_URLS=https://debuginfod.ubuntu.com LD_LIBRARY_PATH=/home/ylnn/DM_Armx/install/rebotarm_msgs/lib:${LD_LIBRARY_PATH} PIXI_PROMPT=(DM_Armx) PS1=(DM_Armx) \[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ PYTHONPATH=/home/ylnn/DM_Armx/build/mujoco_pkg/prefix_override:/home/ylnn/DM_Armx/.pixi/envs/default/lib/python3.12/site-packages/colcon_core/task/python/colcon_distutils_commands:/home/ylnn/DM_Armx/install/mujoco_pkg/lib/python3.12/site-packages:/home/ylnn/DM_Armx/install/rebotarm_msgs/lib/python3.12/site-packages:${PYTHONPATH} /home/ylnn/DM_Armx/.pixi/envs/default/bin/python3.12 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/mujoco_pkg build --build-base /home/ylnn/DM_Armx/build/mujoco_pkg/build install --record /home/ylnn/DM_Armx/build/mujoco_pkg/install.log --install-scripts $base/lib/mujoco_pkg --single-version-externally-managed install_data --force

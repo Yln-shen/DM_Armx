@@ -1,0 +1,16 @@
+{
+  "package_name": "rebotarm_msgs",
+  "non_idl_tuples": [
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:msg/JointMotorCmd.msg",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:msg/JointMitCmd.msg",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:msg/JointPosVelCmd.msg",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:msg/JointMotorState.msg",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:msg/ArmStatus.msg",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:srv/SetMode.srv",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:srv/SetZero.srv",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:srv/MoveToPoseIK.srv",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:srv/SetGripper.srv",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:srv/GripperCommand.srv",
+    "/home/ylnn/DM_Armx/src/rebotarm_msgs:action/MoveToPose.action"
+  ]
+}
