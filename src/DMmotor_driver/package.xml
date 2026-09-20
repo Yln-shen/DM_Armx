@@ -9,6 +9,8 @@
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
+  <!-- dm_bringup / dm_registers 直接开串口，绕过了 ros2_control 的硬件接口层 -->
+  <exec_depend>python3-serial</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

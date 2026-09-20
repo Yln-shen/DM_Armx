@@ -1,0 +1,111 @@
+import yaml
+from dataclasses import dataclass, field
+from enum import IntEnum
+
+
+class DM_Motor_Type(IntEnum):
+    DM4310 = 0
+    DM4310_48V = 1
+    DM4340 = 2
+    DM4340_48V = 3
+    DM4310_2EC = 16   # 可选，区分 2EC
+
+
+@dataclass
+class JointConfig:
+    name: str
+    motor_type: DM_Motor_Type
+    slave_id: int
+    master_id: int
+    gear_ratio: float
+    direction: int
+    offset: float
+    position_min: float
+    position_max: float
+    velocity_max: float
+    torque_max: float
+    kp: float
+    kd: float
+    pmax: float
+    vmax: float
+    tmax: float
+
+    def __post_init__(self):
+        if self.direction not in (1, -1):
+            raise ValueError(f"{self.name}: direction 必须 ±1")
+        if self.gear_ratio <= 0:
+            raise ValueError(f"{self.name}: gear_ratio 必须 > 0")
+        if self.position_min >= self.position_max:
+            raise ValueError(f"{self.name}: min 必须 < max")
+
+
+@dataclass
+class GripperConfig:
+    motor_type: DM_Motor_Type
+    slave_id: int
+    master_id: int
+    gear_ratio: float
+    direction: int
+    offset: float
+    open_position: float
+    close_position: float
+    velocity_max: float
+    max_force: float
+    pmax: float
+    vmax: float
+    tmax: float
+
+
+@dataclass
+class SafetyConfig:
+    watchdog_timeout: float = 0.1
+    max_temperature: float = 80.0
+    min_voltage: float = 20.0
+    max_voltage: float = 28.0
+    enable_delay: float = 3.0
+    emergency_on_error: bool = True
+
+
+@dataclass
+class ArmConfig:
+    name: str
+    serial_port: str
+    baudrate: int
+    can_bitrate: int
+    control_mode: str
+    enable_delay: float
+    joint_state_rate: float
+    joints: dict[str, JointConfig]
+    gripper: GripperConfig
+    safety: SafetyConfig
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "ArmConfig":
+        with open(path) as f:
+            data = yaml.safe_load(f)
+
+        arm = data["arm"]
+        joints = {}
+        for name, jcfg in data["joints"].items():
+            jcfg["name"] = name
+            jcfg["motor_type"] = DM_Motor_Type[jcfg["motor_type"]]
+            joints[name] = JointConfig(**jcfg)
+
+        g = data["gripper"]
+        g["motor_type"] = DM_Motor_Type[g["motor_type"]]
+        gripper = GripperConfig(**g)
+
+        safety = SafetyConfig(**data.get("safety", {}))
+
+        return cls(
+            name=arm["name"],
+            serial_port=arm["serial_port"],
+            baudrate=arm["baudrate"],
+            can_bitrate=arm["can_bitrate"],
+            control_mode=arm["control_mode"],
+            enable_delay=arm["enable_delay"],
+            joint_state_rate=arm["joint_state_rate"],
+            joints=joints,
+            gripper=gripper,
+            safety=safety,
+        )

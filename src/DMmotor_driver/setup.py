@@ -24,6 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'dm-bringup = DMmotor_driver.dm_bringup:main',
+            'dm-dump-registers = DMmotor_driver.dm_registers:main',
         ],
     },
 )
