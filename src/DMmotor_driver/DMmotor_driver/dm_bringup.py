@@ -258,7 +258,7 @@ def refresh_and_read(ser, DM_CAN, slave_id: int, limit, wait: float = 0.05,
     """
     rx = rx if rx is not None else RxBuf()
     flush_rx(ser, rx)
-    frame = refresh_frame(DM_CAN, slave_id)
+    frame = refresh_frame(slave_id)
     data = frame[21:29]
     ser.write(frame)
     raw_sink: list[bytes] = []
@@ -302,7 +302,7 @@ def cmd_read(args, DM_CAN, sdk_dir: Path):
         print("\n[1] 参数读取帧长这样（0x7FF 广播，D[2]=0x33 表示『读』）：")
         for rid, name, _ in READ_REGISTERS[:3]:
             data = bytes([args.id & 0xFF, 0, 0x33, rid & 0xFF, 0, 0, 0, 0])
-            explain_tx(build_tx(DM_CAN, 0x7FF, data), f"读 {name} (RID={rid})")
+            explain_tx(build_tx(0x7FF, data), f"读 {name} (RID={rid})")
         print("\n[2] 对应的反馈帧：参数回读是 CMD=0x11 + D[2]=0x33，状态反馈是 CMD=0x11 + "
               "D[2]=0xCC。两者字段布局一样，只有 D 的内容不同。")
         print("[3] 下面这些只能接上硬件才知道（本脚本测不出来）：")
@@ -332,7 +332,7 @@ def cmd_read(args, DM_CAN, sdk_dir: Path):
             flag = "" if tries == 1 else f"  ← 重试了 {tries-1} 次"
             print(f"    {pad(name, 14)}{pad(shown, 14, True)}  {pad(tries, 4)}{note}{flag}")
             if rid == 20 and last_tx is None:
-                last_tx = bytes(tx_template(DM_CAN))
+                last_tx = bytes(tx_template())
 
         if last_tx:
             print("\n[2] 上面这次读操作真正发出去的 30 字节帧")
@@ -358,7 +358,7 @@ def cmd_read(args, DM_CAN, sdk_dir: Path):
         # [4] 状态反馈 + 温度
         print("\n[4] 状态反馈帧（发 0x7FF 刷新帧，自己解析回来的 16 字节）")
         frames, buf, refresh_data = refresh_and_read(ser, DM_CAN, args.id, limit)
-        explain_tx(build_tx(DM_CAN, 0x7FF, refresh_data),
+        explain_tx(build_tx(0x7FF, refresh_data),
                    "刷新状态（0x7FF 广播，D[2]=0xCC）")
         if frames:
             explain_rx(frames[0], limit)
@@ -492,7 +492,7 @@ def cmd_jog(args, DM_CAN, sdk_dir: Path):
             data = struct.pack("<ff", p, args.vlim)
             can_id = 0x100 + args.id
             explain_tx(
-                build_tx(DM_CAN, can_id, data),
+                build_tx(can_id, data),
                 f"POS_VEL 控制帧 CAN ID=0x{can_id:03x}，D[0:4]=float32 P_des={p:.4f}，"
                 f"D[4:8]=float32 V_des={args.vlim:g}",
             )
@@ -561,7 +561,7 @@ def cmd_jog(args, DM_CAN, sdk_dir: Path):
                 n_loop += 1
                 if shown < 3:
                     explain_tx(
-                        bytes(tx_template(DM_CAN)),
+                        bytes(tx_template()),
                         f"POS_VEL：CAN ID=0x{0x100+args.id:03x}  P_des={p_cmd:.4f}"
                         f"  V_des={args.vlim:g}",
                     )
@@ -629,14 +629,14 @@ def cmd_jog_mit(args, DM_CAN, sdk_dir: Path):
         print(f"\nMIT 帧长这样（CAN ID = 电机ID 本身 = 0x{args.id:02X}，不是 0x100+ID）：")
         for kp, kd, tag in [(0.0, args.kd, "阶段A 零刚度"), (args.kp, args.kd, "阶段B 原地保持")]:
             explain_tx(
-                mit_frame(DM_CAN, args.id, 0.1, 0.0, kp, kd, 0.0, (12.5, 30.0, 10.0)),
+                mit_frame(args.id, 0.1, 0.0, kp, kd, 0.0, (12.5, 30.0, 10.0)),
                 f"{tag}：kp={kp:g} kd={kd:g} q_des=0.1 v_des=0 t_ff=0",
             )
         print("\n注意 Kp/Kd 是线性映射：[0,500]→[0,4095]、[0,5]→[0,4095]。")
         print(f"  例：kp={args.kp:g} → {int(DM_CAN.float_to_uint(args.kp, 0, 500, 12))}"
               f"   kd={args.kd:g} → {int(DM_CAN.float_to_uint(args.kd, 0, 5, 12))}")
         print("\n和 POS_VEL 的对比（同一个 CAN ID 上两种完全不同的帧）：")
-        explain_tx(build_tx(DM_CAN, 0x100 + args.id, struct.pack("<ff", 0.1, 0.5)),
+        explain_tx(build_tx(0x100 + args.id, struct.pack("<ff", 0.1, 0.5)),
                    "POS_VEL：0x100+ID，D[0:8] = float32 P_des + float32 V_des")
         print("\nDRY-RUN 结束。真机会：enable → A 零刚度 → B 原地保持 → C 正弦 → kp 降 0 → disable")
         return 0
@@ -664,7 +664,7 @@ def cmd_jog_mit(args, DM_CAN, sdk_dir: Path):
         —— read_all 非阻塞，反馈还没回来就返回空，会被误判成"收不到反馈"。
         """
         flush_rx(ser, rx)
-        ser.write(mit_frame(DM_CAN, args.id, q_des, v_des, kp, kd, t_ff, limit))
+        ser.write(mit_frame(args.id, q_des, v_des, kp, kd, t_ff, limit))
         fb = read_frames(ser, rx, want=1, timeout=args.timeout)
         return decode_feedback(fb[-1][7:15], limit) if fb else None
 
@@ -916,7 +916,7 @@ def cmd_bandwidth(args, DM_CAN, sdk_dir: Path):
         print(f"[2] 发帧 {args.duration:g} 秒 ...")
         data = struct.pack("<ff", p_hold, args.vlim)
         can_id = 0x100 + args.id
-        frame = build_tx(DM_CAN, can_id, data)
+        frame = build_tx(can_id, data)
         period = 1.0 / args.hz
         t0 = time.monotonic()
         # 控制帧和刷新帧分开计：混在一起算会得出"超过 100%"这种假结论
@@ -952,7 +952,7 @@ def cmd_bandwidth(args, DM_CAN, sdk_dir: Path):
                 if now >= next_fb:
                     next_fb = now + fb_period
                     ser.write(build_tx(
-                        DM_CAN, 0x7FF,
+                        0x7FF,
                         bytes([args.id & 0xFF, 0, 0xCC, 0, 0, 0, 0, 0])))
                     n_tx_ref += 1
                 # 非阻塞抽干（timeout=0）：这一圈只收"已经到了"的字节，绝不等。

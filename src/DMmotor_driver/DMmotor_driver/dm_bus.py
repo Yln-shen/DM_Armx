@@ -16,6 +16,10 @@
 而 `recv()` 是 `read_all()` + 串口 `timeout=0.5`。**7 电机 × 500Hz 直接出局**
 （design.md §2.6 坑 1）。所以本层自构帧、自己 write、自己轮询收。
 
+**本层现在不 import SDK** —— 帧的字节布局与定点映射都自持在 `dm_frames.py` 里
+（逐字节对拍厂商实现，见 `tools/smoke_dm_frames.py`）。封装层不该依赖一个厂商工具包：
+它的接口随版本变，而我们的字节格式不该跟着变。
+
 ## 安全边界（重要 —— 改这个文件前先读）
 
 **MotorBus 是纯传输层。它：**
@@ -119,9 +123,8 @@ class MotorBus:
     力矩差 4 倍**（design.md D5），不注册就没有机会发现这件事。
     """
 
-    def __init__(self, sdk, port: str = "/dev/ttyACM0", *,
+    def __init__(self, port: str = "/dev/ttyACM0", *,
                  baud: int = 921600, timeout: float = DEFAULT_TIMEOUT):
-        self.sdk = sdk                  # 已加载的 DM_CAN 模块
         self.port = port
         self.baud = baud
         self.timeout = timeout
@@ -146,9 +149,9 @@ class MotorBus:
 
     # ───────────────────────── 生命周期 ─────────────────────────
     @classmethod
-    def connect(cls, sdk, port: str = "/dev/ttyACM0", **kw) -> "MotorBus":
+    def connect(cls, port: str = "/dev/ttyACM0", **kw) -> "MotorBus":
         """建好并立刻开串口。"""
-        bus = cls(sdk, port, **kw)
+        bus = cls(port, **kw)
         bus.open()
         return bus
 
@@ -247,7 +250,7 @@ class MotorBus:
         本层不切、也不检查。
         """
         self._limit(motor_id)          # 注册检查（也是"ID 打错"的检查）
-        return self.send_frame(pos_vel_frame(self.sdk, motor_id, pos, vlim))
+        return self.send_frame(pos_vel_frame(motor_id, pos, vlim))
 
     def send_pos_vel_batch(self, targets) -> int:
         """`{motor_id: (pos, vlim)}` → 每台一帧。返回发出的帧数。
@@ -269,7 +272,7 @@ class MotorBus:
         （design.md D8 的适用边界表）。
         """
         limit = self._limit(motor_id)
-        return self.send_frame(mit_frame(self.sdk, motor_id, q, dq, kp, kd, tau, limit))
+        return self.send_frame(mit_frame(motor_id, q, dq, kp, kd, tau, limit))
 
     def send_enable(self, motor_id: int) -> int:
         """使能（0xFC）。⚠️ 只发帧，**不检查结果、不等待**。
@@ -277,16 +280,16 @@ class MotorBus:
         ⚠️ 使能之后必须**立刻**补一条保持命令（reBot 的做法），否则电机会处于
         "已使能但没命令"的窗口。这个时序由 `Joint`/`DmArm` 保证。
         """
-        return self.send_frame(cmd_frame(self.sdk, motor_id, CMD_ENABLE))
+        return self.send_frame(cmd_frame(motor_id, CMD_ENABLE))
 
     def send_disable(self, motor_id: int) -> int:
         """失能（0xFD）。"""
-        return self.send_frame(cmd_frame(self.sdk, motor_id, CMD_DISABLE))
+        return self.send_frame(cmd_frame(motor_id, CMD_DISABLE))
 
     def send_refresh(self, motor_id: int) -> int:
         """0x7FF 刷新帧：查某台电机的状态。**广播 CAN ID，但数据里带了目标 ID。**"""
         with self._lock:
-            n = self.send_frame(refresh_frame(self.sdk, motor_id))
+            n = self.send_frame(refresh_frame(motor_id))
             # send_frame 已经 +1 到 n_sent 了，这里把它挪到广播计数去 ——
             # 否则 1:1 比值会因为"一发多回"而看起来 >100%
             self.n_sent -= 1

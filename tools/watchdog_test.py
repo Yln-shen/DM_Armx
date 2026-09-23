@@ -147,14 +147,14 @@ class Bench:
     def _cmd_frame(self, cmd: int, wait: float | None = None):
         data = bytes([0xFF] * 7 + [cmd])
         B.flush_rx(self.ser, self.rx)
-        self.ser.write(B.build_tx(self.DM_CAN, self.motor.SlaveID, data))
+        self.ser.write(B.build_tx(self.motor.SlaveID, data))
         fb = B.read_frames(self.ser, self.rx, want=1, timeout=wait or self.timeout)
         return B.decode_feedback(fb[-1][7:15], self.limit) if fb else None
 
     def send_mit(self, q, kp, kd, wait: float | None = None):
         """发一帧 MIT 并等它自己那条应答（1:1 规律）。"""
         B.flush_rx(self.ser, self.rx)
-        self.ser.write(B.mit_frame(self.DM_CAN, self.motor.SlaveID,
+        self.ser.write(B.mit_frame(self.motor.SlaveID,
                                    q, 0.0, kp, kd, 0.0, self.limit))
         fb = B.read_frames(self.ser, self.rx, want=1, timeout=wait or self.timeout)
         return B.decode_feedback(fb[-1][7:15], self.limit) if fb else None

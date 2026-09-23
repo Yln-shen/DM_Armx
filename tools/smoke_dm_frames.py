@@ -6,6 +6,8 @@
 的实现做对照**，而不是自己验自己：
 
   [1] TX 帧构造：30 字节、[13:15]=CAN ID 小端、[21:29]=数据、float32 小端往返
+  [1b] **POS_VEL 构造器 `pos_vel_frame`** 自己拼的那 8 个字节，单独与 SDK 的
+      float 编码直接对拍 —— [1] 只验了 `build_tx`，两条路都不经过构造器
   [2] RX 切帧：把同一段字节流同时喂给我的 `extract_rx` 和 SDK 的
       `__extract_packets`，两者的切分结果必须逐字节一致
       （含脏字节前缀、帧间粘连、尾部半帧这三种情况）
@@ -76,7 +78,7 @@ def main() -> int:
     # ── [1] TX 帧构造 ───────────────────────────────────────────────
     print("[1] TX 帧构造（POS_VEL：CAN ID = 0x100+电机ID，D[0:4]/D[4:8] = float32 P/V）")
     p_des, v_des = 0.0125581, 0.5
-    frame = B.build_tx(DM_CAN, 0x104, struct.pack("<ff", p_des, v_des))
+    frame = B.build_tx(0x104, struct.pack("<ff", p_des, v_des))
     check(len(frame) == 30, f"帧长 = {len(frame)}（应为 30）")
     check(frame[0] == 0x55 and frame[1] == 0xAA, f"帧头 = {frame[0]:02x} {frame[1]:02x}（应为 55 AA）")
     check(frame[2] == 30, f"[2] = {frame[2]}（应为 30，与帧长一致）")
@@ -88,6 +90,28 @@ def main() -> int:
     # 与厂商 SDK 的写法对拍：同一组数据，SDK 的 float_to_uint8s 应给出相同 4 字节
     check(bytes(DM_CAN.float_to_uint8s(p_des)) == frame[21:25],
           "与 SDK 的 float_to_uint8s 逐字节一致")
+
+    # ── [1b] pos_vel_frame —— 上面那条只验了 build_tx，**没经过构造器** ──
+    # 上面比的是「SDK 的 float_to_uint8s」vs「测试自己 struct.pack 出来的帧」，
+    # 两条路都不经过 dm_frames.pos_vel_frame。而 POS_VEL 是主用控制帧，
+    # 它自己拼的那 8 个字节必须单独钉一次 —— 否则改了 float_to_uint8s
+    # 或者 CAN ID 的 0x100 偏移，上面全绿、电机却在另一个 ID 上收 float 乱码。
+    print("\n[1b] POS_VEL 构造器 pos_vel_frame（直接对拍，不经过 build_tx）")
+    pv = B.pos_vel_frame(0x01, 0.1, 0.2)
+    check(pv[13] == 0x01 and pv[14] == 0x01,
+          f"CAN ID = 0x{pv[14]:02x}{pv[13]:02x}（0x100+ID=0x101，不是 ID 本身）")
+    for sid, p, v in [(0x01, 0.0, 0.0),
+                      (0x04, 0.3795, 0.5),
+                      (0x07, -12.5, -30.0),
+                      (0x02, 12.5, 30.0),
+                      (0x03, 0.123407, -0.5055)]:
+        f = B.pos_vel_frame(sid, p, v)
+        want = bytes(DM_CAN.float_to_uint8s(p)) + bytes(DM_CAN.float_to_uint8s(v))
+        check(f[21:29] == want,
+              f"id=0x{sid:02X} P={p:<9g} V={v:<7g} → D={f[21:29].hex(' ')}",
+              "" if f[21:29] == want else f"← SDK 编码应为 {want.hex(' ')}")
+    check(B.pos_vel_frame(0x01, 0.1, 0.2)[21:25] == struct.pack("<f", 0.1),
+          "P 字段就是 struct.pack('<f')，无任何缩放（与 MIT 的定点映射完全不同）")
 
     # ── [2] RX 切帧：和 SDK 的切法对拍 ──────────────────────────────
     print("\n[2] RX 切帧（与 SDK 的 __extract_packets 对拍，判据都是 0xAA…0x55 / 16B）")
@@ -223,7 +247,7 @@ def main() -> int:
                                (18.0, 2.0, -0.5, 0.3, 0.5),
                                (500.0, 5.0, 12.5, 30.0, 10.0),
                                (0.0, 0.0, -12.5, -30.0, -10.0)]:
-        mine = B.mit_frame(DM_CAN, 0x01, q, dq, kp, kd, tau, LIMIT)
+        mine = B.mit_frame(0x01, q, dq, kp, kd, tau, LIMIT)
         theirs = sdk_mit(kp, kd, q, dq, tau)
         check(mine == theirs,
               f"kp={kp:<6g} kd={kd:<4g} q={q:<7g} dq={dq:<6g} t_ff={tau:<6g}"
@@ -231,10 +255,10 @@ def main() -> int:
               "" if mine == theirs else f"SDK 给出 {theirs[21:29].hex(' ')}")
 
     # CAN ID 必须是电机 ID 本身，不是 POS_VEL 的 0x100+ID —— 发错了电机是不动的
-    mt_frame = B.mit_frame(DM_CAN, 0x01, 0.0, 0.0, 0.0, 0.0, 0.0, LIMIT)
+    mt_frame = B.mit_frame(0x01, 0.0, 0.0, 0.0, 0.0, 0.0, LIMIT)
     check(mt_frame[13] == 0x01 and mt_frame[14] == 0x00,
           "MIT 帧的 CAN ID = 电机 ID 本身（0x001），不是 POS_VEL 的 0x101")
-    check(mt_frame[21:29] != B.build_tx(DM_CAN, 0x101, struct.pack("<ff", 0.0, 0.0))[21:29],
+    check(mt_frame[21:29] != B.build_tx(0x101, struct.pack("<ff", 0.0, 0.0))[21:29],
           "同一个 ID 上，MIT 帧与 POS_VEL 帧的数据字节完全不同（两种模式两种帧）")
 
     # ── [7] 打印函数不崩 ────────────────────────────────────────────

@@ -1,0 +1,22 @@
+{
+  "saved_at": "2026-09-23T18:30:13",
+  "port": "/dev/ttyACM0",
+  "motor_id": 1,
+  "motor_type": "DM4340",
+  "registers": {
+    "0x14 Gr": 40.0,
+    "0x15 PMAX": 12.5,
+    "0x16 VMAX": 10.0,
+    "0x17 TMAX": 28.0,
+    "0x19 KP_ASR": 0.0038399999029934406,
+    "0x1A KI_ASR": 0.0020000000949949026,
+    "0x1B KP_APR": 54.0,
+    "0x1C KI_APR": 0.0,
+    "0x09 TIMEOUT": 0,
+    "0x07 MST_ID": 0,
+    "0x0A CTRL_MODE": 1,
+    "0x3C VBus": 0.0,
+    "0x3D Tpcb": 0.0,
+    "0x3E Tmt": 0.0
+  }
+}

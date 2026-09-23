@@ -95,7 +95,7 @@ flowchart TB
     SCAN --> BRINGUP
     WDT --> REGS
     SMOKE --> FRAMES
-    FRAMES --> SDK
+    BRINGUP --> SDK
     SDK --> ADAPTER --> M40
     ADAPTER --> M31
     FAKE -.->|同接口替真机| CTRL
@@ -113,6 +113,14 @@ flowchart TB
 
 > **v0.7 变更**：协议原语从 `dm_bringup.py` 下沉到 **`dm_frames.py`**，`MotorBus`（`dm_bus.py`）落地。
 > `dm_bringup.py` 现在只是**再导出**这些名字以兼容旧调用方（`tools/` 一行未改）。
+>
+> **v0.8 变更**：`dm_frames.py` 与 `dm_bus.py` **不再依赖官方 SDK** —— 30 字节发送帧模板、
+> `float_to_uint` / `float_to_uint8s` 全部自持，六个构造函数不再收 `DM_CAN` 参数，
+> `MotorBus(port, ...)` 取代 `MotorBus(sdk, port, ...)`。**上面那条 `BRINGUP → SDK` 仍然成立**：
+> `dm_bringup.py` / `watchdog_test.py` 的**寄存器读写**还得用 SDK 的 `read_motor_param`，
+> `third_party/` 不能删 —— 去掉的是「**封装层依赖厂商工具包**」，不是「全项目去 SDK」。
+> 证据：把 SDK 移出 `sys.path` 后 `dm_frames` / `dm_bus` 仍能构帧（`smoke_dm_frames` 仍拿
+> SDK 做整帧对拍，那是**测试**用它当尺子，不是**产品代码**依赖它）。
 
 ---
 
@@ -141,8 +149,11 @@ flowchart TB
 | `tools/watchdog_test.py` | 看门狗 A/B 对照实测 | 🔴 |
 | `tools/wd_probe.py` | 看门狗阈值实测 / 验上电默认值 | 🔴 |
 | `tools/smoke_dm_bus.py` | MotorBus 时序单测（假串口，**不需要硬件**） | 🟢 |
-| `dm_frames.py` | **协议原语**：帧构造/切帧/解码（纯函数，无 CLI） | 🟢 只构造，**不发帧** |
-| `dm_bus.py` | **MotorBus**：非阻塞收发 + 状态缓存 | 🟢 只收发，**不写寄存器、不自动使能** |
+| `tools/smoke_joint.py` | Joint 控制类单测（假串口，**不需要硬件**）+ **"不碰寄存器"的静态检查** | 🟢 |
+| `tools/bus_probe.py` | **MotorBus 真机只读探针**：连通 / 路由 / `poll()` 非阻塞 / 1:1 记账（**不 import SDK**） | 🟢 |
+| `dm_frames.py` | **协议原语**：帧构造/切帧/解码（纯函数，无 CLI，**不依赖 SDK / numpy**） | 🟢 只构造，**不发帧** |
+| `dm_bus.py` | **MotorBus**：非阻塞收发 + 状态缓存（**不依赖 SDK**，`MotorBus(port, ...)`） | 🟢 只收发，**不写寄存器、不自动使能** |
+| `joint.py` | **Joint**：单电机控制类（换算 / 钳位 / 出错保护）。**MIT 已可用**，POS_VEL 与力位混控是预留桩 | 🟡 只发帧，**不写寄存器、不切模式** |
 | `dm_bringup.py` | 单电机上电验证（协议原语已下沉，此处**再导出**以兼容） | 🟢 read/monitor；🟡 jog --yes |
 | `dm_registers.py` | 寄存器读写（dump/verify/set/restore） | 🟢 只读/dry-run；🟡 `--commit`；🔴 `--commit --save` |
 | `arm_controller.py` / `joint_controller.py` | ROS2 驱动节点 | ⚠ **空文件（0 行）** |
@@ -159,8 +170,8 @@ flowchart TB
 
 | 文件 | 边界 / 关键设计 |
 |---|---|
-| **`dm_frames.py`** | **协议原语唯一的一份**。纯函数：帧构造（`build_tx` / `mit_frame` / `pos_vel_frame` / `cmd_frame` / `refresh_frame`）、切帧（`extract_rx` / `RxBuf` / `read_frames`）、解码（`decode_feedback`）。**不 import 本包其它模块、不 import argparse、不打屏、不 sys.exit、不发任何帧、不判断安全**。位置参数 `limit=(PMAX,VMAX,TMAX)` 必须由调用方按电机型号给对 —— 用错档位**力矩差 4 倍且不报错**。 |
-| **`dm_bus.py`** | **MotorBus**：7 关节共用一条总线的非阻塞收发 + 状态缓存。`send_frame` 是**唯一出口**（发之前不读）；`poll()` 非阻塞抽干（`read_frames(want=0, timeout=0.0)`）、跨圈复用同一个 `RxBuf`、尾部残片绝不丢；`send_and_wait` 把 flush→send→wait 做成**原子**（否则必然读到上一帧）。**安全边界**：不写任何寄存器、不调 `set_zero_position`、不自动使能、不切控制模式 —— 何时使能由 `Joint`/`DmArm` 决定。`MotorState` 是**电机侧原始量，未经 dir/offset 换算**（那是 `JointState` 的事）。 |
+| **`dm_frames.py`** | **协议原语唯一的一份**。纯函数：帧构造（`build_tx` / `mit_frame` / `pos_vel_frame` / `cmd_frame` / `refresh_frame`）、切帧（`extract_rx` / `RxBuf` / `read_frames`）、解码（`decode_feedback`）。**不 import 本包其它模块、不 import argparse、不打屏、不 sys.exit、不发任何帧、不判断安全**。位置参数 `limit=(PMAX,VMAX,TMAX)` 必须由调用方按电机型号给对 —— 用错档位**力矩差 4 倍且不报错**。**自持 30 字节发送帧模板与定点映射，不依赖 SDK、不用 numpy**（v0.8）。 |
+| **`dm_bus.py`** | **MotorBus**：7 关节共用一条总线的非阻塞收发 + 状态缓存。`send_frame` 是**唯一出口**（发之前不读）；`poll()` 非阻塞抽干（`read_frames(want=0, timeout=0.0)`）、跨圈复用同一个 `RxBuf`、尾部残片绝不丢；`send_and_wait` 把 flush→send→wait 做成**原子**（否则必然读到上一帧）。**安全边界**：不写任何寄存器、不调 `set_zero_position`、不自动使能、不切控制模式 —— 何时使能由 `Joint`/`DmArm` 决定。`MotorState` 是**电机侧原始量，未经 dir/offset 换算**（那是 `JointState` 的事）。**不依赖官方 SDK**（v0.8 起帧全由 `dm_frames` 自构），也不 import `numpy`。 |
 | **`dm_bringup.py`** | **永不调用** `set_zero_position`、**不写任何寄存器**、**不切控制模式**。四个自动保护（ERR / tau / 使能跳变 / 丢帧）任一触发立刻失能退出；点动都"从当前位置出发 → 回原位 → 失能"。**协议原语已下沉到 `dm_frames.py`**，本文件保留**同名再导出**，所以 `tools/` 4 个脚本和 `dm_registers.py` 一行未改。 |
 | **`dm_registers.py`** | `REFUSE` 字典**硬性拒绝**写只读/危险 RID。编码表是手抄的，所以每次接硬件都跑 `check_encoding()` 跟 SDK 全量对拍，不一致立刻终止。`--commit` 会**先存一份基线快照再写** —— 因为 `--save` 是最难撤销的操作，"用 restore 回滚"只在存在改动前快照时才成立。 |
 | **`watchdog_test.py`** | 必须有 `TIMEOUT=0` 对照组，否则排除不掉"MIT 模式下电机本来就会断流自停"。武装看门狗**必须是停发前最后一步**（写寄存器要 ~150ms）。 |
@@ -233,8 +244,22 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
 2. **ERR=13 是锁存的**：`enable(0xFC)`、连发 MIT 帧、写回 `0x09=0` **都清不掉**，唯一办法是**给电机断电再上电**。所以看门狗实验每触发一次就要断一次电。
 3. **写一次寄存器要 ~150ms，期间发不出帧**：运行期绝不能做寄存器 I/O —— 正确做法是上电时 `--save` 写进 flash，运行期不再碰。
 
-**当前持久配置**：只有 `0x01` 这台（4310）配了 500ms 看门狗且已进 flash。其余 6 台上线时逐台
-`scan_bus.py` 认清 → `set --rid 0x09 --value 500 --commit --save`。
+**当前持久配置（2026-09-23 18:4x 实测）**：只有 **`0x01`（4340P）**配了看门狗，
+且**值是 750ms**（不是 500ms）—— 详见下面的「⚠️ 0x01 的看门狗被人悄悄改掉过」。
+其余 6 台上线时逐台 `scan_bus.py` 认清 → `set --rid 0x09 --value 500 --commit --save`。
+
+> ⚠️ **0x01 的看门狗被人悄悄改掉过 —— 这是一条教训，不是一个勘误。**
+>
+> 时间线：09-20 给 0x01 写了 500ms 进 flash，**并跨断电验证通过**（`design.md:633-638`，记录正确）。
+> 之后调试 ERR=13 时写了 `0x09 = 0` 试图解锁 —— **那次写带 `--save`**。
+> 于是 flash 里变成 0，**0x01 有很长一段时间是没有任何保护的，而所有文档都还说它有。**
+>
+> **为什么没人发现**：那次 `--save` 没留下任何记录（当时 `--commit` 的"写前基线快照"
+> 还没实现，见 `md:100` 条目 29），而"写回 0 没能解锁 ERR=13"被记成了**一次失败的实验** ——
+> 没人注意到它**成功了地改掉了持久状态**。
+>
+> **怎么防**：① `--save` 之后**必须跨一次断电回读**才算验证（同批写入会互相掩盖）；
+> ② 任何写了 flash 的操作，**哪怕实验失败**，也要记一笔。
 
 ---
 
@@ -279,7 +304,8 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
   ⚠️ `dm_bringup.py` / `dm_registers.py` **尚未迁到 MotorBus 上** —— 它们仍走自己的"发一帧等一帧"路径，
   迁移是下一步（`dm_registers.py:64-65` 已写下这个承诺）
 - `JointConfig` / `ArmConfig`（含 PID 字段与型号校验）—— 需要 `pixi add pyyaml`
-- `Joint` 换算 + 钳位（换算**只有 `dir`/`offset`**）
+- ~~`Joint` 换算 + 钳位~~ ✅ **已完成**（`joint.py` + `tools/smoke_joint.py`）——**MIT 可用**；
+  `set_pos_vel` / `set_force_pos` / `switch_mode` 是**预留桩**（都要先写 `0x0A`，需单独批准）
 - `RegisterTool.dump_pid` / `verify_mapping`（"先读"，无风险）
 
 **P1**
@@ -296,7 +322,8 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
 - 其余 6 台电机配看门狗
 
 **文档已知不准确**（改起来很快）
-- `readme.md` 的待办仍把看门狗列为"未做"（`0x01` 实际已完成），示例还写 `0x09 = 200ms`（正确写法见
+- `readme.md` 的待办把看门狗列为"未做"——**这条现在是对的**（2026-09-23 实测：只有 `0x01` 有，
+  其余 4 台接上的全是 0），示例还写 `0x09 = 200ms`（正确写法见
   `Reg.per_unit`，**1ms = 20 计数**）；另外 `readme.md` 里 10 处 `dm_bringup.py` 的裸脚本调用方式**必须保持可用**
 - `config/rebotarm_b601_mixed.yaml` 改名 `arm_config.py` + 另建真正的 YAML 数据文件
 - `package.xml` / `setup.py` 的 `description` 还是 `TODO`

@@ -1,0 +1,599 @@
+{
+  "saved_at": "2026-09-23T19:51:37",
+  "kind": "kpsweep",
+  "port": "/dev/ttyACM0",
+  "motor_id": 1,
+  "motor_type": "DM4340",
+  "limit": [
+    12.5,
+    10.0,
+    28.0
+  ],
+  "command": "pixi run python tools/joint_jog.py --exp kpsweep --type DM4340 --yes",
+  "source": "transcribed_from_stdout",
+  "source_note": "数字逐字取自那次运行的 stdout（会话记录里的 tool_result），不是工具自己写盘的 —— 工具当时没有存原始帧，只打了每档的中位数。",
+  "status": "tool_verdict_invalid",
+  "status_note": "工具打屏的「静摩擦（下界）= 0.5128 / 0.4444 N·m」**无效**：它不是平台的高度，是一条单调爬升曲线（指令力矩）的中位数。详见 post_hoc 与 docs。",
+  "params": {
+    "e": 0.05,
+    "kp_max": 24.0,
+    "kp_step": 1.0,
+    "kd": 1.0,
+    "hz": 200,
+    "hold_s": 0.5,
+    "settle_s": 1.0,
+    "median_n": 20,
+    "dir": "both"
+  },
+  "p0_preflight": -1.0279,
+  "sweeps": [
+    {
+      "sign": 1,
+      "q_des": -0.9779,
+      "rows": [
+        {
+          "kp": 0.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": -0.0205,
+          "moved": false
+        },
+        {
+          "kp": 1.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": 0.0342,
+          "moved": false
+        },
+        {
+          "kp": 2.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": 0.0752,
+          "moved": false
+        },
+        {
+          "kp": 3.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": 0.1299,
+          "moved": false
+        },
+        {
+          "kp": 4.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": 0.1846,
+          "moved": false
+        },
+        {
+          "kp": 5.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": 0.2256,
+          "moved": false
+        },
+        {
+          "kp": 6.0,
+          "q_des": -0.9779,
+          "q": -1.0279,
+          "err": 0.05,
+          "tau": 0.2803,
+          "moved": false
+        },
+        {
+          "kp": 7.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.3214,
+          "moved": false
+        },
+        {
+          "kp": 8.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.3761,
+          "moved": false
+        },
+        {
+          "kp": 9.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.4171,
+          "moved": false
+        },
+        {
+          "kp": 10.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.4718,
+          "moved": false
+        },
+        {
+          "kp": 11.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.5265,
+          "moved": false
+        },
+        {
+          "kp": 12.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.5675,
+          "moved": false
+        },
+        {
+          "kp": 13.0,
+          "q_des": -0.9779,
+          "q": -1.0271,
+          "err": 0.0492,
+          "tau": 0.6222,
+          "moved": false
+        },
+        {
+          "kp": 14.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.3897,
+          "moved": true
+        },
+        {
+          "kp": 15.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.4171,
+          "moved": true
+        },
+        {
+          "kp": 16.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.4581,
+          "moved": true
+        },
+        {
+          "kp": 17.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.4855,
+          "moved": true
+        },
+        {
+          "kp": 18.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.5128,
+          "moved": true
+        },
+        {
+          "kp": 19.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.5402,
+          "moved": true
+        },
+        {
+          "kp": 20.0,
+          "q_des": -0.9779,
+          "q": -1.0077,
+          "err": 0.0298,
+          "tau": 0.5675,
+          "moved": true
+        },
+        {
+          "kp": 21.0,
+          "q_des": -0.9779,
+          "q": -1.0073,
+          "err": 0.0294,
+          "tau": 0.5949,
+          "moved": true
+        },
+        {
+          "kp": 22.0,
+          "q_des": -0.9779,
+          "q": -1.0073,
+          "err": 0.0294,
+          "tau": 0.6222,
+          "moved": true
+        },
+        {
+          "kp": 23.0,
+          "q_des": -0.9779,
+          "q": -1.0073,
+          "err": 0.0294,
+          "tau": 0.6632,
+          "moved": true
+        },
+        {
+          "kp": 24.0,
+          "q_des": -0.9779,
+          "q": -0.9943,
+          "err": 0.0164,
+          "tau": 0.3761,
+          "moved": true
+        }
+      ],
+      "baseline": -1.0279,
+      "distinct_positions": [
+        {
+          "q": -1.0279,
+          "kp_from": 0.0,
+          "kp_to": 6.0
+        },
+        {
+          "q": -1.0271,
+          "kp_from": 7.0,
+          "kp_to": 13.0
+        },
+        {
+          "q": -1.0077,
+          "kp_from": 14.0,
+          "kp_to": 20.0
+        },
+        {
+          "q": -1.0073,
+          "kp_from": 21.0,
+          "kp_to": 23.0
+        },
+        {
+          "q": -0.9943,
+          "kp_from": 24.0,
+          "kp_to": 24.0
+        }
+      ]
+    },
+    {
+      "sign": -1,
+      "q_des": -1.0603,
+      "rows": [
+        {
+          "kp": 0.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.0205,
+          "moved": false
+        },
+        {
+          "kp": 1.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.0615,
+          "moved": false
+        },
+        {
+          "kp": 2.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.1162,
+          "moved": false
+        },
+        {
+          "kp": 3.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.1573,
+          "moved": false
+        },
+        {
+          "kp": 4.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.212,
+          "moved": false
+        },
+        {
+          "kp": 5.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.2667,
+          "moved": false
+        },
+        {
+          "kp": 6.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.3214,
+          "moved": false
+        },
+        {
+          "kp": 7.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.3624,
+          "moved": false
+        },
+        {
+          "kp": 8.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.4171,
+          "moved": false
+        },
+        {
+          "kp": 9.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.4718,
+          "moved": false
+        },
+        {
+          "kp": 10.0,
+          "q_des": -1.0603,
+          "q": -1.0103,
+          "err": -0.05,
+          "tau": -0.5128,
+          "moved": false
+        },
+        {
+          "kp": 11.0,
+          "q_des": -1.0603,
+          "q": -1.0107,
+          "err": -0.0496,
+          "tau": -0.5675,
+          "moved": false
+        },
+        {
+          "kp": 12.0,
+          "q_des": -1.0603,
+          "q": -1.0107,
+          "err": -0.0496,
+          "tau": -0.6222,
+          "moved": false
+        },
+        {
+          "kp": 13.0,
+          "q_des": -1.0603,
+          "q": -1.0107,
+          "err": -0.0496,
+          "tau": -0.6632,
+          "moved": false
+        },
+        {
+          "kp": 14.0,
+          "q_des": -1.0603,
+          "q": -1.0306,
+          "err": -0.0298,
+          "tau": -0.4444,
+          "moved": true
+        },
+        {
+          "kp": 15.0,
+          "q_des": -1.0603,
+          "q": -1.0306,
+          "err": -0.0298,
+          "tau": -0.4718,
+          "moved": true
+        },
+        {
+          "kp": 16.0,
+          "q_des": -1.0603,
+          "q": -1.0306,
+          "err": -0.0298,
+          "tau": -0.4991,
+          "moved": true
+        },
+        {
+          "kp": 17.0,
+          "q_des": -1.0603,
+          "q": -1.0306,
+          "err": -0.0298,
+          "tau": -0.5265,
+          "moved": true
+        },
+        {
+          "kp": 18.0,
+          "q_des": -1.0603,
+          "q": -1.0306,
+          "err": -0.0298,
+          "tau": -0.5538,
+          "moved": true
+        },
+        {
+          "kp": 19.0,
+          "q_des": -1.0603,
+          "q": -1.0306,
+          "err": -0.0298,
+          "tau": -0.5949,
+          "moved": true
+        },
+        {
+          "kp": 20.0,
+          "q_des": -1.0603,
+          "q": -1.0435,
+          "err": -0.0168,
+          "tau": -0.3624,
+          "moved": true
+        },
+        {
+          "kp": 21.0,
+          "q_des": -1.0603,
+          "q": -1.0435,
+          "err": -0.0168,
+          "tau": -0.3761,
+          "moved": true
+        },
+        {
+          "kp": 22.0,
+          "q_des": -1.0603,
+          "q": -1.0435,
+          "err": -0.0168,
+          "tau": -0.4034,
+          "moved": true
+        },
+        {
+          "kp": 23.0,
+          "q_des": -1.0603,
+          "q": -1.0435,
+          "err": -0.0168,
+          "tau": -0.4171,
+          "moved": true
+        },
+        {
+          "kp": 24.0,
+          "q_des": -1.0603,
+          "q": -1.0435,
+          "err": -0.0168,
+          "tau": -0.4308,
+          "moved": true
+        }
+      ],
+      "baseline": -1.0103,
+      "distinct_positions": [
+        {
+          "q": -1.0103,
+          "kp_from": 0.0,
+          "kp_to": 10.0
+        },
+        {
+          "q": -1.0107,
+          "kp_from": 11.0,
+          "kp_to": 13.0
+        },
+        {
+          "q": -1.0306,
+          "kp_from": 14.0,
+          "kp_to": 19.0
+        },
+        {
+          "q": -1.0435,
+          "kp_from": 20.0,
+          "kp_to": 24.0
+        }
+      ]
+    }
+  ],
+  "tool_verdict": {
+    "plus": {
+      "break_kp": 14,
+      "friction_Nm": 0.5128,
+      "slope": 0.9412,
+      "slope_flagged": true
+    },
+    "minus": {
+      "break_kp": 14,
+      "friction_Nm": 0.4444,
+      "slope": -1.0367,
+      "slope_flagged": false
+    },
+    "asymmetry_pct": 13,
+    "settle_residual_rad": [
+      0.0,
+      0.0175
+    ]
+  },
+  "bus_stats": {
+    "n_mit": 5505,
+    "sent": 5507,
+    "received": 5508,
+    "ratio": 1.0001815870710005,
+    "rx_bytes": 88153,
+    "write_avg_ms": 0.1618980196158218,
+    "write_p99_ms": 0.5344620003597811,
+    "write_max_ms": 3.466425001533935,
+    "pending_bytes": 0,
+    "unknown_ids": []
+  },
+  "duration_s": 28.1,
+  "scan_duration_s": 27.1,
+  "exit_code": 0,
+  "post_hoc_derived": true,
+  "post_hoc_note": "以下是事后从上面这些行**推导**出来的，不是工具当时打印的。",
+  "post_hoc": {
+    "tau_at_kp0": [
+      -0.0205,
+      -0.0205
+    ],
+    "tau_offset_Nm": -0.0205,
+    "jumps": {
+      "sign+1": {
+        "jumps": [
+          {
+            "between_kp": [
+              13.0,
+              14.0
+            ],
+            "dq": 0.0194,
+            "tau_below": 0.6396,
+            "tau_above": 0.6888
+          },
+          {
+            "between_kp": [
+              23.0,
+              24.0
+            ],
+            "dq": 0.013,
+            "tau_below": 0.6762,
+            "tau_above": 0.7056
+          }
+        ]
+      },
+      "sign-1": {
+        "jumps": [
+          {
+            "between_kp": [
+              13.0,
+              14.0
+            ],
+            "dq": -0.0199,
+            "tau_below": 0.6448,
+            "tau_above": 0.6944
+          },
+          {
+            "between_kp": [
+              19.0,
+              20.0
+            ],
+            "dq": -0.0129,
+            "tau_below": 0.5662,
+            "tau_above": 0.596
+          }
+        ]
+      }
+    },
+    "slope_check": {
+      "sign+1": {
+        "n_points": 13,
+        "measured": 0.9412,
+        "predicted_if_only_constant_offset": 0.9544,
+        "residual": -0.0132
+      },
+      "sign-1": {
+        "n_points": 13,
+        "measured": -1.0367,
+        "predicted_if_only_constant_offset": -1.0456,
+        "residual": 0.0088
+      }
+    }
+  },
+  "raw_stdout_file": "20260923-195137_kpsweep.stdout.txt",
+  "not_captured": "工具当时**没有**保存逐帧样本：每档 100 帧（200Hz×0.5s）的 position/torque 读出来只用来算中位数就丢了。所以下面 rows 里的数字是**每档 20 帧的中位数**，不是原始帧。这就是 B 要改的第一件事：跳变检测需要逐帧序列，中位数把跳变抹平了。"
+}

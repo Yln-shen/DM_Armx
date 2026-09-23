@@ -100,7 +100,7 @@ def wrap_rx(can_id, data8, cmd=0x11):
 def make_bus(ser, motors):
     """建一个 MotorBus，但**把假串口直接塞进去** —— 绕过 open()，
     这样连 pyserial 和 /dev/ttyACM0 都不需要。"""
-    bus = BUS.MotorBus(DM_CAN, "/dev/null")
+    bus = BUS.MotorBus("/dev/null")
     bus.ser = ser
     for mid, limit in motors.items():
         bus.add_motor(mid, limit)
@@ -357,7 +357,7 @@ def main() -> int:
 
     stale = wrap_rx(0x000, pack_feedback(0.10, 0.0, 0.0, 0x1, 41, 45, 0x01, LIM_4310))
     fresh = wrap_rx(0x000, pack_feedback(0.20, 0.0, 0.0, 0x1, 41, 45, 0x01, LIM_4310))
-    cmd = F.pos_vel_frame(DM_CAN, 0x01, 0.0, 0.0)
+    cmd = F.pos_vel_frame(0x01, 0.0, 0.0)
 
     # 反面教材：手动"发一帧等一帧"但忘了 flush → 拿到的是**上一条**的应答。
     # 表现是"数据恒定慢一拍"，安全判断（跳变/超力矩）就建立在过期数据上，极难查。

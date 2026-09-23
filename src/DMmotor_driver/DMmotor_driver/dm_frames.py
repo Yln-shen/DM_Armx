@@ -78,16 +78,12 @@ _TX_TEMPLATE = bytes([
 ])
 
 
-def tx_template(DM_CAN) -> bytearray:
-    """发送帧模板（30 字节）。**每次返回新对象** —— 调用方原地改它不会互相污染。
-
-    ⚠️ `DM_CAN` 参数现在用不上了（原先读 SDK 类属性），只为不改调用方而留着，
-    第二步统一删掉。
-    """
+def tx_template() -> bytearray:
+    """发送帧模板（30 字节）。**每次返回新对象** —— 调用方原地改它不会互相污染。"""
     return bytearray(_TX_TEMPLATE)
 
 
-def build_tx(DM_CAN, can_id: int, data8) -> bytes:
+def build_tx(can_id: int, data8) -> bytes:
     """自构一条 30 字节适配器发送帧。CAN ID 走 [13],[14]（小端），数据走 [21:29]。
 
     数据**必须正好 8 字节**：`bytearray` 的切片赋值在长度不等时会把帧**悄悄改长**，
@@ -97,7 +93,7 @@ def build_tx(DM_CAN, can_id: int, data8) -> bytes:
     if len(data) != 8:
         raise ValueError(f"CAN 数据必须 8 字节，收到 {len(data)} 字节：{data.hex(' ')}")
 
-    frame = tx_template(DM_CAN)
+    frame = tx_template()
     frame[13] = can_id & 0xFF
     frame[14] = (can_id >> 8) & 0xFF
     frame[21:29] = data
@@ -130,7 +126,7 @@ def float_to_uint8s(value) -> bytes:
     return struct.pack("<f", float(value))
 
 
-def mit_frame(DM_CAN, slave_id, p_des, v_des, kp, kd, t_ff, limit) -> bytes:
+def mit_frame(slave_id, p_des, v_des, kp, kd, t_ff, limit) -> bytes:
     """MIT 控制帧。CAN ID = **电机ID 本身**（不是 POS_VEL 的 0x100+ID）。
 
     位布局与 SDK 的 `controlMIT` 逐位一致（`DM_CAN.py` controlMIT 函数）：
@@ -156,10 +152,10 @@ def mit_frame(DM_CAN, slave_id, p_des, v_des, kp, kd, t_ff, limit) -> bytes:
         ((kd_u & 0x0F) << 4) | ((t_u >> 8) & 0x0F),
         t_u & 0xFF,
     ])
-    return build_tx(DM_CAN, slave_id, data)
+    return build_tx(slave_id, data)
 
 
-def pos_vel_frame(DM_CAN, slave_id, p_des: float, v_des: float) -> bytes:
+def pos_vel_frame(slave_id, p_des: float, v_des: float) -> bytes:
     """POS_VEL 控制帧。CAN ID = **0x100 + SlaveID**（与 MIT 不同，别搞混）。
 
     数据 8 字节 = `float32(p_des)` + `float32(v_des)`，**无任何缩放** —— 与 MIT 帧
@@ -175,27 +171,27 @@ def pos_vel_frame(DM_CAN, slave_id, p_des: float, v_des: float) -> bytes:
     """
     p_bytes = float_to_uint8s(p_des)
     v_bytes = float_to_uint8s(v_des)
-    return build_tx(DM_CAN, 0x100 + slave_id, p_bytes + v_bytes)
+    return build_tx(0x100 + slave_id, p_bytes + v_bytes)
 
 
-def cmd_frame(DM_CAN, slave_id, cmd: int) -> bytes:
+def cmd_frame(slave_id, cmd: int) -> bytes:
     """使能(0xFC) / 失能(0xFD) 帧。CAN ID = **SlaveID 本身**，数据 = FF*7 + cmd。
 
     与 SDK 的 `__control_cmd`（`DM_CAN.py:408-410`）逐字节一致。
     """
     if cmd not in (CMD_ENABLE, CMD_DISABLE):
         raise ValueError(f"未知命令 0x{cmd:02X}，只支持 0xFC 使能 / 0xFD 失能")
-    return build_tx(DM_CAN, slave_id, bytes([0xFF] * 7 + [cmd]))
+    return build_tx(slave_id, bytes([0xFF] * 7 + [cmd]))
 
 
-def refresh_frame(DM_CAN, slave_id) -> bytes:
+def refresh_frame(slave_id) -> bytes:
     """0x7FF 刷新帧（读状态用）。数据前两字节是目标电机 ID。
 
     与 SDK 的 `refresh_motor_status` 数据字节一致。注意它也是**广播 CAN ID**，
     但数据里带了要查的 ID，所以只有那台电机会回。
     """
     return build_tx(
-        DM_CAN, CANID_REFRESH,
+        CANID_REFRESH,
         bytes([slave_id & 0xFF, (slave_id >> 8) & 0xFF, 0xCC, 0, 0, 0, 0, 0]),
     )
 

@@ -28,7 +28,10 @@ DM_Armx/
 │  ├─ smoke_sim.py        冒烟测试①：模型加载 + 关节按映射跟动（直接调回调，无需显示器）
 │  ├─ smoke_slider_link.py 冒烟测试②：滑块→joint_states→模型，走真 DDS（验 QoS 配对）
 │  ├─ smoke_dm_frames.py  冒烟测试③：达妙 CAN 帧构造/切帧/反馈解码（无硬件，与厂商 SDK 对拍）
-│  └─ scan_bus.py         扫总线：哪些 ID 在线 + 型号判定（只发查询帧，**换线/加电机后先跑这个**）
+│  ├─ smoke_dm_bus.py     冒烟测试④：MotorBus 时序（假串口，无硬件）
+│  ├─ smoke_joint.py      冒烟测试⑤：Joint 控制类（假串口，无硬件；含"不碰寄存器"的静态检查）
+│  ├─ scan_bus.py         扫总线：哪些 ID 在线 + 型号判定（只发查询帧，**换线/加电机后先跑这个**）
+│  └─ bus_probe.py        MotorBus 真机只读探针（连通/路由/poll 非阻塞/1:1 记账，不使能）
 └─ src/
    ├─ mujoco_pkg/         MuJoCo 仿真包（移植 rebotarm_mujoco，已改名）
    │  ├─ models/          kinematic(0 mesh) / colored / stl / simple
@@ -126,6 +129,8 @@ pixi run bash -c "source install/setup.bash && ros2 launch mujoco_pkg real2sim.l
 pixi run bash -c "source install/setup.bash && python tools/smoke_sim.py"                 # 冒烟①：模型+映射
 pixi run bash -c "source install/setup.bash && python tools/smoke_slider_link.py"         # 冒烟②：滑块链路(真 DDS)
 pixi run python tools/smoke_dm_frames.py                                                  # 冒烟③：CAN 帧（无需硬件）
+pixi run python tools/smoke_dm_bus.py                                                     # 冒烟④：MotorBus 时序（无需硬件）
+pixi run python tools/smoke_joint.py                                                      # 冒烟⑤：Joint 控制类（无需硬件）
 ```
 
 电机链路（阶段 1，**不需要 ROS**；改完代码不用重编译，直接跑源文件）：
@@ -134,6 +139,10 @@ pixi run python tools/smoke_dm_frames.py                                        
 # ⓪ 接线换了/加了电机，先问一句"现在总线上是谁"——只发查询帧，不写寄存器
 pixi run python tools/scan_bus.py
 #    输出每个在线的 ID + 型号判定（读 Gr/PMAX/VMAX/TMAX 对照已知表）
+
+# ⓪b 让 MotorBus 自己去问一遍（只读，不使能）：连通 / 路由 / poll 非阻塞 / 1:1 记账
+pixi run python tools/bus_probe.py
+#    改过 dm_bus.py 或换了接线就跑它 —— 它验的是"封装层真的能跟真电机说上话"
 
 # ① 先看协议：不需要硬件、不需要 pyserial。打印 30 字节发送帧 / 16 字节反馈帧的逐字段拆解
 pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py read --dry-run
