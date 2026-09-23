@@ -56,24 +56,35 @@ import sys
 import time
 from pathlib import Path
 
+# ── 协议原语：已下沉到 dm_frames.py（协议代码全项目只允许有一份）──────────────
+# 这里**逐个再导出**，只为兼容既有调用方：tools/ 下 4 个脚本与 dm_registers.py
+# 全都写的是 `from DMmotor_driver import dm_bringup as B` 然后用 `B.build_tx(...)`。
+# 有了这段再导出，它们一行都不用改。
+#
+# 为什么要 try/except：本文件**既被当模块 import，也被当裸脚本直跑**
+# （readme 里全是 `pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py ...`）。
+# 裸脚本直跑时本文件是 `__main__`，不是包成员，**相对导入会直接失败** ——
+# 所以这里用绝对导入；失败再把 src/DMmotor_driver 塞进 sys.path 重试。
+# dm_registers.py:78-81 出于同样的理由用了同一套写法。
+try:
+    from DMmotor_driver.dm_frames import (  # noqa: F401
+        TX_FRAME_LEN, RX_FRAME_LEN, FEEDBACK_CMD, ERR_DECODE, ERR_OK,
+        CMD_ENABLE, CMD_DISABLE, CANID_REFRESH,
+        tx_template, build_tx, mit_frame, pos_vel_frame, cmd_frame, refresh_frame,
+        extract_rx, RxBuf, read_frames, flush_rx, decode_feedback,
+    )
+except ImportError:  # 裸脚本直跑：把 src/DMmotor_driver 加进来再试一次
+    # parents[1] 就是 src/DMmotor_driver（本文件在 src/DMmotor_driver/DMmotor_driver/ 下）
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from DMmotor_driver.dm_frames import (  # noqa: F401
+        TX_FRAME_LEN, RX_FRAME_LEN, FEEDBACK_CMD, ERR_DECODE, ERR_OK,
+        CMD_ENABLE, CMD_DISABLE, CANID_REFRESH,
+        tx_template, build_tx, mit_frame, pos_vel_frame, cmd_frame, refresh_frame,
+        extract_rx, RxBuf, read_frames, flush_rx, decode_feedback,
+    )
+
 # 链路容量：921600 8N1 = 921600 / 10 = 92160 B/s
 LINK_BYTES_PER_S = 921600 / 10.0
-TX_FRAME_LEN = 30          # 主机→适配器，send_data_frame 共 30 个元素，[2]=0x1e=30
-RX_FRAME_LEN = 16          # 适配器→主机，__extract_packets 的 frame_length = 16
-FEEDBACK_CMD = 0x11        # 反馈帧的 CMD
-
-# ERR 是反馈帧 D[0] 的高 4 位（手册"反馈帧"表 + ERR 状态表）
-ERR_DECODE = {
-    0x0: "失能（未使能 / 已失能）",
-    0x1: "使能",
-    0x8: "超压",
-    0x9: "欠压",
-    0xA: "过电流",
-    0xB: "MOS 过温",
-    0xC: "电机线圈过温",
-    0xD: "通讯丢失（超时）",
-    0xE: "过载",
-}
 
 # 待读寄存器。RID 用 DM_variable 枚举；60/61/62 是裸 int，专门用来验证
 # "SDK 能否用裸 int RID 读到手册里 SDK 没枚举的寄存器"（design.md §2.6 坑 2）。
@@ -148,24 +159,6 @@ def pad(s: str, n: int, right: bool = False) -> str:
 
 
 # ───────────────────────────── 1. 帧的构造与解读 ─────────────────────────────
-def tx_template(DM_CAN):
-    """取 SDK 的发送帧模板（30 字节）。直接读它的类属性，保证与 SDK 同步。"""
-    import numpy as np
-
-    return np.array(DM_CAN.MotorControl.send_data_frame, dtype=np.uint8)
-
-
-def build_tx(DM_CAN, can_id: int, data8) -> bytes:
-    """自构一条 30 字节适配器发送帧。CAN ID 走 [13],[14]（小端），数据走 [21:29]。"""
-    import numpy as np
-
-    frame = tx_template(DM_CAN)
-    frame[13] = can_id & 0xFF
-    frame[14] = (can_id >> 8) & 0xFF
-    frame[21:29] = np.frombuffer(bytes(data8), dtype=np.uint8)
-    return bytes(frame)
-
-
 _LEGEND_SHOWN = False
 
 
@@ -196,151 +189,6 @@ def explain_tx(frame: bytes, title: str = "", legend: bool | None = None) -> Non
             f" [15:20]={frame[15:20].hex(' ')}（其中 [18]=0x{frame[18]:02x}，推测 CAN DLC=8）"
             f" [29]=0x{frame[29]:02x}"
         )
-
-
-def mit_frame(DM_CAN, slave_id, p_des, v_des, kp, kd, t_ff, limit) -> bytes:
-    """MIT 控制帧。CAN ID = **电机ID 本身**（不是 POS_VEL 的 0x100+ID）。
-
-    位布局与 SDK 的 `controlMIT` 逐位一致（`DM_CAN.py` controlMIT 函数）：
-        D[0:2]=p_des[15:0]   D[2:4]=v_des[11:0]   D[4:6]=Kp[11:0]
-        D[6:8]=Kd[11:0] 与 t_ff[11:0] 交错
-    Kp/Kd 是**线性映射**（手册:373：Kp 范围 [0,500]、Kd 范围 [0,5]），
-    即 kp=1.0 → 1.0/500*4095 = 8，不是把 1 当原始值写进去。
-    这里直接用 SDK 的 `float_to_uint`，保证与厂商实现逐字节一致。
-    """
-    p_max, v_max, t_max = limit
-    u12 = lambda x, lo, hi, bits: int(DM_CAN.float_to_uint(x, lo, hi, bits))
-    q_u = u12(p_des, -p_max, p_max, 16)
-    dq_u = u12(v_des, -v_max, v_max, 12)
-    kp_u = u12(kp, 0, 500, 12)
-    kd_u = u12(kd, 0, 5, 12)
-    t_u = u12(t_ff, -t_max, t_max, 12)
-    data = bytes([
-        (q_u >> 8) & 0xFF, q_u & 0xFF,
-        (dq_u >> 4) & 0xFF,
-        ((dq_u & 0x0F) << 4) | ((kp_u >> 8) & 0x0F),
-        kp_u & 0xFF,
-        (kd_u >> 4) & 0xFF,
-        ((kd_u & 0x0F) << 4) | ((t_u >> 8) & 0x0F),
-        t_u & 0xFF,
-    ])
-    return build_tx(DM_CAN, slave_id, data)
-
-
-def extract_rx(buf: bytes) -> list[bytes]:
-    """按 SDK 的规则切出 16 字节接收帧：[0]=0xAA [15]=0x55。
-
-    与 `MotorControl.__extract_packets` 的判据完全一致（header 0xAA / tail 0x55 /
-    frame_length 16），只是我要自己拿到完整 8 个数据字节 —— 因为 SDK 的
-    `recv_data` 只收 q/dq/tau/err，把 D[6]/D[7] 的温度丢掉了。
-    """
-    frames, i = [], 0
-    while i <= len(buf) - RX_FRAME_LEN:
-        if buf[i] == 0xAA and buf[i + RX_FRAME_LEN - 1] == 0x55:
-            frames.append(buf[i : i + RX_FRAME_LEN])
-            i += RX_FRAME_LEN
-        else:
-            i += 1
-    return frames
-
-
-class RxBuf:
-    """带残留的接收缓冲：尾部不足一帧的字节留到下一次，**绝不丢**。
-
-    为什么不能「读一次切一次」：`extract_rx` 只切完整的 16 字节帧，尾部残片会被
-    丢掉。要是某一帧被拆成两次到达，丢掉的残片就让**后面所有字节错位** —— 数据里
-    任何一个凑巧凑成「0xAA … 0x55」的 16 字节都会被误认成帧，切出来就是垃圾。
-    所以残片必须留着，等下一个 chunk 拼上。
-    """
-
-    def __init__(self):
-        self.buf = b""
-
-    def feed(self, chunk: bytes) -> None:
-        if chunk:
-            self.buf += chunk
-
-    def drain(self) -> list[bytes]:
-        """切出当前所有完整帧，保留尾部残片。"""
-        out, i = [], 0
-        while i + RX_FRAME_LEN <= len(self.buf):
-            if self.buf[i] == 0xAA and self.buf[i + RX_FRAME_LEN - 1] == 0x55:
-                out.append(self.buf[i : i + RX_FRAME_LEN])
-                i += RX_FRAME_LEN
-            else:
-                i += 1
-        self.buf = self.buf[i:]
-        return out
-
-
-def read_frames(ser, rx: RxBuf, want: int = 1, timeout: float = 0.05,
-                raw_sink: list | None = None) -> list[bytes]:
-    """阻塞读到 want 个反馈帧，或超时返回已经拿到的（可能为空）。
-
-    **这是本文件最容易写错的一处**：pyserial 的 `read_all()` 是**非阻塞**的，
-    写完一帧马上调它，反馈还在路上，它直接返回空 —— 于是"收不到反馈"。真机第一次
-    点动就是这么在第 1.6 秒误判停机的（电机其实好好的，位置/温度/错误码全程正常）。
-
-    所以改成：轮询 `in_waiting` 把能读的都读进 `RxBuf` → 切帧 → 不够就等到
-    deadline。不直接调 `ser.read(n)`，因为那会吃满串口自带的 50ms 超时，高速循环
-    会被它拖垮；这里用 0.5ms 的睡眠去等，一帧在 921600 下只要 0.17ms 就到。
-    """
-    deadline = time.monotonic() + timeout
-    fb: list[bytes] = []
-    while True:
-        n = ser.in_waiting
-        if n:
-            chunk = ser.read(n)
-            if raw_sink is not None:
-                raw_sink.append(chunk)   # 给调用方留证据：到底回来了多少字节
-            rx.feed(chunk)
-        fb += [f for f in rx.drain() if f[1] == FEEDBACK_CMD]
-        if len(fb) >= want or time.monotonic() >= deadline:
-            return fb
-        time.sleep(0.0005)
-
-
-def flush_rx(ser, rx: RxBuf) -> int:
-    """丢掉缓冲区里已有的帧，返回丢掉的条数。
-
-    发命令**之前**调，才能保证随后读到的那帧是**本条命令的**应答（1:1 规律），
-    而不是上一条的残留 —— 否则每次读到的都慢一帧，位置/力矩全是 20ms 前的旧值，
-    安全判断（跳变、超力矩）就建立在过期数据上了。
-    """
-    n = 0
-    while True:
-        got = read_frames(ser, rx, want=1, timeout=0.0)
-        if not got:
-            return n
-        n += len(got)
-
-
-def decode_feedback(data: bytes, limit: tuple[float, float, float]) -> dict:
-    """解一条反馈帧的 8 个数据字节。
-
-    字节布局（手册「反馈帧」表）：
-        D[0]=ID|ERR<<4   D[1:3]=POS[15:0]   D[3:5]=VEL[11:0]
-        D[5:7]=T[11:0]   D[6]=T_MOS(℃)      D[7]=T_Rotor(℃)
-    位域拼法与 SDK 的 `__process_packet` 一字不差，只是我多留了 D[6]/D[7]。
-    """
-    p_max, v_max, t_max = limit
-    err = (data[0] >> 4) & 0x0F
-    motor_id = data[0] & 0x0F
-    pos_u = (data[1] << 8) | data[2]
-    vel_u = (data[3] << 4) | (data[4] >> 4)
-    tau_u = ((data[4] & 0x0F) << 8) | data[5]
-    to_float = lambda u, bits, lo, hi: (u / ((1 << bits) - 1)) * (hi - lo) + lo
-    return {
-        "id": motor_id,
-        "err": err,
-        "err_text": ERR_DECODE.get(err, f"未知错误码 {err}"),
-        "pos": to_float(pos_u, 16, -p_max, p_max),
-        "vel": to_float(vel_u, 12, -v_max, v_max),
-        "tau": to_float(tau_u, 12, -t_max, t_max),
-        "t_mos_raw": data[6],
-        "t_rotor_raw": data[7],
-        "raw": bytes(data),
-    }
 
 
 def explain_rx(frame: bytes, limit: tuple[float, float, float]) -> None:
@@ -410,11 +258,12 @@ def refresh_and_read(ser, DM_CAN, slave_id: int, limit, wait: float = 0.05,
     """
     rx = rx if rx is not None else RxBuf()
     flush_rx(ser, rx)
-    data = bytes([slave_id & 0xFF, (slave_id >> 8) & 0xFF, 0xCC, 0, 0, 0, 0, 0])
-    ser.write(build_tx(DM_CAN, 0x7FF, data))
+    frame = refresh_frame(DM_CAN, slave_id)
+    data = frame[21:29]
+    ser.write(frame)
     raw_sink: list[bytes] = []
     fb = read_frames(ser, rx, want=1, timeout=wait, raw_sink=raw_sink)
-    return fb, b"".join(raw_sink), data
+    return fb, b"".join(raw_sink), bytes(data)
 
 
 # ───────────────────────────── 3. 读寄存器（带重试）─────────────────────────────

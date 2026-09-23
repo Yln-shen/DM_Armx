@@ -1,4 +1,4 @@
-# DmArm 封装层设计文档（v0.6 —— 看门狗实测完成 + 0x09 单位纠错）
+# DmArm 封装层设计文档（v0.7 —— MotorBus 落地 + 协议原语下沉）
 
 > v0.1 → v0.2 修订依据：达妙官方手册（`DM-J4310-2EC.md` / `DM-J4340P-2EC V1.1 .md`）、
 > reBot 真机层实测（`~/reBot_Arm_Mujoco-DM/reBotArm_ros2_DM/src/rebotarmcontroller/`）、
@@ -7,6 +7,28 @@
 > 全部结论可追溯到具体文件行号，见文中标注。
 
 ## 〇、本次修订说明
+
+### v0.6 → v0.7（2026-09-20，MotorBus 落地 + 协议原语下沉到 `dm_frames.py`）
+
+§九 P0 的第一项（`MotorBus`）已实现。**这一轮没有新的硬件实测** —— 它验的是软件时序，
+用假串口覆盖，所以下面是"设计落地"而不是"事实更正"。
+
+| # | 内容 | 依据 |
+|---|---|---|
+| 30 | **新增 `dm_frames.py`**：`build_tx` / `mit_frame` / `RxBuf` / `extract_rx` / `read_frames` / `flush_rx` / `decode_feedback` 从 `dm_bringup.py` **原样搬出**（逻辑一行没改）。理由：原先封装层要用这些原语就得 import 一个 CLI 脚本，依赖方向是倒的，也不符合 §1.2 声明的依赖面。**协议代码全项目只允许有一份** | §1.2；`dm_registers.py:64-65` 早就写了"等 MotorBus 落地后两者都应迁过去，这里不重复实现" |
+| 31 | **`dm_bringup.py` 改为再导出**：逐个名字 `from ... import` 并带 `noqa: F401`，对外名字一个不变 → `tools/` 下 4 个脚本与 `dm_registers.py` **一行都不用改** | `pixi run python tools/smoke_dm_frames.py` 全绿即为证据 |
+| 32 | **裸脚本导入的坑（本条最值得记）**：`dm_bringup.py` 是**以裸脚本方式跑**的（readme 里 10 处）。此时它是 `__main__` 不是包成员，**相对导入 `from .dm_frames import ...` 会直接失败**。必须绝对导入 + `sys.path.insert` 兜底（`dm_registers.py:78-81` 早就是这套写法）。→ 验证清单里因此多了一条"裸脚本仍然能跑" | `readme.md:139-156` |
+| 33 | **新增 `dm_bus.py`**：`MotorBus` + `MotorState`。`send_frame` 是**唯一发送出口**（非阻塞）；`poll()` 非阻塞抽干（就是 `cmd_bandwidth:1113` 的 `read_frames(want=0, timeout=0.0)`）；`send_and_wait()` 是 D2 说的"发一帧等一帧"，且把 **flush → 发 → 等** 合成**原子**一步 | D2「本层取两者并存」 |
+| 34 | **新增 `pos_vel_frame()`**：POS_VEL 帧此前**只存在于 SDK 的 `control_Pos_Vel` 里，而那条路径不可用**（`sleep(0.001)` + `read_all()`）。现在按 §2.6 坑 1 的位布局自构，CAN ID = `0x100+ID`、数据 = `float32(P)+float32(V)` 无缩放 | SDK `DM_CAN.py:166-185` |
+| 35 | **映射范围改为按电机注册**：`MotorBus.add_motor(id, limit)` 是发送与解码的**前置条件**，未注册就报错。这不是形式主义 —— 4310 与 4340P 档位不同，**用错档位力矩差 4 倍**（实测：同一段字节 4310 档 → 0.3004 N·m，4340P 档 → 0.8410 N·m），已钉成回归测试 | D5；`tools/smoke_dm_bus.py` [7] |
+| 36 | **未注册 ID 的反馈不解码**，只记进 `unknown_ids`。宁可少一条数据，也不用错的档位解出一个差 4 倍的力矩 | 同上 |
+| 37 | **1:1 计数把广播帧分开数**：`send_refresh()` 计在 `sent_broadcast` 而不是 `sent`。一条 0x7FF 会让**多台**电机各回一条，混在一起会让比值假性 >100% —— 看着像 bug，其实是记账错了 | `cmd_bandwidth:1073-1077` 已踩过这个坑 |
+
+> **本轮的教训（不是硬件的，是软件的）**：MotorBus 最容易错的不是"算错"，而是**时序** ——
+> 什么时候读、读之前要不要清缓冲、帧被拆成两半怎么办。这些在真机上表现为"偶尔丢一条"
+> "数据慢一拍"，**极难查**。所以 `tools/smoke_dm_bus.py` 用假串口把时序钉死，其中
+> [10] 特意按**真实时序**（残留帧先到、应答要等 write 之后）复现了正反两面：
+> 不 flush 会拿到慢一拍的旧值。**"发之前 flush"这条规则，只有做成一个原子方法才防得住误用。**
 
 ### v0.5 → v0.6（2026-09-20，寄存器工具落地 + 看门狗实测 + 一个单位纠错）
 
@@ -110,11 +132,14 @@
 
 | 依赖 | 来源 | 状态 |
 |---|---|---|
-| `pyserial` | pip/conda | ❌ 未装，需 `pixi add pyserial` |
+| `pyserial` | pixi（`pixi.toml:16` `pyserial = ">=3.5,<4"`） | ✅ 已装（v0.7 更正：此前这里写"❌ 未装"是过期的） |
 | `DM_CAN.py` | 已 vendored 在 `src/third_party/Python例程/u2can/DM_CAN.py` | ✅ |
-| `numpy` | pixi | ✅ |
-| `pyyaml` | pixi | ❌ 需加 |
+| `numpy` | pixi（经 robostack 传递依赖；`dm_frames.tx_template` 与 SDK 都用到） | ✅ |
+| `pyyaml` | pixi | ❌ 仍未加 —— 等 `ArmConfig.from_yaml` 那一轮（P0 第二项）再加 |
 | **不使用 `motorbridge`** | —— | 它是 reBot 的依赖，你选了官方 SDK |
+
+**本层自己的模块**（v0.7）：`dm_frames.py`（协议原语，纯函数）← `dm_bus.py`（MotorBus）。
+两个都不 import `rclpy`，可脱离 ROS 独立测试（§1.1 原则）。
 
 ### 1.3 上层（ROS 驱动层）对本层的需求
 
@@ -685,6 +710,18 @@ MIT 是上位机自己做 PD，所以**稳态残差有上界 摩擦/kp，压不�
 
 新增两个类：`MotorBus`（承担 D2 的非阻塞收发）与 `RegisterTool`（承担 D7）。
 
+> **✅ v0.7 进展**：`MotorBus` 已实现（`src/DMmotor_driver/DMmotor_driver/dm_bus.py`）。
+> 与下面这张类图有两处**有意的偏差**，都不是遗漏：
+> 1. `send_frame(frame)` 只收已拼好的 30 字节帧，**不再单独传 motor_id** ——
+>    CAN ID 已经在帧的 `[13:15]` 里了，传两个来源的 ID 就有不一致的机会。
+> 2. 多了一组原类图里没列的方法：`send_enable` / `send_disable` / `send_refresh` /
+>    `send_and_wait` / `flush` / `stats`。前三个是 `Joint`/`DmArm` 必然要调的下层动作
+>    （类图上的 `Joint.enable()` 总得落到某条帧上）；`send_and_wait` 是 D2 明确要求的
+>    "发一帧等一帧"那条路；`stats` 给 1:1 校验用。
+>
+> 另外 `cache` 的值类型定为 **`MotorState`（电机侧原始量）**，与 §4.1 的 `JointState`
+> （关节侧、经 dir/offset 换算）**是两个类型，不要合并** —— 这一轮不实现 `JointState`。
+
 ```mermaid
 classDiagram
     class MotorBus {
@@ -949,12 +986,12 @@ shutdown: 停循环 → disable → sleep(0.5) → 逐关节 shutdown → sleep(
 
 | 优先级 | 模块 | 说明 |
 |---|---|---|
-| **P0** | `MotorBus` 非阻塞收发 | D2，一切的地基；含串口 timeout 调优与帧解析 |
+| ~~**P0**~~ | ~~`MotorBus` 非阻塞收发~~ | ✅ **已完成（v0.7）**：`dm_bus.py` + `dm_frames.py`（协议原语下沉）+ `tools/smoke_dm_bus.py`。含串口 timeout=3ms、非阻塞 `poll()`、原子 `send_and_wait()`、按电机注册映射范围 |
 | **P0** | `JointConfig` / `ArmConfig` | 含 v0.2 新增的 PID 字段与型号校验 |
 | **P0** | `Joint` 换算 + 钳位 | D1/D9，含互逆性测试 |
 | **P0** | `RegisterTool.dump_pid` / `verify_mapping` | D7 的"先读"，无风险 |
 | **P1** | `RegisterTool.apply_pid` / `restore_pid` | D7 的"后写"，带 dry-run |
-| **P1** | 电机侧看门狗（0x09） | D4 |
+| **P1** | 电机侧看门狗（0x09） | D4。**#0x01 已完成**：500ms 写入 flash、断电重启仍生效（`wd_probe` 前的 `--save`）。**其余 6 台未做** —— 注意 `--save` 是不可逆的持久化改动，逐台需要单独确认；且触发过一次 ERR=13 后**必须断电**才能继续 |
 | **P1** | 标定脚本（第七节） | 仿件必需 |
 | **P1** | `JointState` 全字段（含温度解析） | D6 |
 | **P1** | 错误码解码表 | 2.5 |
