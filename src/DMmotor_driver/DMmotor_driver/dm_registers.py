@@ -9,7 +9,7 @@
 这个边界是刻意的：dm_bringup 敢在你电机上随便跑，正因为它是只读的。
 要改配置就得换这个工具，而它自带回滚。
 
-## 写操作的三条纪律（design.md D7「PID 先读后写、可回滚」）
+## 写操作的三条纪律（DESIGN.md D7「PID 先读后写、可回滚」）
 
   1. **没有基线不许写**。`set` 在真写之前，会自动把该寄存器的当前值落到
      `registers/<id>/<时间戳>_pre.json`。改坏了用 `restore` 回去。
@@ -56,7 +56,7 @@ SDK 内部自己分派，所以这里只需保证传进去的是 int 还是 floa
     # 回滚
     pixi run python src/DMmotor_driver/DMmotor_driver/dm_registers.py restore --file registers/01/20260920-120000_pre.json --commit
 
-设计依据见 src/DMmotor_driver/design.md D7（先读后写）/ §2.4（寄存器表）/ D4（看门狗）。
+设计依据见 src/DMmotor_driver/DESIGN.md D7（先读后写）/ §2.4（寄存器表）/ D4（看门狗）。
 
 ## 依赖说明
 
@@ -178,7 +178,7 @@ REGISTERS: list[Reg] = [
     Reg(0x14, "Gr", "", "★减速比（RO）：10=4310 / 40=4340P。**用它验型号填错没有**", w=False),
     Reg(0x15, "PMAX", "rad", "★位置映射范围（MIT 帧用）"),
     Reg(0x16, "VMAX", "rad/s", "★速度映射范围（MIT 帧用）"),
-    Reg(0x17, "TMAX", "N·m", "★扭矩映射范围（MIT 帧用）。**不是物理峰值**，见 design.md D5"),
+    Reg(0x17, "TMAX", "N·m", "★扭矩映射范围（MIT 帧用）。**不是物理峰值**，见 DESIGN.md D5"),
     Reg(0x18, "I_BW", "Hz", "电流环带宽", lo=100.0, hi=1.0e4),
     Reg(0x19, "KP_ASR", "", "速度环 Kp"),
     Reg(0x1A, "KI_ASR", "", "速度环 Ki"),
@@ -408,7 +408,7 @@ def cmd_verify(args, DM_CAN, sdk_dir: Path):
     line(None, f"0x15/16/17 PMAX/VMAX/TMAX = {_label(got['PMAX'])} / {_label(got['VMAX'])} / "
                f"{_label(got['TMAX'])}")
     print("      ← 这三个是 **MIT 帧的线性映射范围**，全链路编解码都用回读值；"
-          "手册里的额定/峰值 N·m 是物理能力，算重力补偿时用（design.md D5）")
+          "手册里的额定/峰值 N·m 是物理能力，算重力补偿时用（DESIGN.md D5）")
     tmo = BY_NAME["timeout"]
     line(got["TIMEOUT"] not in (None, 0), f"0x09 TIMEOUT = {tmo.fmt(got['TIMEOUT'])}",
          "**是 0（或读不到）= 电机侧看门狗是关的**。主机崩溃时电机会一直保持使能出力，"
@@ -471,7 +471,7 @@ def cmd_set(args, DM_CAN, sdk_dir: Path):
             print(f"  将改为 = {reg.fmt(raw)}")
             print(f"\n  [未执行] 确认无误后加 --commit。")
             if reg.rid == 0x09:
-                print("  看门狗实测流程（design.md D4）：")
+                print("  看门狗实测流程（DESIGN.md D4）：")
                 print("    1) 先让电机断电再上电（清掉可能锁存的 ERR=13）")
                 print("    2) tools/watchdog_test.py --yes   ← 跑 A/B 对照，别手动拔线")
                 print("       它用'停发帧但不关串口'来模拟主机崩溃：电机看到的一样（没有 CAN 帧），")

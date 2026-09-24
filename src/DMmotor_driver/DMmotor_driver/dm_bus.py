@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""dm_bus —— MotorBus：一条总线上的非阻塞收发（design.md D2）
+"""dm_bus —— MotorBus：一条总线上的非阻塞收发（DESIGN.md D2）
 
 ## 它解决什么
 
@@ -14,7 +14,7 @@
 
 `control_Pos_Vel`（`DM_CAN.py:166-185`）= `__send_data` → `sleep(0.001)` → `recv()`，
 而 `recv()` 是 `read_all()` + 串口 `timeout=0.5`。**7 电机 × 500Hz 直接出局**
-（design.md §2.6 坑 1）。所以本层自构帧、自己 write、自己轮询收。
+（LESSONS.md §2.6 坑 1）。所以本层自构帧、自己 write、自己轮询收。
 
 **本层现在不 import SDK** —— 帧的字节布局与定点映射都自持在 `dm_frames.py` 里
 （逐字节对拍厂商实现，见 `tools/smoke_dm_frames.py`）。封装层不该依赖一个厂商工具包：
@@ -38,7 +38,7 @@
 3. **写一次寄存器要 ~150ms 且期间发不出帧** —— 运行期绝不能做寄存器 I/O。
    本模块不做寄存器 I/O，正是为了守住这条。
 
-## 两种收法（design.md D2 说"两者并存"）
+## 两种收法（DESIGN.md D2 说"两者并存"）
 
 | 方法 | 用在哪 | 代价 |
 |---|---|---|
@@ -71,7 +71,7 @@ except ImportError:  # 裸脚本直跑：parents[1] 就是 src/DMmotor_driver
 
 # 串口超时（秒）。**必须小**：这是 D2 能成立的前提。
 # `timeout=0.5` 会让每次读阻塞 0.5s，控制循环直接废掉。
-# 3ms 是 design.md §八「开串口(timeout=3ms)」的值 —— 够一帧往返（921600 下 0.17ms/帧），
+# 3ms 是 DESIGN.md §八「开串口(timeout=3ms)」的值 —— 够一帧往返（921600 下 0.17ms/帧），
 # 又短到不会毁掉循环节拍。
 DEFAULT_TIMEOUT = 0.003
 
@@ -81,7 +81,7 @@ class MotorState:
     """**电机侧**的一帧状态快照。**未经 dir/offset 换算。**
 
     这是"电机报了什么"，不是"关节在哪"。换算（`direction` / `offset`）和软限位钳位
-    是 `Joint` 的事，产出的是另一个类型 `JointState`（design.md §4.1）—— 两者别合并。
+    是 `Joint` 的事，产出的是另一个类型 `JointState`（DESIGN.md §4.1）—— 两者别合并。
 
     注：`JointState` 这个名字与 `sensor_msgs.msg.JointState` 同名但无关，ROS 层 import 时留意。
     """
@@ -120,7 +120,7 @@ class MotorBus:
 
     **每个电机必须先 `add_motor()` 注册自己的映射范围**，否则发送/解码一律报错 ——
     这不是形式主义：4310 与 4340P 的 PMAX/VMAX/TMAX 档位不同，**用错档位解出来的
-    力矩差 4 倍**（design.md D5），不注册就没有机会发现这件事。
+    力矩差 4 倍**（DESIGN.md D5），不注册就没有机会发现这件事。
     """
 
     def __init__(self, port: str = "/dev/ttyACM0", *,
@@ -200,7 +200,7 @@ class MotorBus:
         """注册一台电机。`limit` = (PMAX, VMAX, TMAX)，**必须来自 0x15/0x16/0x17 的回读值**。
 
         ⚠️ 不要写死常数。4310 与 4340P 的档位不同，用错档位解出来的力矩差 4 倍；
-        而且万一某台的映射范围被改过，回读是唯一能发现的办法（design.md D5）。
+        而且万一某台的映射范围被改过，回读是唯一能发现的办法（DESIGN.md D5）。
         """
         p, v, t = (float(x) for x in limit)
         if not (p > 0 and v > 0 and t > 0):
@@ -269,7 +269,7 @@ class MotorBus:
         """MIT：上位机自己做 PD + 力矩前馈。唯一能**直接给力矩**的模式（重力补偿用）。
 
         稳态残差有上界 ≈ 摩擦/kp，压不到 0 —— 所以常规轨迹跟踪还是用 POS_VEL
-        （design.md D8 的适用边界表）。
+        （DESIGN.md D8 的适用边界表）。
         """
         limit = self._limit(motor_id)
         return self.send_frame(mit_frame(motor_id, q, dq, kp, kd, tau, limit))
@@ -365,7 +365,7 @@ class MotorBus:
                       timeout: float = 0.05) -> MotorState | None:
         """「发一帧等一帧」，原子的一对：**flush → 发 → 等这台电机的一帧**。
 
-        这是 design.md D2 的"正确性 > 吞吐"那条路，给单路调试、标定、寄存器读写用
+        这是 DESIGN.md D2 的"正确性 > 吞吐"那条路，给单路调试、标定、寄存器读写用
         （7 关节满载的常规循环用 `poll()`）。
 
         为什么必须合成一个方法：flush 和 send 之间的空隙如果被别的代码发了帧，

@@ -21,6 +21,9 @@ DM_Armx/
 ├─ readme.md              本文件：路线 + 检查清单
 ├─ pixi.toml / pixi.lock  pixi 环境（robostack-jazzy, Python 3.12）
 ├─ docs/
+│  ├─ DESIGN.md           设计文档（§一~§九/§十一/§十二，**先读它**）
+│  ├─ TESTING.md          实测数据（§2.7/§2.8 + §十 验证清单 + 看门狗台架现状）
+│  ├─ LESSONS.md          踩坑记录（§2.6 SDK 四个坑 + 六条方法上的坑）
 │  ├─ reading_guide.md    reBot / PyArmX 精读导读（先读它再动工）
 │  └─ architecture_notes.md  架构笔记模板 + 模块对照表（边读边填）
 ├─ tools/
@@ -41,8 +44,7 @@ DM_Armx/
    │  └─ launch/          slider_real2sim(滑块+仿真) / real2sim / physics_grasp / ...
    ├─ rebotarm_msgs/      自定义 msg/srv/action（保持原名，import 直接用）
    ├─ fake_driver_pkg/    Fake Driver 虚拟执行器（移植自 rebotarmcontroller）
-   ├─ DMmotor_driver/     电机封装层（阶段 1 主线）
-   │  ├─ design.md        设计文档（v0.4，决策已定 + 真机实测基线；先读它）
+   ├─ DMmotor_driver/     电机封装层（阶段 1 主线；设计文档见 `docs/DESIGN.md`）
    │  ├─ DM-J4310-2EC.md / DM-J4340P-2EC V1.1 .md   官方手册
    │  └─ DMmotor_driver/dm_bringup.py   单电机上电验证（read/monitor/jog/bandwidth，jog 另有 --mit）
    └─ third_party/Python例程/u2can/DM_CAN.py   达妙官方 SDK（vendored，选它不用 motorbridge）
@@ -171,7 +173,7 @@ pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 4
 
 脚本走阶梯：`kp=0` 零刚度 → `kp=--kp` 原地保持 → 正弦。**每档都比上一档多出力**，出问题就在低档停住。
 
-`--kp` 怎么选（实测规律，见 design.md §2.7/§2.8）：**回零残差 ≤ 静摩擦/kp**。两种型号都测过：
+`--kp` 怎么选（实测规律，见 TESTING.md §2.7/§2.8）：**回零残差 ≤ 静摩擦/kp**。两种型号都测过：
 
 | `--kp` | 4310 幅值 | 4310 峰值力矩 | 4340P 幅值 | 4340P 峰值力矩 |
 |---|---|---|---|---|
@@ -199,7 +201,7 @@ pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 4
 - **仿真已移植并验证**：`src/mujoco_pkg`（改名自 rebotarm_mujoco）+ `src/rebotarm_msgs` + `src/fake_driver_pkg`，`colcon build` 通过
 - **外观模型已就位**：`meshes/` 自带 50 个 STL（42M，colored+stl 模型引用的并集，不依赖 `rebotarm_bringup`）；默认模型 `rebotarm_b601_colored.xml` + `joint_map_kinematic.yaml`（**与上游 reBot 所有 launch 的配对一致**）
 - **「手动 → 模型跟动」链路已通**：`slider_real2sim.launch.py` 一键拉起滑块 GUI + real2sim；滑块 30Hz 持续发布 `/rebotarm/joint_states`
-- **电机封装层设计定稿**：`src/DMmotor_driver/design.md` **v0.5**，10+3+6+5 条修订全部有依据；三处最大修正 = **删掉 gear_ratio**（0x51 已是输出轴 rad）、**不能用 `control_Pos_Vel`**（内含 `sleep(0.001)`+阻塞 `recv()`）、**补上电机侧看门狗 0x09 与温度/错误码**（SDK 把 D[6]/D[7] 丢了）
+- **电机封装层设计定稿**：`docs/DESIGN.md` **v0.11**（已拆出 `TESTING.md` 实测数据 / `LESSONS.md` 踩坑记录）；三处最大修正 = **删掉 gear_ratio**（0x51 已是输出轴 rad）、**不能用 `control_Pos_Vel`**（内含 `sleep(0.001)`+阻塞 `recv()`）、**补上电机侧看门狗 0x09 与温度/错误码**（SDK 把 D[6]/D[7] 丢了）
 - **电机 bring-up 脚本已落地**：`dm_bringup.py` 四个子命令（read/monitor/jog/bandwidth）+ `jog --mit`；`tools/scan_bus.py` 扫总线/认型号；`--dry-run` 不需要硬件也不需要 pyserial
 - **🎉 两种型号真机都跑通**（`jog --mit`，裸电机空载，零寄存器写入）—— 4310 和 4340P。实测结论：
   - **1:1 请求-响应**：任何帧送达电机必**恰好回一帧**，不发就没有。→ reBot 那条独立 100Hz 刷新帧**可以整个去掉**，白拿 500Hz 反馈。**在 4340P 上复现，且压到标称容量 167% 时仍 100.0%** → 不是单只电机的个案
@@ -208,9 +210,9 @@ pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 4
   - `KP_APR=54`（两只都是，达妙出厂值 **不是** reBot 的 → D7「先读后写可回滚」是必要的）、`TIMEOUT=0`（**看门狗当前是关的**）、VBus=24.27V
   - **MIT 稳态残差 ≤ 静摩擦/kp**（5 档 kp 逐点验证）→ 这是「常规运动必须走 POS_VEL 固件闭环」的实测依据
   - **静摩擦实测：裸 4310 ≈ 0.145~0.159 N·m；裸 4340P ≈ 0.53~0.72 N·m**（后者恰是前者的 4 倍 = 减速比 40:1 vs 10:1，交叉验证成立）
-  - **4340P 寄存器**：`Gr=40`、`PMAX/VMAX/TMAX=12.5/10/28`。⚠️ **这组数不是"与手册 40 N·m 矛盾"** —— 手册那组（额定 12 / 峰值 40 N·m、空载 5.86 rad/s）是**物理能力**，寄存器这组是 **MIT 帧的映射范围**，两者本来就该不同（design.md v0.5 第 20 条更正了这个我早先写错的判断）
-  - **链路真实上限 ≈ 3255 控制帧/s**（单适配器 + Python 循环），而 **7 关节 × 500 Hz = 3500 刚好够不着** → **架构上应按 200~300 Hz/关节设计**（design.md D2 已据此下调）
-  - **CDC-ACM 的 921600 是摆设**：实测压到 **167% 标称容量（154 KB/s）**照跑不误 → design.md 里那套"111% 超载"的算法作废
+  - **4340P 寄存器**：`Gr=40`、`PMAX/VMAX/TMAX=12.5/10/28`。⚠️ **这组数不是"与手册 40 N·m 矛盾"** —— 手册那组（额定 12 / 峰值 40 N·m、空载 5.86 rad/s）是**物理能力**，寄存器这组是 **MIT 帧的映射范围**，两者本来就该不同（`LESSONS.md` §2.6 坑 2 更正了这个我早先写错的判断）
+  - **链路真实上限 ≈ 3255 控制帧/s**（单适配器 + Python 循环），而 **7 关节 × 500 Hz = 3500 刚好够不着** → **架构上应按 200~300 Hz/关节设计**（DESIGN.md D2 已据此下调）
+  - **CDC-ACM 的 921600 是摆设**：实测压到 **167% 标称容量（154 KB/s）**照跑不误 → DESIGN.md 里那套"111% 超载"的算法作废
 - **踩了一个坑并修掉（已加回归测试）**：`ser.read_all()` 是**非阻塞**的，`write(); read_all()` 必然读到上一帧或空 → 首测在第 1.6s 误判"收不到反馈"停机（电机其实全程正常）。修法 = `RxBuf` 带残留缓冲 + 自己阻塞等到 deadline + 发前 flush。`smoke_dm_frames.py` 新增第 [5] 节：用假串口按 1/5/9/16/17 字节分块喂帧必须一帧不少，并留了个"逐块切帧在 5 字节/块下一帧都切不出"的反面教材
 - **`bandwidth` 的报告已修**：控制帧/刷新帧分开计数（原来混在一起 → 报出"116%"这种假结论）；RX 计数原用非阻塞 `read_all()` 会**少数**
 - 验证结果：
@@ -224,8 +226,8 @@ pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 4
   - [x] ~~`bandwidth --hz 500`~~ → **已测**，并一路压到 4000 Hz 摸到天花板（3255 帧/s）
   - [ ] `jog --yes`（**POS_VEL 路径**，需先切 `CTRL_MODE=2`）—— 还没跑过，会实测掉：POS_VEL 下 1:1 是否仍成立、`vlim` 的实际效果、固件闭环的稳态误差
   - [ ] 实测**电机侧看门狗**：写 0x09=200ms 后拔线，确认真的退出使能（安全底线；当前 `TIMEOUT=0`，保护是关的）
-  - [ ] 按 design.md D5b **逐关节标定重力补偿的 kp**（reBot 硬编码的 7.0 对 4340P 关节偏小，不能照抄）
-  - [ ] 实现 `MotorBus`/`Joint`/`DmArm`/`RegisterTool`（design.md §9 优先级表）；补 `package.xml` 依赖、`setup.py` entry_points、`config/rebotarm_b601_mixed.yaml`
+  - [ ] 按 `docs/DESIGN.md` D5b **逐关节标定重力补偿的 kp**（reBot 硬编码的 7.0 对 4340P 关节偏小，不能照抄）
+  - [ ] 实现 `MotorBus`/`Joint`/`DmArm`/`RegisterTool`（`docs/DESIGN.md` §九 优先级表）；补 `package.xml` 依赖、`setup.py` entry_points、`config/rebotarm_b601_mixed.yaml`
   - [ ] 核对模型关节限位 vs 你实机限位（**joint3 范围 `[-3.14, 0]`，三个模型与 URDF 完全一致**，非移植问题；但正方向到底是不是 0，需上真机确认）
 - 硬件：电机/CAN 部分到货（已可单电机点动），本体后到
 - 蓝本 repo 已就位：`~/reBot_Arm_Mujoco-DM`、`~/PyArmX`；SDK `~/reBotArm_control_py` 待克隆

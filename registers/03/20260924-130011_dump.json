@@ -1,0 +1,10 @@
+{
+  "saved_at": "2026-09-24T13:00:11",
+  "port": "/dev/ttyACM0",
+  "motor_id": 3,
+  "motor_type": "DM4310",
+  "registers": {
+    "0x09 TIMEOUT": 0,
+    "0x0A CTRL_MODE": 4
+  }
+}

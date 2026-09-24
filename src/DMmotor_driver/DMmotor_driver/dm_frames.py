@@ -163,11 +163,11 @@ def pos_vel_frame(slave_id, p_des: float, v_des: float) -> bytes:
 
     ⚠️ 为什么自己拼而不用 SDK 的 `control_Pos_Vel`（`DM_CAN.py:166`）：
         `__send_data` → `sleep(0.001)` → `recv()`，而 `recv()` 是 `read_all()`，
-        串口 `timeout=0.5`。7 电机 × 500Hz 直接出局（design.md §2.6 坑 1）。
+        串口 `timeout=0.5`。7 电机 × 500Hz 直接出局（LESSONS.md §2.6 坑 1）。
         本函数只构造，不发 —— 发是 `MotorBus.send_frame` 的事。
 
     ⚠️ 本帧只有在电机 **CTRL_MODE == 2 (POS_VEL)** 时才被认。切模式是 `Joint`/`DmArm`
-        的活（design.md D3），本模块不切、也不检查。
+        的活（DESIGN.md D3），本模块不切、也不检查。
     """
     p_bytes = float_to_uint8s(p_des)
     v_bytes = float_to_uint8s(v_des)
@@ -298,7 +298,7 @@ def decode_feedback(data: bytes, limit: tuple[float, float, float]) -> dict:
 
     ⚠️ `limit` = (PMAX, VMAX, TMAX) 是**每台电机自己的**映射范围，必须来自
        0x15/0x16/0x17 的回读值。4310 与 4340P 的档位不同，**用错档位解出来的
-       力矩会差 4 倍**（design.md D5）。这不是可以全局写死的常数。
+       力矩会差 4 倍**（DESIGN.md D5）。这不是可以全局写死的常数。
     """
     p_max, v_max, t_max = limit
     err = (data[0] >> 4) & 0x0F

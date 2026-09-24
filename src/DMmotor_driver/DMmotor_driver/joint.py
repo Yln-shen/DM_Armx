@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""joint.py —— Joint：单个电机的完整控制类（design.md §四 / §4.1）
+"""joint.py —— Joint：单个电机的完整控制类（DESIGN.md §四 / §4.1）
 
 ## 它是什么
 
@@ -17,17 +17,22 @@
   MIT 是上位机自己闭环 —— 电机只按**最后一帧**出力矩 `kp·(q_des−q)+kd·(dq_des−dq)+tau_ff`。
   要维持/推进就得持续发，那是 `DmArm` / ROS 节点的活（`dm_bringup.py cmd_jog_mit` 里
   那个 `while` 循环就是原型的形态）。
-- ❌ **不写任何寄存器**、**不设零位**、**不切控制模式**（`switch_mode` 是预留桩）。
+- ❌ **不写任何寄存器**、**不设零位**、**不切控制模式**（`switch_mode` 永远抛；
+  `declare_mode` 只改本地声明，不写寄存器）。
 - ❌ **不 poll**。读是调用方的事 —— 满载时 `MotorBus.poll()` 在独立的收循环里跑（D2）。
 
-## 本轮实现了什么（用户指定：MIT 优先）
+## 三种控制模式都实现了（帧不同，靠 `mode=` 分岔）
 
-| 方法 | 状态 | 为什么 |
+| 方法 | 帧 / CAN ID | 前置条件 |
 |---|---|---|
-| `set_mit()` | ✅ 可用 | `CTRL_MODE` 实测就是 **1 (MIT)**，**零寄存器写入**就能跑 |
-| `set_pos_vel()` | 🔒 预留桩 | 需要 `CTRL_MODE == 2`，实测当前是 1；切模式是寄存器写入，要单独批准 |
-| `set_force_pos()` | 🔒 预留桩 | 依赖 POS_VEL，同上 |
-| `switch_mode()` | 🔒 预留桩 | 同上 |
+| `set_mit()` | MIT 帧，CAN ID = **`id`** | `0x0A == 1` |
+| `set_pos_vel()` | 位置速度帧，CAN ID = **`0x100+id`** | `0x0A == 2` |
+| `set_force_pos()` | 力位混控帧，CAN ID = **`0x300+id`** | `0x0A == 4`（**不是 3**） |
+
+**`0x0A` 本层读不到**（寄存器 I/O 不在本层），所以模式是**声明**的：构造时给
+`mode=MODE_*`，切完模式再 `declare_mode()`。声明错了不会报错 —— 错帧会被电机
+**静静丢掉**。每个 `set_*()` 都会先查一次声明（`_require_mode`），把"静默无效"
+变成"当场抛"，但**它核对不了硬件**。
 
 ## ⚠️ 使能后的第一个动作（真机踩过）
 
@@ -56,16 +61,70 @@ from pathlib import Path
 # 同 dm_bus：既被当模块 import，也可能被裸脚本直跑，所以绝对导入 + 失败时塞 sys.path。
 try:
     from DMmotor_driver.dm_bus import MotorBus, MotorState
-    from DMmotor_driver.dm_frames import ERR_OK
+    from DMmotor_driver.dm_frames import ERR_OK, build_tx, float_to_uint8s
 except ImportError:  # 裸脚本直跑：parents[1] 就是 src/DMmotor_driver
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from DMmotor_driver.dm_bus import MotorBus, MotorState
-    from DMmotor_driver.dm_frames import ERR_OK
+    from DMmotor_driver.dm_frames import ERR_OK, build_tx, float_to_uint8s
 
 # MIT 定点映射的满量程（`dm_frames.float_to_uint` 的钳位边界，硬编码在协议里）。
 # ⚠️ 超范围不会报错 —— `float_to_uint` 会**静默钳位**。所以下面 set_mit 自己查一遍。
 KP_FULL = 500.0
 KD_FULL = 5.0
+
+# ───────────────────────── 控制模式（寄存器 0x0A）─────────────────────────
+# 取自**手册**的「模式切换」表，不是 SDK 的枚举（SDK 里根本没列这张表）：
+#
+#     | 编码 | 模式 |
+#     | 1 | MIT |
+#     | 2 | 位置速度 |
+#     | 3 | 速度 |
+#     | 4 | 力位混控 |
+#
+# ⚠️ **力位混控是 4 不是 3** —— 3 是速度模式。按 3 去配力位混控，电机进的是速度模式，
+# 而速度模式的帧是 CAN ID `0x200+id`，你发的 `0x300+id` 它**根本不看** ⇒ 静默不动。
+MODE_MIT = 1
+MODE_POS_VEL = 2
+MODE_VEL = 3
+MODE_FORCE_POS = 4
+MODE_NAMES = {MODE_MIT: "MIT", MODE_POS_VEL: "位置速度", MODE_VEL: "速度",
+              MODE_FORCE_POS: "力位混控"}
+
+# 使能后补的那一帧"保持"用什么速度上限。
+# 手册：位置速度模式下 v_des 是**梯形加减速的匀速段速度**，不是"立刻达到的速度"，
+# 所以给小值不会限制住正常运动，只会在真的需要挪动时慢一点。
+HOLD_VLIM = 0.5          # rad/s
+# 力位混控保持帧的电流标幺上限（1.0 = 满量程）。给 0 就是"不额外给力矩"。
+HOLD_I_PU = 0.0
+
+# 力位混控帧里 v_des / i_des 的放大倍数与协议上限（手册「力位混控模式下控制帧」）。
+_FP_V_SCALE = 100.0      # v_des：rad/s × 100，uint16，上限 10000 ⇒ 实际 0~100 rad/s
+_FP_I_SCALE = 10000.0    # i_des：标幺值 × 10000，uint16，上限 10000 ⇒ 实际 0~1.0
+_FP_U16_MAX = 10000
+
+
+def _force_pos_frame(slave_id: int, pos: float, vlim: float, i_pu: float) -> bytes:
+    """力位混控帧（手册「力位混控模式下控制帧」）。
+
+        CAN ID = 0x300 + slave_id
+        D[0:4] = float32(p_des)          低位在前
+        D[4:6] = uint16(v_des × 100)     低位在前，上限 10000
+        D[6:8] = uint16(i_des × 10000)   低位在前，上限 10000
+
+    ⚠️ **本函数放错了层**：按 DESIGN.md §1.2，协议原语应该全在 `dm_frames.py`，
+    那里也确实有 `pos_vel_frame` / `mit_frame` / `cmd_frame`，唯独没有力位混控帧。
+    这次只允许改 `joint.py`，所以先落在这里；下次动 `dm_frames.py` 时**搬过去**。
+
+    ⚠️ 两个 uint16 用 **`int()` 截断**，不是 `round()` —— 与 SDK 的 `np.uint16(x)`
+    以及 `dm_frames.float_to_uint` 保持一致（那里也是截断，注释里写明了）。
+    差 1 个 LSB 换不来什么，但"和厂商行为不一致"会让整帧对拍失去意义。
+    """
+    v = int(max(0.0, min(float(vlim), _FP_U16_MAX / _FP_V_SCALE)) * _FP_V_SCALE)
+    i = int(max(0.0, min(float(i_pu), 1.0)) * _FP_I_SCALE)
+    data = (bytes(float_to_uint8s(float(pos)))
+            + v.to_bytes(2, "little")
+            + i.to_bytes(2, "little"))
+    return build_tx(0x300 + slave_id, data)
 
 
 @dataclass
@@ -115,30 +174,50 @@ class Joint:
                  *, name: str | None = None,
                  direction: int = 1, offset: float = 0.0,
                  position_min: float | None = None,
-                 position_max: float | None = None):
+                 position_max: float | None = None,
+                 mode: int = MODE_MIT):
         """
         参数:
             bus        : 已注册好的 `MotorBus`（本类不 open/close 它）
             motor_id   : 电机 SlaveID（使能/失能/MIT 帧的 CAN ID 就是它本身）
             limit      : (PMAX, VMAX, TMAX)。**必须来自 0x15/0x16/0x17 的回读值** ——
                          4310 与 4340P 的档位不同，用错档位解出来的力矩差 2.8 倍
-                         **而且不报错**（design.md D5）。
+                         **而且不报错**（DESIGN.md D5）。
             direction  : +1 / -1。电机正转方向与关节正方向相反时给 -1
             offset     : 关节零位对应的电机读数（电机侧 rad）
             position_min/max : 软限位（**关节侧**）。None = 不检查（本轮默认留空）。
                               **换算到电机侧后必须落在 ±PMAX 之内**，否则构造时就抛 ——
                               写在 PMAX 之外的软限位是虚的（电机到不了），还会让
-                              `clamped_count` 一次命令计两次（见校验处的注释）
+                              `clamped_count` 一次命令记两次（见校验处的注释）
+            mode       : **你声明的**控制模式，取值见 `MODE_*` 常量（0x0A 的实际值）。
+                         默认 `MODE_MIT`。
 
-        `limit` 会顺带注册到 bus 上（`add_motor`）。若该 ID 已注册过**不同的**档位，
-        直接抛 `ValueError` —— 同一个电机有两个映射范围，是会静默出错的那种 bug。
+        ⚠️ `mode` 是**声明，不是读数**。本层不做寄存器 I/O，**读不到 0x0A**，所以它
+        唯一的作用是"你告诉 Joint 电机现在是什么模式"。**它永远不会去核对。**
+        声明错了会怎样：位置类模式下 `enable()` 补的那一帧"保持"用的是位置命令，
+        而真 MIT 的电机不认这个 CAN ID ⇒ **那帧石沉大海**，电机处在"已使能但没命令"
+        的窗口里。反之亦然（真 POS_VEL 却声明成 MIT ⇒ `enable()` 补的是零力矩 MIT 帧，
+        同样送不到 ⇒ 电机内部目标还是 0 ⇒ **朝零位冲**）。
+
+        所以切完模式**必须立刻**把这里改成对应的值：
+        `dm_registers.py set --id 0xNN --rid 0x0A --value 2 --commit`
+        （0x0A 是 **RAM 不是 flash**，断电回默认；不写 `--save` 就不会进 flash）
         """
         if direction not in (1, -1):
             raise ValueError(f"direction 只能是 +1 或 -1，收到 {direction!r}")
+        # 只认手册「模式切换」表里那四个。写个 5 进来多半是打错 —— 而模式号打错的
+        # 后果是"帧发出去没人看"，不是报错。
+        if mode not in MODE_NAMES:
+            raise ValueError(
+                f"mode 只能是 {sorted(MODE_NAMES)}（手册「模式切换」表），收到 {mode!r}。\n"
+                f"  1=MIT　2=位置速度　3=速度　4=力位混控 —— **力位混控是 4 不是 3**，"
+                f"配成 3 电机进的是速度模式，你发的控制帧它根本不看。"
+            )
 
         self.bus = bus
         self.motor_id = motor_id
         self.name = name or f"0x{motor_id:02X}"
+        self.mode = mode          # 声明，不是读数 —— 见上面 mode 参数的说明
         self.direction = direction
         self.offset = float(offset)
         self.position_min = position_min
@@ -202,6 +281,8 @@ class Joint:
 
         # 计数（给控制循环/复盘用）
         self.n_mit = 0
+        self.n_pos_vel = 0
+        self.n_force_pos = 0
         self.n_enable = 0
         self.n_disable = 0
         self.clamped_count = 0      # 被钳位的命令次数（含软限位与 PMAX）
@@ -302,14 +383,30 @@ class Joint:
 
     # ───────────────────────── 使能 / 失能 ─────────────────────────
     def enable(self) -> None:
-        """使能，并**立刻补一帧零力矩**把"已使能但没命令"的窗口压到最小。
+        """使能，并**立刻补一帧"保持当前姿态"**把"已使能但没命令"的窗口压到最小。
 
-        零力矩帧 = `kp=0, kd=0, tau=0` —— 增益全零，所以 `q` 给什么都不出力
-        （`t_u` 也从 0 映射到 0 N·m）。这个时序抄的是 `cmd_jog_mit` 的 `[1]` 步。
+        补什么**按 `self.mode` 分岔** —— 不同模式认的帧完全不同：
 
-        ⚠️ **本方法不检查 `CTRL_MODE`**。零力矩帧只在 MIT 模式下是这个含义；
-        别的模式下这 8 个字节会被解释成完全不同的东西。切模式是寄存器 I/O，
-        不在本层（见 `switch_mode` 的说明）。
+        | `self.mode` | 补的那一帧 | 为什么它安全 |
+        |---|---|---|
+        | `MODE_MIT` | MIT 零力矩（`kp=kd=tau=0`） | 增益全零 ⇒ 出力恒为 0，`q` 给什么都不动 |
+        | `MODE_POS_VEL` | POS_VEL，`pos=当前位置`，`vlim=HOLD_VLIM` | 目标就是"现在在哪" ⇒ 不动 |
+        | `MODE_FORCE_POS` | 力位混控，`pos=当前位置`，`vlim=HOLD_VLIM`，电流限 0 | 同上，且不给额外力矩 |
+        | `MODE_VEL` | **拒绝使能** | 本轮没实现速度模式的保持帧，硬发一帧是拿电机赌 |
+
+        ⚠️ **为什么位置类模式比 MIT 危险得多。** 手册「模式切换」一节明写：切进位置类
+        模式时，电机**会把位置/速度指令清零** —— 也就是它内部的目标变回 **0**。
+        此时如果使能了而没有立刻把目标改回"现在在哪"：
+
+        > **电机会朝自己的零位满速冲过去，不减速、不看你在哪、不看你手在哪。**
+
+        MIT 模式没有这个问题 —— 零增益帧本身就是"不出力"，不需要知道位置。
+        所以本方法在位置类模式下**拿不到缓存状态就直接拒绝使能**：
+        连"现在在哪"都不知道，就没有安全的第一帧可发。
+
+        ⚠️ 本方法**不核对**电机真实的 `0x0A`（本层读不到寄存器，见 `mode` 参数的说明）。
+        声明与实际不符时分岔会选错 —— 而错帧**会被电机忽略，不报错**。所以：
+        切完模式，**立刻**把 `Joint(mode=...)` 也改掉，两件事不要分开做。
 
         ⚠️ 使能前请先 `poll()` 拿到**新鲜**状态。若缓存里是故障态（ERR 非 0/1）会拒绝
         使能 —— ERR=13 是**锁存**的，只能断电清；但如果你刚断过电而没重新 poll，
@@ -324,13 +421,60 @@ class Joint:
                 f"只能给电机断电再上电\n"
                 f"  · 若刚断过电：先 `bus.poll()` 刷新缓存，这条判断用的是缓存里的旧状态"
             )
+
+        if self.mode == MODE_VEL:
+            raise RuntimeError(
+                f"关节 {self.name} 声明为速度模式（mode=3），但本层没有速度模式的"
+                f"\"保持\"帧 —— 拒绝使能。\n"
+                f"  · 位置类模式靠\"目标=当前位置\"保持；速度模式的保持是 v=0，"
+                f"  但那帧本轮没写，硬发一帧等于拿电机赌它的默认行为\n"
+                f"  · 要用速度模式，先补 `set_vel()` 和对应的保持帧"
+            )
+
+        # 位置类模式：连"现在在哪"都不知道，就没有安全的第一帧 —— 宁可不使能。
+        if self.mode in (MODE_POS_VEL, MODE_FORCE_POS) and st is None:
+            raise RuntimeError(
+                f"关节 {self.name} 声明为 {MODE_NAMES[self.mode]}（mode={self.mode}），"
+                f"但缓存里没有状态 —— **拒绝使能**。\n"
+                f"  · 切进位置类模式时，电机内部的位置指令被清零（手册「模式切换」），"
+                f"目标变回 0\n"
+                f"  · 使能后必须**立刻**把目标改回\"现在在哪\"，而它只能从反馈帧拿\n"
+                f"  · 所以先 `bus.poll()`（或 `bus.wait_feedback({self.motor_id})`）读到位置，"
+                f"再调 enable()\n"
+                f"  · 这一步不能省 —— 省了就是让电机朝自己的零位冲"
+            )
+
         with self._fail_safe():
             self.bus.send_enable(self.motor_id)
             self.n_enable += 1
-            # 零力矩帧。写在这里而不是让调用方补 —— 这是使能时序的一部分，
-            # 分两步就有漏掉的机会。send_mit 直接调以绕开 _fail_safe 的嵌套。
+            # 保持帧。写在这里而不是让调用方补 —— 这是使能时序的一部分，
+            # 分两步就有漏掉的机会。
+            self._send_hold(st)
+
+    def _send_hold(self, st: MotorState | None) -> None:
+        """使能后立刻补的"保持"帧。**按 `self.mode` 分岔**，理由见 `enable()`。
+
+        直接调 `bus.send_*` 而**不走 `set_*`**：那几个方法会再查一遍软限位 / PMAX 钳位，
+        而这里的输入是**电机自己报回来的实测位置** —— 钳它纯属多余，
+        还可能把"现在在哪"改成"限位边上"，那就不是保持了。
+        """
+        if self.mode == MODE_MIT:
+            # 增益全零 ⇒ t_u 从 0 映射到 0 N·m，q 给什么都不出力
             self.bus.send_mit(self.motor_id, 0.0, 0.0, 0.0, 0.0, 0.0)
             self.n_mit += 1
+            return
+
+        # enable() 已经保证过：位置类模式下 st 不可能是 None
+        assert st is not None, "位置类模式下的保持帧需要状态，enable() 本该拦住这种情况"
+
+        if self.mode == MODE_POS_VEL:
+            self.bus.send_pos_vel(self.motor_id, st.pos, HOLD_VLIM)
+            self.n_pos_vel += 1
+            return
+
+        self.bus.send_frame(_force_pos_frame(self.motor_id, st.pos,
+                                             HOLD_VLIM, HOLD_I_PU))
+        self.n_force_pos += 1
 
     def disable(self) -> None:
         """失能（0xFD）。**总是可以安全调用** —— 没使能时发它也无害。
@@ -350,12 +494,17 @@ class Joint:
         所以要让关节停在 `q` 就得**持续发**（控制循环的活）。发完就不管，电机会一直
         按这一帧出力矩直到收到下一帧或看门狗超时。
 
-        ⚠️ 稳态残差有上界 ≈ 摩擦/kp，压不到 0。要零稳态误差得用 POS_VEL（本轮是桩）。
+        ⚠️ 稳态残差有上界 ≈ 摩擦/kp，压不到 0。要零稳态误差得用 `set_pos_vel()`。
+
+        ⚠️ **只在 `self.mode == MODE_MIT` 时发**。声明成别的模式还调它，会直接抛 ——
+        因为 MIT 帧的 CAN ID 是 `slave_id`，而位置类模式电机只听 `0x100+slave_id`，
+        这帧**送不到、也不报错**。与其让你以为在控制、其实什么都没发生，不如当场炸。
 
         `kp`/`kd`/`dq`/`tau` 超出满量程时**会被静默钳位**（`float_to_uint` 的行为）——
         所以这里自己先查一遍并打警告：要 20 N·m 实际只给到 TMAX，臂会软趴趴地掉下来，
         而你不会知道为什么。`q` 走 `_apply_soft_limit` → 换算 → `_clamp`(PMAX)。
         """
+        self._require_mode(MODE_MIT, "MIT")
         self._require_finite(kp=kp, kd=kd, q=q, dq=dq, tau=tau)
         self._check_saturation(kp, kd, dq, tau)
         q_motor = self._clamp(
@@ -414,43 +563,149 @@ class Joint:
             self._warn("将静默钳位：" + "；".join(bad)
                        + f"（累计第 {self.saturated_count} 次）")
 
-    # ───────────────────────── 预留桩（本轮不实现）─────────────────────────
-    def set_pos_vel(self, pos: float, vlim: float) -> None:
-        """🔒 预留：POS_VEL 位置+速度上限。**本轮未实现**。
+    def _require_mode(self, expected: int, what: str) -> None:
+        """发帧前查一次**声明的**模式。**这不是核对硬件** —— 是防你自己写错。
 
-        为什么没实现：POS_VEL 只在电机 `CTRL_MODE == 2` 时被认，而 2026-09-23 只读
-        实测 0x01 与 0x04 的 `CTRL_MODE`(0x0A) **都是 1 (MIT)**。切成 2 是一次
-        **寄存器写入**（`dm_registers.py --commit`），要单独批准、单独复盘。
+        本层读不到寄存器 `0x0A`，唯一依据就是构造时那个 `mode=`。它的价值在于：
+        每个模式认的 CAN ID 不同（MIT=`id`、位置速度=`0x100+id`、速度=`0x200+id`、
+        力位混控=`0x300+id`），**发错 ID 的帧会被电机静静丢掉** —— 不报错、不回应。
+        你会以为在控制，其实什么都没发生。
 
-        好在 0x0A 是 **RAM 不是 flash** ⇒ 断电就回到 MIT，不是不可逆的改动。
-
-        落地时要一起做的事（别只改这一行）：
-          · 固件 PID 寄存器 `KP_ASR/KI_ASR/KP_APR/KI_APR` **至今没在真机上读过**，
-            出厂值是多少、合不合适，都是空白
-          · POS_VEL 下**上位机无法限力矩**，力矩只受电机侧 0x03(过流)/0x17(TMAX) 约束
-            （design.md:212）—— 这是 POS_VEL 相对 MIT 丢掉的那道保险
+        把这种"静默无效"变成"当场抛"，是这一层唯一能做的自检。
         """
-        raise NotImplementedError(
-            "POS_VEL 本轮是预留接口。它需要先写 CTRL_MODE(0x0A)=2 —— "
-            "实测当前是 1(MIT)，而切模式是寄存器写入，需单独批准。"
-            "现在可用的是 MIT：`set_mit(kp, kd, q, dq, tau)`。"
-        )
+        if self.mode != expected:
+            raise RuntimeError(
+                f"关节 {self.name} 声明为 {MODE_NAMES[self.mode]}（mode={self.mode}），"
+                f"但你要发的是「{what}」帧 —— 模式不对，拒绝发送。\n"
+                f"  · 本层读不到寄存器 0x0A，只能信你声明的 `mode`\n"
+                f"  · 各模式的 CAN ID：MIT=id　位置速度=0x100+id　速度=0x200+id　"
+                f"力位混控=0x300+id。发错 ID 的帧会被电机**静默丢掉**\n"
+                f"  · 真换了模式就跑：`dm_registers.py set --id 0x{self.motor_id:02X} "
+                f"--rid 0x0A --value <n> --commit`，然后 `declare_mode(<n>)`"
+            )
+
+    def declare_mode(self, mode: int) -> None:
+        """告诉这个 `Joint`：电机现在的 `0x0A` **已经是** `mode` 了。只改本地声明。
+
+        ⚠️ 名字是 declare 不是 switch —— **它一个字节都不写**。真正切模式的是
+        `dm_registers.py`（寄存器 I/O 不在本层）。这个方法存在的唯一理由是：
+        切完模式之后 `Joint` 得知道该发哪种帧。
+
+        切模式前后**必须**按这个顺序做（手册「模式切换」）：
+
+          1. 电机**失能**、**零速** —— 切进位置类模式时电机内部指令会被清零
+          2. `poll()` / `wait_feedback()` 拿到**当前位置**（位置类模式必须先知道"现在在哪"）
+          3. 跑 `dm_registers.py ... --rid 0x0A --value <n> --commit`
+          4. `declare_mode(<n>)` ← 就这一步
+          5. 再 `enable()`（它会按新模式补对应的保持帧）
+
+        第 1、2 步不是形式 —— 手册原话：*「由一种模式切换到位置控制的模式时，
+        为防止冲击，建议先读取精确的位置后，再考虑切换，尽量在电机零速的时候进行切换。」*
+        """
+        if mode not in MODE_NAMES:
+            raise ValueError(f"mode 只能是 {sorted(MODE_NAMES)}，收到 {mode!r}")
+        self.mode = mode
+
+    # ───────────────────────── 位置速度 / 力位混控 ─────────────────────────
+    def _check_vlim(self, vlim: float, what: str) -> None:
+        """`vlim` 的合法区间。
+
+        · **负值当场抛** —— 那是调用方的 bug（想反方向应该改 `pos`）
+        · 超过协议上限只**警告** —— 电机会自己钳到 100 rad/s，但那样你就不知道
+          自己写的数没生效
+        """
+        vlim_full = _FP_U16_MAX / _FP_V_SCALE          # = 100.0 rad/s（手册的协议上限）
+        if vlim < 0:
+            raise ValueError(
+                f"{what} 的 vlim={vlim:g} 是负的。速度上限只能是 0~{vlim_full:g} rad/s。\n"
+                f"  要往反方向走是**改 pos**，不是把 vlim 写负 —— 负值在协议里是"
+                f"无符号 16 位，不报错，只会变成一个你不认识的速度。"
+            )
+        if vlim > vlim_full:
+            self.saturated_count += 1
+            self._warn(f"{what} 的 vlim={vlim:g} 超过协议上限 {vlim_full:g} rad/s，"
+                       f"电机会钳到 {vlim_full:g}"
+                       f"（累计第 {self.saturated_count} 次）")
+
+    def set_pos_vel(self, pos: float, vlim: float) -> None:
+        """POS_VEL：位置 + 速度上限。**本机主用的控制律**（固件闭环，稳态误差能到 0）。
+
+        `pos` 是**关节侧**。`vlim`（rad/s）是**梯形加减速的匀速段速度** —— 手册原话，
+        不是"立刻达到的速度"，所以它不会让起步变猛，只在需要挪远时限制巡航速度。
+
+        和 `set_mit` 的区别：这是**电机自己闭环**，所以持续发帧的意义是"更新目标"，
+        不是"维持力矩"。发一帧就到那儿了（在 vlim 和固件 PID 的约束下）。
+
+        ⚠️ **前置条件：电机的 `0x0A` 必须真是 2。** 本层读不到它（见 `_require_mode`），
+        只能信你声明的 `self.mode`。声明成 2 而实际是 1 时，这帧被电机静静丢掉 ——
+        你以为在控制，其实什么都没发生。
+
+        ⚠️ **POS_VEL 丢掉了 MIT 的那道保险：上位机限不了力矩。** 力矩只受电机侧
+        `0x03`(过流) 与 `0x17`(TMAX) 约束（DESIGN.md §2.2）。**带负载时这条最要命** ——
+        顶到东西时 POS_VEL 会一直出力直到过流保护；MIT 至少还能把 kp 收小。
+        要主动限力就用 `set_force_pos()`。
+        """
+        self._require_mode(MODE_POS_VEL, "POS_VEL")
+        self._require_finite(pos=pos, vlim=vlim)
+        self._check_vlim(vlim, "POS_VEL")
+        q_motor = self._clamp(self._pos_to_motor(self._apply_soft_limit(float(pos))))
+        with self._fail_safe():
+            self.bus.send_pos_vel(self.motor_id, q_motor, float(vlim))
+            self.n_pos_vel += 1
 
     def set_force_pos(self, pos: float, vel: float, current: float) -> None:
-        """🔒 预留：力位混控。**本轮未实现**（依赖 POS_VEL）。"""
-        raise NotImplementedError(
-            "力位混控本轮是预留接口，它建立在 POS_VEL 之上，而 POS_VEL 还没落地。"
-            "现在可用的是 MIT：`set_mit(kp, kd, q, dq, tau)`（MIT 能直接给力矩前馈，"
-            "要重力补偿的话先用它）。"
-        )
+        """力位混控（EMIT）：位置 + 限速 + **扭矩电流上限**。
+
+        这是**唯一能主动限力矩的位置模式** —— POS_VEL 限不了，MIT 得自己算前馈。
+        带负载、抓取、怕撞的时候用它。
+
+        参数（单位按手册「力位混控模式下控制帧」）：
+            pos     : 期望位置，**关节侧** rad
+            vel     : 限速值，rad/s。协议里放大 100 倍存 uint16，范围 0~100
+            current : **扭矩电流限定标幺值 0~1.0**（实际电流 ÷ 最大相电流），
+                      **不是安培** —— 手册没给最大相电流的数值，所以只能给标幺值
+
+        ⚠️ 需要 `0x0A == 4`。**力位混控是 4 不是 3**（3 是速度模式）—— 配成 3 的话
+        电机进的是速度模式，认的是 CAN ID `0x200+id`，本帧发的 `0x300+id` 它根本不看。
+
+        ⚠️ **电流上限 ≠ 力矩上限。** 力矩 = 电流 × 力矩常数，而这个常数手册没给。
+        所以"限到 0.2 标幺"到底是多少 N·m，**只能实测标定**，别当成已知量用。
+        """
+        self._require_mode(MODE_FORCE_POS, "力位混控")
+        self._require_finite(pos=pos, vel=vel, current=current)
+        self._check_vlim(vel, "力位混控")
+        if not (0.0 <= current <= 1.0):
+            self.saturated_count += 1
+            self._warn(f"电流标幺值 current={current:g} 不在 [0, 1]，电机会钳到区间内"
+                       f"（累计第 {self.saturated_count} 次）")
+        q_motor = self._clamp(self._pos_to_motor(self._apply_soft_limit(float(pos))))
+        with self._fail_safe():
+            self.bus.send_frame(_force_pos_frame(self.motor_id, q_motor, vel, current))
+            self.n_force_pos += 1
 
     def switch_mode(self, mode: int) -> None:
-        """🔒 预留：切控制模式。**本轮未实现** —— 这是寄存器 I/O，不属本层。"""
+        """🔒 **永远抛** —— 切模式是寄存器 I/O，不属本层。
+
+        留这个方法只为了给一句能照着做的错误信息。真要切模式，见 `declare_mode()`
+        里那五步；本方法一个字节都不写。
+        """
         raise NotImplementedError(
-            "切控制模式 = 写寄存器 0x0A，是 RegisterTool 的活（`dm_registers.py`），"
-            "而本层（MotorBus/Joint）**不做任何寄存器 I/O** —— 写一次要 ~150ms "
-            "且期间发不出帧，运行期绝不能做。"
+            f"切控制模式 = 写寄存器 0x0A，而本层（MotorBus/Joint）**不做任何寄存器 I/O**。\n"
+            f"  两个理由，都不是洁癖：\n"
+            f"   · 写一次要 ~150ms，期间发不出帧 ⇒ 运行期绝不能做\n"
+            f"   · 手册要求「零速、先读位置」再切 ⇒ 那是调用方的时序，一个方法保证不了\n"
+            f"  真要切（以 0x{self.motor_id:02X} → 模式 {mode} 为例）：\n"
+            f"    1. disable()，并确认已经零速\n"
+            f"    2. bus.poll() 拿到当前位置\n"
+            f"    3. pixi run python src/DMmotor_driver/DMmotor_driver/dm_registers.py \\\n"
+            f"         set --id 0x{self.motor_id:02X} --rid 0x0A --value {mode} --commit\n"
+            f"       （0x0A 是 **RAM 不是 flash**；不加 --save 就不会进 flash）\n"
+            f"    4. declare_mode({mode})   ← 只改本地声明，不写寄存器\n"
+            f"    5. enable()               ← 它会按新模式补对应的保持帧\n"
+            f"  顺序不能换。手册原话：「由一种模式切换到位置控制的模式时，为防止冲击，\n"
+            f"  建议先读取精确的位置后，再考虑切换，尽量在电机零速的时候进行切换。」"
         )
+
 
     # ───────────────────────── 读 ─────────────────────────
     def get_state(self) -> JointState | None:
@@ -505,10 +760,13 @@ class Joint:
         return {
             "name": self.name,
             "motor_id": f"0x{self.motor_id:02X}",
+            "mode": f"{self.mode}({MODE_NAMES[self.mode]})",
             "limit": self.limit,
             "direction": self.direction,
             "offset": self.offset,
             "n_mit": self.n_mit,
+            "n_pos_vel": self.n_pos_vel,
+            "n_force_pos": self.n_force_pos,
             "n_enable": self.n_enable,
             "n_disable": self.n_disable,
             "clamped_count": self.clamped_count,
@@ -517,4 +775,5 @@ class Joint:
 
     def __repr__(self) -> str:
         return (f"Joint({self.name}, motor=0x{self.motor_id:02X}, "
+                f"mode={self.mode}({MODE_NAMES[self.mode]}), "
                 f"limit={self.limit}, dir={self.direction:+d}, offset={self.offset:g})")

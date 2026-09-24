@@ -1,0 +1,22 @@
+{
+  "saved_at": "2026-09-24T13:06:31",
+  "port": "/dev/ttyACM0",
+  "motor_id": 6,
+  "motor_type": "DM4310",
+  "registers": {
+    "0x14 Gr": 10.0,
+    "0x15 PMAX": 12.5,
+    "0x16 VMAX": 30.0,
+    "0x17 TMAX": 10.0,
+    "0x19 KP_ASR": 0.003719999920576811,
+    "0x1A KI_ASR": 0.0020000000949949026,
+    "0x1B KP_APR": 54.0,
+    "0x1C KI_APR": 0.0,
+    "0x09 TIMEOUT": 0,
+    "0x07 MST_ID": 0,
+    "0x0A CTRL_MODE": 4,
+    "0x3C VBus": 24.114330291748047,
+    "0x3D Tpcb": 33.79212951660156,
+    "0x3E Tmt": 31.135498046875
+  }
+}

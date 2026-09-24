@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""dm_bringup —— 单电机上电验证脚本（design.md §11.2）
+"""dm_bringup —— 单电机上电验证脚本（DESIGN.md §11.2）
 
 **刻意站在封装层之外**：只依赖 vendored 的 `DM_CAN.py` + `pyserial`，不 import 本包
 其它模块。目的有两个：
@@ -45,7 +45,7 @@
     pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 500 --duration 30
     pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 500 --duration 30 --enable --yes
 
-设计依据见 src/DMmotor_driver/design.md §7（标定）/ §8（上电序列）/ §11.2（本脚本范围）。
+设计依据见 src/DMmotor_driver/DESIGN.md §7（标定）/ §8（上电序列）/ §11.2（本脚本范围）。
 """
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ except ImportError:  # 裸脚本直跑：把 src/DMmotor_driver 加进来再试�
 LINK_BYTES_PER_S = 921600 / 10.0
 
 # 待读寄存器。RID 用 DM_variable 枚举；60/61/62 是裸 int，专门用来验证
-# "SDK 能否用裸 int RID 读到手册里 SDK 没枚举的寄存器"（design.md §2.6 坑 2）。
+# "SDK 能否用裸 int RID 读到手册里 SDK 没枚举的寄存器"（LESSONS.md §2.6 坑 2）。
 READ_REGISTERS = [
     (20, "0x14 Gr", "减速比。应为 10(4310) / 40(4340P) —— 用它验型号填错没有"),
     (21, "0x15 PMAX", "位置映射范围。下面会拿这个回读值覆盖 SDK 硬编码表"),
@@ -349,7 +349,7 @@ def cmd_read(args, DM_CAN, sdk_dir: Path):
             print(f"    SDK 表里原本是 {sdk_default} → 现改为 [{p_max:g}, {v_max:g}, {t_max:g}]")
             if abs(t_max - sdk_default[2]) > 0.01:
                 print(f"    ⚠ 扭矩映射范围与 SDK 硬编码值差 {abs(t_max-sdk_default[2]):g} N·m。"
-                      "这就是 design.md §D2 说的坑：不改的话所有力矩反馈都是错的")
+                      "这就是 DESIGN.md §D2 说的坑：不改的话所有力矩反馈都是错的")
         else:
             print(f"    ⚠ 0x15/0x16/0x17 没读全（读到 {sorted(r for r in values if r in (21,22,23))}），"
                   f"继续用 SDK 默认值 {sdk_default} —— 力矩读数可能不准")
@@ -556,7 +556,7 @@ def cmd_jog(args, DM_CAN, sdk_dir: Path):
                 tic = time.monotonic()
                 # 厂商 API：内含 sleep(0.001) + recv()，所以速率上限 ~1kHz。
                 # 这里刻意不自己构帧 —— 先证明厂商这条路本身是通的，
-                # 自己那套非阻塞收发是 MotorBus 的事（design.md §4.2）。
+                # 自己那套非阻塞收发是 MotorBus 的事（DESIGN.md §4.2）。
                 ctrl.control_Pos_Vel(motor, p_cmd, args.vlim)
                 n_loop += 1
                 if shown < 3:
@@ -621,7 +621,7 @@ def cmd_jog_mit(args, DM_CAN, sdk_dir: Path):
 
     阶梯的意义在于：一旦电机有任何异常（ERR 跳变、力矩超阈），是在**最弱的那一档**
     就暴露出来的，而不是在满幅正弦中途。
-    本函数走**自己构帧 + 自己解帧**（不是厂商 API）——和 design.md D2 要落地的那条路
+    本函数走**自己构帧 + 自己解帧**（不是厂商 API）——和 DESIGN.md D2 要落地的那条路
     一致，而且因为「发一帧必回一帧反馈」（本次实测），能顺便拿到温度。厂商那套
     `control_Pos_Vel` 的验证留给 POS_VEL 模式的 `jog`。
     """
@@ -858,7 +858,7 @@ def cmd_jog_mit(args, DM_CAN, sdk_dir: Path):
 
 
 def cmd_bandwidth(args, DM_CAN, sdk_dir: Path):
-    """链路吞吐实测。解答 design.md 里那个悬而未决的问题：
+    """链路吞吐实测。解答 DESIGN.md 里那个悬而未决的问题：
 
     TX 30B / RX 16B，6 关节 500Hz 发送 = 90,000 B/s，占 921600 8N1 链路
     （92,160 B/s）的 97.7%，加上反馈就超 100%。所以要么适配器不理会标称波特率
@@ -964,7 +964,7 @@ def cmd_bandwidth(args, DM_CAN, sdk_dir: Path):
                     rx_bytes += sum(len(c) for c in raw_sink)
                 if fb:
                     n_rx += len(fb)
-                    # 使能状态下每 0.5 秒查一次安危（design.md §9：POS_VEL 下上位机
+                    # 使能状态下每 0.5 秒查一次安危（DESIGN.md §9：POS_VEL 下上位机
                     # 唯一的力矩保护手段就是这种监控）
                     if args.enable:
                         n_check += 1
@@ -1017,7 +1017,7 @@ def cmd_bandwidth(args, DM_CAN, sdk_dir: Path):
         print(f"    实测带宽占容量 {over_100:.0f}%（容量按标称 921600 8N1 算）")
         if over_100 > 100:
             print("    ✓✗ **超过 100% 却跑通了、1:1 也没破** → CDC-ACM 的标称波特率是"
-                  "摆设，实际远超 921600。design.md 里「111% 超载」那套算法不成立"
+                  "摆设，实际远超 921600。DESIGN.md 里「111% 超载」那套算法不成立"
                   "（但**不等于**帧率没上限，真正的天花板是实测的帧率，见下）")
         # 7 关节外推。**关键前提**：只有当本次"冲不到目标"时，实测值才等于天花板；
         # 如果达标了，说明还留有余量，实测值只是你要求的那个数，不能当天花板用
@@ -1062,7 +1062,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="dm_bringup",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="单电机上电验证（design.md §11.2）。默认只读；jog/bandwidth --enable 需 --yes。",
+        description="单电机上电验证（DESIGN.md §11.2）。默认只读；jog/bandwidth --enable 需 --yes。",
         epilog=__doc__.split("## 用法")[-1].strip() if "## 用法" in __doc__ else None,
     )
     p.add_argument("cmd", nargs="?", default="read",

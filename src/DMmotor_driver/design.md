@@ -8,6 +8,40 @@
 
 ## 〇、本次修订说明
 
+### v0.10 → v0.11（2026-09-23 深夜，**配置层落地** —— `arm_config.py` + 真 YAML）
+
+**本轮把 §4.2 从规格变成代码。** 产出：`DMmotor_driver/arm_config.py`（类与校验，674 行）
++ `config/rebotarm_b601_mixed.yaml`（真数据，207 行）。单测 19 组、变异 18/18。
+
+**结构（`ARCHITECTURE.md` §三「文件清单」与 §九「待做清单」早就这么写的，本轮落地）：类进包，数据留 `config/`。**
+没有在原地把 `.yaml` 改名成 `.py` —— 因为 `config/` 没有 `__init__.py`，
+`setup.py` 的 `find_packages` 收不到它，放那儿 import 不进来。
+
+| # | 内容 | 依据 |
+|---|---|---|
+| 64 | **★ `import yaml` 只放在 `from_yaml` 一个函数里，是刻意的故障隔离。** pyyaml 在本环境是 `ros-jazzy`/`mujoco` 的**传递依赖**（`.pixi/envs/default/.../yaml/`，6.0.3），**没写进 `pixi.toml`** ⇒ 上游一变它可能消失。隔离之后：那时坏掉的只有 YAML 这一个入口，数据类与 `from_dict` 照用。有子进程测试钉住这一点 | 本轮实测（`import yaml` 直接可用）；§1.2 依赖表原本写着 `❌ 仍未加` —— **该结论作废** |
+| 65 | **★★ "填错了会静默通过"的字段必须从型号派生，"填错了能测出来"的字段才留显式。** 起因：`torque_max`/`torque_monitor_threshold` 的默认值原本写死成 4340P 的 12.0/15.0，于是 4310 填 12.0 **静默通过**（12.0 < 4310 峰值 12.5），填 15.0 才报错 —— **错的能过、对的才拦**。改成 `None ⇒ 从 MOTOR_SPECS[motor_type]` 派生，没有抄错的机会。`pos_kp` 不派生，因为它写错档位会被 `pos_kp_range` 当场抓住 | 本轮；这是 D5（"用错档位力矩差 2.8 倍且不报错"）的同类，只是换了字段 |
+| 66 | **★ 夹爪的限力 1.5/1.8 反过来，必须显式写死。** 同上一条的例外：夹爪是 4310，型号派生会给 3.5/5.0，但夹爪限力本来就该远低于同型号关节。判断标准不是"派生还是显式"，是**有没有第二个可以抄错的对象** —— 夹爪只有一份，抄不错 | §4.3 给的正是 1.5/1.8；本轮 |
+| 67 | **`gear_ratio` / `pmax` / `vmax` / `tmax` 从 `JointConfig` 删除。** §4.2 的修订版里本来就没有它们（换算只有 `dir`/`offset`，D1）；映射范围落进配置只会让人**忘了去读** `0x15/0x16/0x17`。`(PMAX,VMAX,TMAX)` 降级为 `MotorSpec.mapping_range`，**只用于和回读值对拍**（`check_mapping_range`），绝不作为发帧依据 | D1 + §161 + §2.8；§2.1 那句"reBot 配置完全没有 direction/offset/gear_ratio" |
+| 68 | **★ `friction` 改成区间 `friction_min`/`friction_max`，不是单个常数。** §2.8 的实测结论是粘滑：裸 4340P 脱离力矩在 **0.564~0.706** 摆动（22% 离散度）。存一个 0.62 会让人以为它是标定值。**7 台里只测了 `0x01`(0.564~0.706) 和 `0x04`(0.145~0.159)，其余 4 台留空 = 未测，不是 0** | §2.8、§823；本项**不进 §4.2 的字段表**（§4.2 没列它），是本轮按 §823 补的 |
+| 69 | **★ 映射范围两种"最大值"是两回事，配置里分开放。** `0x15/0x16/0x17` 的 VMAX（4340P=10）是 **MIT 帧的线性映射范围**；手册的 40 N·m / 5.86 rad/s 是**物理能力**。所以 `vlim`（命令上限）校验的是前者，`torque_max`/`torque_monitor_threshold` 校验的是后者（`peak_torque`）。混用会让"电机到不了"或"保护永不触发"，两样都不报错 | §161（v0.5 第 20 条已澄清）；本轮把它拆成两个字段 |
+| 70 | **夹爪的 `direction`/`offset` 目前没有消费者 —— 悬置，未定。** §2.3 的公式 `distance = (pos / -5.0) * 0.10` 里 `pos` 就是**电机侧读数**，所以 `m_per_rad` 已经一步跨到电机侧；那 `direction`/`offset` 要么多余，要么是**第二道还没接上的换算**（谁先谁后算出不同结果，而且两种都"看着对"）。`angle_from_meters` 按 §2.3 原式返回**电机侧**弧度，不额外套 dir/offset | §2.3；本轮代码注释已写明。**待夹爪标定时定** |
+| 71 | **`SafetyConfig` 的 `max_temperature`/`min_voltage`/`max_voltage` 被 `temp_warn`/`temp_fault`/`vbus_min`/`vbus_max` 取代。** 单个"最大温度"分不出"该降速"和"该断电" | §4.2 的"增加"那一句 |
+| 72 | **★ 重复校验 = 两处都测不出来。** `from_dict` 和 `ArmConfig.__post_init__` 原本各写了一处"键名与 `name` 一致"检查，**互相兜底** ⇒ 删掉任何一个，另一个照样拦住 ⇒ 测试永远绿（变异测试揪出来的）。删掉 `from_dict` 里那份，只留 `__post_init__` | 本轮 M18；**"同一件事只该有一种说法"** |
+| 73 | **★ 相对 `urdf_path` 解析不出基准目录时必须抛，不能猜。** 原实现用偷偷挂上去的 `cfg._config_dir`，手搓 `ArmConfig` 再调 `load_limits()` 时会**静默**退回仓库默认目录 —— 而"软限位落空"看起来和"检查通过"**一模一样**。改成显式字段 `config_dir` | 本轮；同类于 D5 的"不报错" |
+
+**本轮最该记住的是测试侧的两条 —— 两次都是"尺子错"，不是"东西错"：**
+
+| 次 | 我怎么错的 | 正确的做法 |
+|---|---|---|
+| 1 | 变异脚本的 `expect` 关键词写成**异常信息**里的词，而测试打印的是**断言标签**。于是"套件确实红了、红的就是该红的那条"被判成"漏网" | 报 3/16，真值 15/16 —— **错误的尺子会让好套件看起来像摆设** |
+| 2 | 连续变异之间 **`__pycache__` 串了字节码**，报了一个根本不存在的"漏网" | 加 `-B` + 每次清缓存后 18/18 稳定 |
+
+第 1 条**我在这同一天里犯了第二次**（`Joint` 那轮 M4/M6 也是这么误判的）——
+说明当时只是把上轮的纠正抄了一遍，没想清楚"这把尺子在量什么"。
+**更危险的是反方向：坏尺子也可能把烂套件量成好的** —— 那正是 `Joint` 那轮（124 项全绿、3 处真 bug 靠读代码读出来）的教训。
+
+
 ### v0.8 → v0.9（2026-09-23，`Joint` 落地 —— **MIT 优先，POS_VEL 留桩**）
 
 **这一轮改了一个原定的顺序**：原计划 `Joint` 先做 POS_VEL，实际**先做 MIT**。
@@ -19,7 +53,7 @@
 
 > ⚠️ **不要以为 MIT 是退而求其次。** 它是唯一能**直接给力矩**的模式（`tau_ff`），
 > 将来那 7 关节的重力补偿只能靠它。POS_VEL 的长处是稳态误差能到 0（固件闭环），
-> 代价是**上位机无法限力矩**（design.md:212）。两者是互补的，不是新旧关系。
+> 代价是**上位机无法限力矩**（详见 §2.2 的 ⚠️ 段）。两者是互补的，不是新旧关系。
 
 | # | 内容 | 依据 / 证据 |
 |---|---|---|
@@ -119,7 +153,7 @@
 |---|---|---|
 | 30 | **新增 `dm_frames.py`**：`build_tx` / `mit_frame` / `RxBuf` / `extract_rx` / `read_frames` / `flush_rx` / `decode_feedback` 从 `dm_bringup.py` **原样搬出**（逻辑一行没改）。理由：原先封装层要用这些原语就得 import 一个 CLI 脚本，依赖方向是倒的，也不符合 §1.2 声明的依赖面。**协议代码全项目只允许有一份** | §1.2；`dm_registers.py:64-65` 早就写了"等 MotorBus 落地后两者都应迁过去，这里不重复实现" |
 | 31 | **`dm_bringup.py` 改为再导出**：逐个名字 `from ... import` 并带 `noqa: F401`，对外名字一个不变 → `tools/` 下 4 个脚本与 `dm_registers.py` **一行都不用改** | `pixi run python tools/smoke_dm_frames.py` 全绿即为证据 |
-| 32 | **裸脚本导入的坑（本条最值得记）**：`dm_bringup.py` 是**以裸脚本方式跑**的（readme 里 10 处）。此时它是 `__main__` 不是包成员，**相对导入 `from .dm_frames import ...` 会直接失败**。必须绝对导入 + `sys.path.insert` 兜底（`dm_registers.py:78-81` 早就是这套写法）。→ 验证清单里因此多了一条"裸脚本仍然能跑" | `readme.md:139-156` |
+| 32 | **裸脚本导入的坑（本条最值得记）**：`dm_bringup.py` 是**以裸脚本方式跑**的（readme 的「快速验证」一节，**9 处**全是 `pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py <子命令>`）。此时它是 `__main__` 不是包成员，**相对导入 `from .dm_frames import ...` 会直接失败**。必须绝对导入 + `sys.path.insert` 兜底（`dm_registers.py:78-81` 早就是这套写法）。→ 验证清单里因此多了一条"裸脚本仍然能跑" | `readme.md` 快速验证一节（v0.11 复核：原引 `139-156` 是错的，实为 148–165；处数 10 → 9） |
 | 33 | **新增 `dm_bus.py`**：`MotorBus` + `MotorState`。`send_frame` 是**唯一发送出口**（非阻塞）；`poll()` 非阻塞抽干（就是 `cmd_bandwidth:1113` 的 `read_frames(want=0, timeout=0.0)`）；`send_and_wait()` 是 D2 说的"发一帧等一帧"，且把 **flush → 发 → 等** 合成**原子**一步 | D2「本层取两者并存」 |
 | 34 | **新增 `pos_vel_frame()`**：POS_VEL 帧此前**只存在于 SDK 的 `control_Pos_Vel` 里，而那条路径不可用**（`sleep(0.001)` + `read_all()`）。现在按 §2.6 坑 1 的位布局自构，CAN ID = `0x100+ID`、数据 = `float32(P)+float32(V)` 无缩放 | SDK `DM_CAN.py:166-185` |
 | 35 | **映射范围改为按电机注册**：`MotorBus.add_motor(id, limit)` 是发送与解码的**前置条件**，未注册就报错。这不是形式主义 —— 4310 与 4340P 档位不同，**用错档位力矩差 4 倍**（实测：同一段字节 4310 档 → 0.3004 N·m，4340P 档 → 0.8410 N·m），已钉成回归测试 | D5；`tools/smoke_dm_bus.py` [7] |
@@ -237,7 +271,7 @@
 | `pyserial` | pixi（`pixi.toml:16` `pyserial = ">=3.5,<4"`） | ✅ 已装（v0.7 更正：此前这里写"❌ 未装"是过期的） |
 | `DM_CAN.py` | 已 vendored 在 `src/third_party/Python例程/u2can/DM_CAN.py` | ✅ |
 | `numpy` | pixi（经 robostack 传递依赖；**只剩 SDK 用**，本层已完全不用 —— v0.8 `dm_frames` 去掉了 numpy） | ✅ |
-| `pyyaml` | pixi | ❌ 仍未加 —— 等 `ArmConfig.from_yaml` 那一轮（P0 第二项）再加 |
+| `pyyaml` | pixi | ✅ **无需显式添加**（v0.11 实测）：已作为 `ros-jazzy`/`mujoco` 的**传递依赖**存在于 `.pixi/envs/default/`（6.0.3），`import yaml` 直接可用。**没写进 `pixi.toml`** ⇒ 上游一变可能消失，所以 `arm_config.py` 把 `import yaml` 关进 `from_yaml` 一个函数（见 v0.11 #64） |
 | **不使用 `motorbridge`** | —— | 它是 reBot 的依赖，你选了官方 SDK |
 
 **本层自己的模块**（v0.8）：`dm_frames.py`（协议原语，纯函数）← `dm_bus.py`（MotorBus）。
@@ -1013,7 +1047,7 @@ serial_timeout: 0.003     # 关键：必须远小于 1/500Hz
 send_hz: 500
 feedback_hz: 100
 default_mode: POS_VEL
-urdf_path: ../third_party/urdf/ReBot_Arm_DM.urdf   # 限位真源
+urdf_path: ../../mujoco_pkg/description/ReBot_Arm_DM.urdf   # 限位真源（v0.11 更正：third_party 下只有厂商例程）
 
 joints:
   joint1:
@@ -1112,7 +1146,7 @@ shutdown: 停循环 → disable → sleep(0.5) → 逐关节 shutdown → sleep(
 | 优先级 | 模块 | 说明 |
 |---|---|---|
 | ~~**P0**~~ | ~~`MotorBus` 非阻塞收发~~ | ✅ **已完成（v0.7）**：`dm_bus.py` + `dm_frames.py`（协议原语下沉）+ `tools/smoke_dm_bus.py`。含串口 timeout=3ms、非阻塞 `poll()`、原子 `send_and_wait()`、按电机注册映射范围 |
-| **P0** | `JointConfig` / `ArmConfig` | 含 v0.2 新增的 PID 字段与型号校验 |
+| ~~**P0**~~ | ~~`JointConfig` / `ArmConfig`~~ | ✅ **已完成（v0.11）**：`arm_config.py`（类与校验，零 yaml 依赖）+ `config/rebotarm_b601_mixed.yaml`（真数据）。含 PID 字段、型号↔增益/力矩档位校验、URDF 限位解析、`check_mapping_range` 回读对拍。单测 19 组、变异 18/18。**偏离 §4.2 之处见 v0.11 #64~#73**（夹爪 PID 字段、`torque_*` 不写进 YAML 而按型号派生、`friction` 改区间、删 `gear_ratio`/`pmax`/`vmax`/`tmax`） |
 | ~~**P0**~~ | ~~`Joint` 换算 + 钳位~~ | ✅ **已完成（v0.9）**：`joint.py` + `tools/smoke_joint.py`（55 项）。含 dir/offset 换算、PMAX 硬钳位 + 软限位、静默饱和告警、`assert_healthy()` 先失能再抛。**MIT 可用**；`set_pos_vel` / `set_force_pos` / `switch_mode` 是预留桩（见 §44-53）。⚠️ 尚未与真机联调 |
 | **P0** | `RegisterTool.dump_pid` / `verify_mapping` | D7 的"先读"，无风险 |
 | **P1** | `RegisterTool.apply_pid` / `restore_pid` | D7 的"后写"，带 dry-run |

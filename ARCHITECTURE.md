@@ -2,7 +2,7 @@
 
 > 桌面级 6 轴 + 夹爪机械臂，从零自搭 reBot 的最小 ROS2 版。
 >
-> 相关文档：[`readme.md`](readme.md) 路线与命令 · [`design.md`](src/DMmotor_driver/design.md) 设计决策 · [`docs/reading_guide.md`](docs/reading_guide.md) 蓝本导读
+> 相关文档：[`readme.md`](readme.md) 路线与命令 · [`DESIGN.md`](docs/DESIGN.md) 设计决策 · [`TESTING.md`](docs/TESTING.md) 实测数据 · [`LESSONS.md`](docs/LESSONS.md) 踩坑记录 · [`docs/reading_guide.md`](docs/reading_guide.md) 蓝本导读
 >
 > 最后更新：2026-09-20
 
@@ -140,7 +140,7 @@ flowchart TB
 | 文件 | 作用 | 安全等级 |
 |---|---|---|
 | `ARCHITECTURE.md` | 本文档 | 🟢 |
-| `readme.md` / `design.md` / `docs/*` | 路线 / 设计决策 / 蓝本导读 | 🟢 |
+| `readme.md` / `docs/*` | 路线 / 设计决策（`DESIGN.md`）/ 实测数据（`TESTING.md`）/ 踩坑记录（`LESSONS.md`）/ 蓝本导读 | 🟢 |
 | `pixi.toml` / `pixi.lock` | pixi 环境 | 🟢（**别擅自改 lock**） |
 | `tools/check_env.sh` | 环境自检 | 🟢 |
 | `tools/smoke_dm_frames.py` | CAN 帧构造/切帧/解码，与 SDK 对拍（**不需要硬件**） | 🟢 |
@@ -157,7 +157,8 @@ flowchart TB
 | `dm_bringup.py` | 单电机上电验证（协议原语已下沉，此处**再导出**以兼容） | 🟢 read/monitor；🟡 jog --yes |
 | `dm_registers.py` | 寄存器读写（dump/verify/set/restore） | 🟢 只读/dry-run；🟡 `--commit`；🔴 `--commit --save` |
 | `arm_controller.py` / `joint_controller.py` | ROS2 驱动节点 | ⚠ **空文件（0 行）** |
-| `config/rebotarm_b601_mixed.yaml` | ⚠ **名不副实**：扩展名 yaml，内容是 Python | 🟢 |
+| `arm_config.py` | **配置类与校验**：`JointConfig`/`GripperConfig`/`SafetyConfig`/`ArmConfig` + `MotorSpec` 型号表 + URDF 限位解析（**零 yaml 依赖**，`import yaml` 只在 `from_yaml` 里） | 🟢 纯数据，**不碰硬件** |
+| `config/rebotarm_b601_mixed.yaml` | **真 YAML 数据**（v0.11 起）：joint1–6 + 夹爪 + 安全阈值 | 🟢 |
 | `DM-J4310/4340P-*.md` | 官方手册（0x09 单位就出自这里） | 🟢 |
 | `fake_driver.py` | 虚拟执行器，不接电机 | 🟢 |
 | `rebotarm_msgs/` | 自定义 msg/srv/action | 🟢 |
@@ -178,9 +179,11 @@ flowchart TB
 | **`wd_probe.py`** | `sweep` 递增扫描卡阈值（必须升序 + 第一个触发就停，因为每次触发都要人工断电）；`default` 模式**全程不写 0x09**，验"电机上电默认就带保护"这件事本身。 |
 | **`scan_bus.py`** | 只发刷新帧和读寄存器帧。利用 1:1 规律 —— 不发就没反馈，"没反馈"是干净判据。 |
 | **`smoke_dm_frames.py`** | 尽量拿厂商 SDK 做对照而非自己验自己：同一段字节流同时喂给我们的切帧函数和 SDK 的，结果必须逐字节一致。 |
-| **`design.md`** | D1-D9 设计决策 + 修订史 + 实测基线。**改封装层前必读**。换算只有 `dir`/`offset`，**没有 gear_ratio**。 |
+| **`docs/DESIGN.md`** | §一~§九/§十一/§十二：定位与边界 + 事实基线参考表（§2.1~2.5）+ D1-D9 设计决策 + 类设计 + 配置 + 标定 + 上电序列 + 优先级。**改封装层前必读**。换算只有 `dir`/`offset`，**没有 gear_ratio**。 |
+| **`docs/TESTING.md`** | §2.7/§2.8（实测 4310 / 4340P）+ §十 验证清单 + 看门狗台架现状。**实测数据放这里** —— git log 不会替你记。 |
+| **`docs/LESSONS.md`** | §2.6（SDK 的四个坑）+ 六条**方法上的坑**。记的是"我为什么错了"，不是"哪一行改了"。 |
 | **`arm_controller.py` / `joint_controller.py`** | **0 行占位**。目前**没有任何 ROS 节点能驱动电机**，能跑的真机链路只有脚本直接开串口。 |
-| **`config/rebotarm_b601_mixed.yaml`** | 内容是 Python（4 个 dataclass + `ArmConfig.from_yaml`），真正的 YAML 数据文件还不存在。建议改名 `arm_config.py`。 |
+| **`arm_config.py`** | **类与校验**（代码）；`config/rebotarm_b601_mixed.yaml` 是**数据**。`import yaml` 只出现在 `from_yaml` 一个函数里 —— pyyaml 是本环境的**传递依赖**（没进 `pixi.toml`），隔离后它万一消失只断 YAML 这一个入口，数据类与 `from_dict` 照用。**三条硬边界**：不碰硬件、不存 `(PMAX,VMAX,TMAX)`（那是回读的活）、`direction`/`offset` 默认 `+1`/`0.0` 表示**未标定**而不是标定值。 |
 | **`DM_CAN.py`** | 路径含中文与空格 → 全程 `pathlib`。SDK 会丢反馈帧温度 `D[6]`/`D[7]`，我们自己解析。SDK 的 `control_Pos_Vel` **不能用**（内含 sleep + 阻塞 recv）。 |
 
 ---
@@ -250,7 +253,7 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
 
 > ⚠️ **0x01 的看门狗被人悄悄改掉过 —— 这是一条教训，不是一个勘误。**
 >
-> 时间线：09-20 给 0x01 写了 500ms 进 flash，**并跨断电验证通过**（`design.md:633-638`，记录正确）。
+> 时间线：09-20 给 0x01 写了 500ms 进 flash，**并跨断电验证通过**（`DESIGN.md` §D4「实测记录」→「上线形态验证」失效注记，记录正确）。
 > 之后调试 ERR=13 时写了 `0x09 = 0` 试图解锁 —— **那次写带 `--save`**。
 > 于是 flash 里变成 0，**0x01 有很长一段时间是没有任何保护的，而所有文档都还说它有。**
 >
@@ -282,7 +285,7 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
 ## 八、阅读顺序
 
 **想搞懂项目**：§一 + §六 → [`readme.md`](readme.md) 当前可跑的命令 → §二 架构图 + §五 数据流
-→ [`design.md`](src/DMmotor_driver/design.md) 定位与边界 + 关键决策 → **§七 教训**（最有价值）→ §九 待做
+→ [`DESIGN.md`](docs/DESIGN.md) 定位与边界 + 关键决策 → [`LESSONS.md`](docs/LESSONS.md) **教训**（最有价值）→ DESIGN.md §九 待做
 
 **想读代码**（从安全到危险）：
 `smoke_dm_frames.py`（不需硬件，先看懂帧长什么样）→ **`dm_frames.py`**（协议原语，全项目地基：
@@ -299,11 +302,12 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
 ## 九、待做清单
 
 **P0**
-- ~~`MotorBus` 非阻塞收发（design.md D2）~~ ✅ **已完成** —— `dm_frames.py` + `dm_bus.py` + `tools/smoke_dm_bus.py`。
+- ~~`MotorBus` 非阻塞收发（DESIGN.md D2）~~ ✅ **已完成** —— `dm_frames.py` + `dm_bus.py` + `tools/smoke_dm_bus.py`。
   协议原语已从 `dm_bringup.py` 下沉到 `dm_frames.py`（`dm_bringup` 只再导出，`tools/` 一行未改）。
   ⚠️ `dm_bringup.py` / `dm_registers.py` **尚未迁到 MotorBus 上** —— 它们仍走自己的"发一帧等一帧"路径，
   迁移是下一步（`dm_registers.py:64-65` 已写下这个承诺）
-- `JointConfig` / `ArmConfig`（含 PID 字段与型号校验）—— 需要 `pixi add pyyaml`
+- ~~`JointConfig` / `ArmConfig`~~ ✅ **已完成（v0.11）** —— `arm_config.py` + 真 YAML 数据。
+  pyyaml **不需要显式添加**（已是传递依赖）；`import yaml` 被关进 `from_yaml` 防它哪天消失
 - ~~`Joint` 换算 + 钳位~~ ✅ **已完成**（`joint.py` + `tools/smoke_joint.py`）——**MIT 可用**；
   `set_pos_vel` / `set_force_pos` / `switch_mode` 是**预留桩**（都要先写 `0x0A`，需单独批准）
 - `RegisterTool.dump_pid` / `verify_mapping`（"先读"，无风险）
@@ -325,7 +329,11 @@ B MOS 过温 / C 线圈过温 / **D=13 通讯丢失** / E 过载。
 - `readme.md` 的待办把看门狗列为"未做"——**这条现在是对的**（2026-09-23 实测：只有 `0x01` 有，
   其余 4 台接上的全是 0），示例还写 `0x09 = 200ms`（正确写法见
   `Reg.per_unit`，**1ms = 20 计数**）；另外 `readme.md` 里 10 处 `dm_bringup.py` 的裸脚本调用方式**必须保持可用**
-- `config/rebotarm_b601_mixed.yaml` 改名 `arm_config.py` + 另建真正的 YAML 数据文件
+- ~~`config/rebotarm_b601_mixed.yaml` 改名 `arm_config.py` + 另建真正的 YAML 数据文件~~ ✅ **已完成**（v0.11）。
+  **实际做法与原文措辞不同**：类放进 `DMmotor_driver/arm_config.py`、数据留在 `config/`。
+  原因：`config/` 没有 `__init__.py`，`setup.py` 的 `find_packages` 收不到它 ⇒ 放那儿 import 不进来
+- ⚠️ **`setup.py` 的 `find_packages` 收不到 `config/` ⇒ `colcon build` 装出来的包不带 YAML。**
+  现在没影响（都在源码目录直接跑），挂上 ROS 之前要处理
 - `package.xml` / `setup.py` 的 `description` 还是 `TODO`
 
 **后续阶段**：2 URDF + 自写 FK/IK（用 reBot SDK / MuJoCo 交叉验证）· 3 控制闭环 + 重力补偿
