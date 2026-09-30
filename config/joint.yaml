@@ -1,0 +1,80 @@
+# 关节配置 —— Joint 层的**静态参数**
+# 解析层：src/DMmotor_driver/DMmotor_driver/arm_config.py（load_joint_configs）
+#
+# ⚠️ limit = (PMAX, VMAX, TMAX) 是电机的 **MIT 映射范围**，必须用 0x15/0x16/0x17 的
+#    **回读值**填，不要抄手册、更不要抄别的型号（用错档位解出来的力矩差数倍**且不报错**）：
+#      4340P 实测回读 = 12.5 / 10 / 28   （docs/TESTING.md §2.6、§181）
+#      4310  实测回读 = 12.5 / 30 / 10   （docs/TESTING.md §2.5）
+#    换电机、刷固件、改过寄存器之后，要重新回读核对。
+#
+# ⚠️ direction / offset 现在全是 +1 / 0.0，含义是**未标定**，不是标定结果
+#    （DESIGN.md §2.1："默认值必须让『不标定即等于 reBot 行为』"）。
+#
+# ⚠️ mode 是**声明**（本层读不到寄存器 0x0A），必须与电机实际值一致：
+#      1=MIT　2=位置速度　4=力位混控（**力位混控是 4 不是 3**，3 是速度模式）
+#    实机 0x0A 实测当前是 1(MIT)；要改成 2/4，必须先写 0x0A 并确认写完再改这里。
+#
+# ⚠️ position_min/max 是**关节侧**软限位，来源 URDF（DESIGN.md §2.2）。
+#    换算到电机侧后必须落在 ±PMAX 内，否则 arm_config 会拒绝加载。
+
+joints:
+
+  joint1:
+    motor_type: "4340P"
+    slave_id: 1
+    direction: 1
+    offset: 0.0
+    limit: [12.5, 10.0, 28.0]
+    position_min: -2.8
+    position_max: 2.8
+    mode: 1
+
+  joint2:
+    motor_type: "4340P"
+    slave_id: 2
+    direction: 1
+    offset: 0.0
+    limit: [12.5, 10.0, 28.0]
+    position_min: -3.14
+    position_max: 0.0
+    mode: 1
+
+  joint3:
+    motor_type: "4340P"
+    slave_id: 3
+    direction: 1
+    offset: 0.0
+    limit: [12.5, 10.0, 28.0]
+    position_min: -3.14
+    position_max: 0.0
+    mode: 1
+
+  joint4:
+    motor_type: "4310"
+    slave_id: 4
+    direction: 1
+    offset: 0.0
+    limit: [12.5, 30.0, 10.0]
+    position_min: -1.87
+    position_max: 1.57
+    mode: 1
+
+  joint5:
+    motor_type: "4310"
+    slave_id: 5
+    direction: 1
+    offset: 0.0
+    limit: [12.5, 30.0, 10.0]
+    position_min: -1.57
+    position_max: 1.57
+    mode: 1
+
+  joint6:
+    motor_type: "4310"
+    slave_id: 6
+    direction: 1
+    offset: 0.0
+    limit: [12.5, 30.0, 10.0]
+    position_min: -3.14
+    position_max: 3.14
+    mode: 1

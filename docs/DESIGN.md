@@ -1,4 +1,4 @@
-# DmArm 封装层设计文档（v0.11 —— 配置层落地）
+# DmArm 封装层设计文档（v0.12 —— Joint 重写落地）
 
 > **这几份文档共用一套章节编号**（编号全局唯一 ⇒ 写一个 `§N` 时不带文件名也能找到）：
 
@@ -485,6 +485,42 @@ MIT 是上位机自己做 PD，所以**稳态残差有上界 摩擦/kp，压不�
 > 另外 `cache` 的值类型定为 **`MotorState`（电机侧原始量）**，与 §4.1 的 `JointState`
 > （关节侧、经 dir/offset 换算）**是两个类型，不要合并** —— 这一轮不实现 `JointState`。
 
+> **✅ v0.12 进展（2026-09-28）**：`Joint` 按本节类图**重写落地**
+> （`src/DMmotor_driver/DMmotor_driver/joint.py`，563 行 = 代码 325 + 文档 141 + 注释 34）。
+> **与类图 / §4.2 的有意偏差**（都不是遗漏）：
+>
+> 1. **只实现 MIT(1) 与位置速度(2)**。`set_force_pos()` 与速度模式**不实现** —— 它们的 CAN 帧
+>    在 `dm_frames` 里没有构造函数，而协议代码全项目只允许有一份（本层不自己拼帧）。写别的
+>    模式号在构造/`declare_mode()` 时当场拒，理由写在 `MODE_NOT_IMPLEMENTED`。
+> 2. 构造签名是**显式关键字参数**，**不依赖 `JointConfig`/`arm_config.py`**：
+>    `Joint(bus, motor_id, limit, *, name, direction, offset, position_min, position_max, mode)`。
+>    `limit=(PMAX,VMAX,TMAX)` **由调用方注入**（本层不读寄存器，D5 的回读是上层的事）；
+>    软限位 `None` = 不软钳。构造时会把 `limit` 注册到 bus，冲突则拒（同一电机两个映射范围
+>    是最危险的情形：力矩差数倍且不报错）。
+> 3. `JointState` **去掉 `vbus` 字段**（本层读不到 0x3C ⇒ 恒 None 是死字段）；温度 D[6]/D[7]
+>    照带，但**不做阈值判断**（阈值策略属上层，本层不是安全策略的拥有者）。
+> 4. `switch_mode()` **永远抛**（切模式 = 写 `0x0A`，是寄存器 I/O）；`declare_mode()` 只改
+>    本地声明。`enable()` 按声明模式补"保持帧"，且 **POS_VEL 下没有缓存状态就拒绝使能** ——
+>    切进位置类模式时电机内部指令被清零，拿不到"现在在哪"就会**朝零位冲**。
+> 5. **构造期新增 15 项校验**（全部当场抛）：`direction/mode/limit` 合法性、
+>    **`motor_id ∈ [1,15]`**（反馈帧 ID 只有 4 位，>15 的状态永远进不了缓存 ⇒ 静默失效；
+>    顺带拦住把 master_id `0x11~0x17` 当 slave_id 传进来）、`offset`/软限位/`limit` 必须是
+>    **有限数**（NaN 参数会让每条命令的换算都变 NaN，而 NaN 能穿过两道钳位，最后在
+>    `int(nan)` 处炸 —— 那时已在 `_fail_safe` 里 ⇒ 会**把电机失能**）、软限位自洽且换算后
+>    落在 ±PMAX 内、bus 注册冲突。
+>
+> **本轮不生成验证脚本**（用户要求）：验证改为进程内 55 项断言（heredoc，不落盘）。
+
+> ⚠️ **2026-09-28 工作区现状（读本文档前先看这条）**：当天有一批文件被移入回收站，
+> 目前 `src/DMmotor_driver` 下**只剩** `dm_frames.py`、`dm_bus.py`、`joint.py`、
+> `config/rebotarm_b601_mixed.yaml`（外加两份电机手册）。已移出但**都还在** `git HEAD`
+> 与回收站里的有：`arm_config.py`、`dm_bringup.py`、`dm_registers.py`、`tools/*.py`
+> （含 `smoke_dm_frames.py` / `smoke_dm_bus.py` / `smoke_joint.py`）、`mujoco_pkg/`
+> （**含 URDF 限位真源**）、`rebotarm_msgs/`、`fake_driver_pkg/`、`ARCHITECTURE.md`、
+> `CURRENT_STATE.md`、`src/DMmotor_driver/design.md`。
+> ⇒ 本文档里凡引用 `tools/` 冒烟脚本、`dm_bringup.py`、**URDF 限位**、`arm_config.py`
+> 的段落，**当前都跑不起来**；v0.12 那段说明了本轮 `joint.py` 如何绕开这些依赖。
+
 ```mermaid
 classDiagram
     class MotorBus {
@@ -556,6 +592,8 @@ class JointState:
     vbus: float | None     # V   寄存器 0x3C，未读则为 None
                            # ⚠️ v0.9 实况：**恒为 None** —— 本层不做寄存器 I/O（§六），
                            # 要它得等 RegisterTool 在**上电自检**阶段读一次再塞进来
+                           # ⚠️ v0.12：实现里**已删掉这个字段**（恒 None 就是死字段）。等
+                           # RegisterTool 真读了 0x3C，再由 DmArm/ROS 层决定放哪，别先占位
     enabled: bool
     timestamp: float
 ```
@@ -752,13 +790,13 @@ shutdown: 停循环 → disable → sleep(0.5) → 逐关节 shutdown → sleep(
 | 优先级 | 模块 | 说明 |
 |---|---|---|
 | ~~**P0**~~ | ~~`MotorBus` 非阻塞收发~~ | ✅ **已完成（v0.7）**：`dm_bus.py` + `dm_frames.py`（协议原语下沉）+ `tools/smoke_dm_bus.py`。含串口 timeout=3ms、非阻塞 `poll()`、原子 `send_and_wait()`、按电机注册映射范围 |
-| ~~**P0**~~ | ~~`JointConfig` / `ArmConfig`~~ | ✅ **已完成（v0.11）**：`arm_config.py`（类与校验，零 yaml 依赖）+ `config/rebotarm_b601_mixed.yaml`（真数据）。含 PID 字段、型号↔增益/力矩档位校验、URDF 限位解析、`check_mapping_range` 回读对拍。单测 19 组、变异 18/18。**偏离 §4.2 之处**（夹爪 PID 字段、`torque_*` 不写进 YAML 而按型号派生、`friction` 改区间、删 `gear_ratio`/`pmax`/`vmax`/`tmax`） |
-| ~~**P0**~~ | ~~`Joint` 换算 + 钳位~~ | ✅ **已完成（v0.9）**：`joint.py` + `tools/smoke_joint.py`（55 项）。含 dir/offset 换算、PMAX 硬钳位 + 软限位、静默饱和告警、`assert_healthy()` 先失能再抛。**MIT 可用**；`set_pos_vel` / `set_force_pos` / `switch_mode` 是预留桩（见 §44-53）。⚠️ 尚未与真机联调 |
-| **P0** | `RegisterTool.dump_pid` / `verify_mapping` | D7 的"先读"，无风险 |
-| **P1** | `RegisterTool.apply_pid` / `restore_pid` | D7 的"后写"，带 dry-run |
+| ~~**P0**~~ | ~~`JointConfig` / `ArmConfig`~~ | ✅ **已完成（v0.11）**：`arm_config.py`（类与校验，零 yaml 依赖）+ `config/rebotarm_b601_mixed.yaml`（真数据）。含 PID 字段、型号↔增益/力矩档位校验、URDF 限位解析、`check_mapping_range` 回读对拍。单测 19 组、变异 18/18。**偏离 §4.2 之处**（夹爪 PID 字段、`torque_*` 不写进 YAML 而按型号派生、`friction` 改区间、删 `gear_ratio`/`pmax`/`vmax`/`tmax`）⚠️ **2026-09-28：`arm_config.py` 已移出工作区**（回收站 + git HEAD 可取回）；v0.12 的 `joint.py` **不依赖它** —— 限位/方向/零位改由构造参数传入 |
+| ~~**P0**~~ | ~~`Joint` 换算 + 钳位~~ | ✅ **已完成（v0.12，2026-09-28 重写）**：`joint.py` 单文件 563 行（代码 325）。**MIT + POS_VEL 双模式**（v0.9 里 `set_pos_vel` 还只是桩）、dir/offset 换算、PMAX 硬钳位 + 软限位、静默饱和告警、`assert_healthy()` 先失能再抛、`enable()` 按模式补"保持帧"（POS_VEL 无缓存状态**拒绝使能**）、15 项构造校验。⚠️ **`set_force_pos` / 速度模式不实现**（协议帧只在 `dm_frames`）；⚠️ **POS_VEL 真机仍不可跑** —— 要先有下表的 `RegisterTool` 写 `0x0A=2` 与 `0x19~0x1C`/`0x1F`；⚠️ 尚未与真机联调。本轮**不生成** `tools/smoke_joint.py`（验证＝进程内 55 项断言，不落盘） |
+| **P0** | `RegisterTool.dump_pid` / `verify_mapping` | D7 的"先读"，无风险。**← 下一轮就是这项**：读 `0x15/0x16/0x17` 拿到 MIT 映射范围（`Joint` 的 `limit` 就靠它），也是 POS_VEL 真机可跑的第一步 |
+| **P1** | `RegisterTool.apply_pid` / `restore_pid` | D7 的"后写"，带 dry-run。**POS_VEL 真机可跑的其余前置**：写 `0x0A=2`（RAM，断电复位回 MIT）、`0x19~0x1C`（POS_VEL 的 PID）、**`0x1F` 阻尼因子**（手册：位置速度模式要求非 0 正数，推荐 4.0，否则震荡/过冲） |
 | **P1** | 电机侧看门狗（0x09） | D4。**现状：只有 `0x01` 有（750ms，2026-09-23 重写 flash 并跨断电验证）；`0x02`~`0x05` 全为 0**，那 4 台当初只写了 RAM，已被断电冲掉。**注意"未做"不等于"现在有风险"**：这 5 台全是失能状态，没有出力路径；看门狗只在**你自己写了控制循环之后**才是兜底 —— 所以这项**和 D3 一起做**，不是它的前置。另：`--save` 是不可逆的持久化改动，逐台单独确认；触发过一次 ERR=13 后**必须断电**才能继续 |
 | **P1** | 标定脚本（第七节） | 仿件必需 |
-| **P1** | `JointState` 全字段（含温度解析） | D6 |
+| ~~**P1**~~ | ~~`JointState` 全字段（含温度解析）~~ | ✅ **已完成（v0.12）**：`joint.py` 的 `JointState`（温度 D[6]/D[7] 已带；`vbus` 按 §4.1 说明删掉） |
 | **P1** | 错误码解码表 | 2.5 |
 | **P2** | `check_health` / `emergency_disable` | 主机侧看门狗 + 分级检查 |
 | **P2** | 重力补偿 | D8，依赖 pinocchio |

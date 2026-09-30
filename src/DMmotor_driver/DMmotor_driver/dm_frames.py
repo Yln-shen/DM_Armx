@@ -24,6 +24,7 @@
 ## CAN ID 规则（易错，两套别搞混）
 
     POS_VEL   0x100 + SlaveID      ← 不是 SlaveID 本身
+    力位混控   0x300 + SlaveID
     MIT       SlaveID 本身
     使能/失能  SlaveID 本身         （数据 FF*7 + 0xFC/0xFD）
     读寄存器   0x33 ； 刷新  0x7FF  （广播）
@@ -172,6 +173,27 @@ def pos_vel_frame(slave_id, p_des: float, v_des: float) -> bytes:
     p_bytes = float_to_uint8s(p_des)
     v_bytes = float_to_uint8s(v_des)
     return build_tx(0x100 + slave_id, p_bytes + v_bytes)
+
+
+def force_pos_frame(slave_id, p_des: float, v_des: float, i_des: float) -> bytes:
+    """力位混控控制帧。CAN ID = **0x300 + SlaveID**（与 MIT / POS_VEL 都不同）。
+
+    数据 8 字节（手册「力位混控模式下控制帧」）：
+        D[0:4] = float32(p_des)          rad，低位在前，高位在后
+        D[4:6] = uint16(v_des × 100)     rad/s，低位在前，上限 10000 ⇒ 实际 0~100
+        D[6:8] = uint16(i_des × 10000)   扭矩电流限定标幺值，上限 10000 ⇒ 实际 0~1.0
+
+    ⚠️ `i_des` 是**电流指令的上限**（手册框图的"电流指令饱和环节"），不是力矩前馈 ——
+        给 0 就是"一点力都不给"（重力负载下会垂下去），不是"不给额外的力"。
+
+    ⚠️ 两个 uint16 都**无符号**：负值被钳到 0，超上限静默钳到 10000 —— 与
+        `float_to_uint` 的钳位行为一致（本模块不打屏、不判断安全，拦负数是调用方的事）。
+        截断用 `int()`（向零），不是 `round()`：与 SDK 的 `np.uint16(x)` 一致。
+    """
+    v = int(max(0.0, min(float(v_des), 100.0)) * 100.0)
+    i = int(max(0.0, min(float(i_des), 1.0)) * 10000.0)
+    data = float_to_uint8s(p_des) + v.to_bytes(2, "little") + i.to_bytes(2, "little")
+    return build_tx(0x300 + slave_id, data)
 
 
 def cmd_frame(slave_id, cmd: int) -> bytes:

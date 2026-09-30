@@ -58,14 +58,14 @@ from pathlib import Path
 try:
     from DMmotor_driver.dm_frames import (
         ERR_OK, CMD_ENABLE, CMD_DISABLE,
-        pos_vel_frame, mit_frame, cmd_frame, refresh_frame,
+        pos_vel_frame, mit_frame, force_pos_frame, cmd_frame, refresh_frame,
         RxBuf, read_frames, flush_rx, decode_feedback,
     )
 except ImportError:  # 裸脚本直跑：parents[1] 就是 src/DMmotor_driver
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from DMmotor_driver.dm_frames import (
         ERR_OK, CMD_ENABLE, CMD_DISABLE,
-        pos_vel_frame, mit_frame, cmd_frame, refresh_frame,
+        pos_vel_frame, mit_frame, force_pos_frame, cmd_frame, refresh_frame,
         RxBuf, read_frames, flush_rx, decode_feedback,
     )
 
@@ -133,6 +133,9 @@ class MotorBus:
         self.rx = RxBuf()
         self._limits: dict[int, tuple[float, float, float]] = {}
         self._types: dict[int, str] = {}
+        # 已注册的电机 ID。所有 send_* 一律先查这里 —— 没注册的电机发帧出去没人解、
+        # 回帧也认不出，是最隐蔽的一类错，宁可在发送口拦下来。
+        self.registered_ids: set[int] = set()
         self._cache: dict[int, MotorState] = {}
         # 保护 write 与 poll 的配对。D2 的 500Hz 发 / 100Hz 收是两个独立循环，
         # 分开跑线程是文档里的形态；一个锁的成本极低，不留这个坑。
@@ -206,6 +209,7 @@ class MotorBus:
         if not (p > 0 and v > 0 and t > 0):
             raise ValueError(f"电机 0x{motor_id:02X} 的映射范围必须都是正数，收到 {limit}")
         self._limits[motor_id] = (p, v, t)
+        self.registered_ids.add(motor_id)
         if motor_type:
             self._types[motor_id] = motor_type
 
@@ -216,15 +220,22 @@ class MotorBus:
     def motors(self) -> dict[int, tuple[float, float, float]]:
         return dict(self._limits)
 
-    def _limit(self, motor_id: int) -> tuple[float, float, float]:
-        try:
-            return self._limits[motor_id]
-        except KeyError:
-            raise KeyError(
-                f"电机 0x{motor_id:02X} 没注册。先调 add_motor(id, limit)，"
+    def _require_registered(self, motor_id: int) -> None:
+        """发送前的准入检查：**这台电机注册过吗**。
+
+        与 `_limit()` 分开，是因为力位混控帧（`send_force_pos`）**用不到映射范围** ——
+        它的帧构造与反馈解码都不经过 (PMAX, VMAX, TMAX)。但"注册过"两种都要查。
+        """
+        if motor_id not in self.registered_ids:
+            raise RuntimeError(
+                f"电机 0x{motor_id:02X} 没注册，拒绝发送。先调 add_motor(id, limit)，"
                 f"limit 用 0x15/0x16/0x17 的回读值（别写死 —— 4310 与 4340P 档位不同，"
                 f"用错档位力矩差 4 倍）"
-            ) from None
+            )
+
+    def _limit(self, motor_id: int) -> tuple[float, float, float]:
+        self._require_registered(motor_id)
+        return self._limits[motor_id]
 
     # ───────────────────────── 发送 ─────────────────────────
     def send_frame(self, frame: bytes) -> int:
@@ -274,20 +285,34 @@ class MotorBus:
         limit = self._limit(motor_id)
         return self.send_frame(mit_frame(motor_id, q, dq, kp, kd, tau, limit))
 
+    def send_force_pos(self, motor_id: int, pos: float, vlim: float, i_pu: float) -> int:
+        """力位混控（CAN ID = **0x300 + ID**）：位置 + 限速 + **电流上限标幺值**。
+
+        与 `send_pos_vel` / `send_mit` 的区别：**不查映射范围** —— 力位混控的帧构造
+        与反馈解码都不需要 (PMAX, VMAX, TMAX)；但**要查注册**（`_require_registered`）。
+
+        ⚠️ `i_pu` 是**电流指令的上限**（0~1 标幺），不是力矩前馈：给 0 就是"一点力都不给"。
+        """
+        self._require_registered(motor_id)
+        return self.send_frame(force_pos_frame(motor_id, pos, vlim, i_pu))
+
     def send_enable(self, motor_id: int) -> int:
         """使能（0xFC）。⚠️ 只发帧，**不检查结果、不等待**。
 
         ⚠️ 使能之后必须**立刻**补一条保持命令（reBot 的做法），否则电机会处于
         "已使能但没命令"的窗口。这个时序由 `Joint`/`DmArm` 保证。
         """
+        self._require_registered(motor_id)
         return self.send_frame(cmd_frame(motor_id, CMD_ENABLE))
 
     def send_disable(self, motor_id: int) -> int:
         """失能（0xFD）。"""
+        self._require_registered(motor_id)
         return self.send_frame(cmd_frame(motor_id, CMD_DISABLE))
 
     def send_refresh(self, motor_id: int) -> int:
         """0x7FF 刷新帧：查某台电机的状态。**广播 CAN ID，但数据里带了目标 ID。**"""
+        self._require_registered(motor_id)
         with self._lock:
             n = self.send_frame(refresh_frame(motor_id))
             # send_frame 已经 +1 到 n_sent 了，这里把它挪到广播计数去 ——
