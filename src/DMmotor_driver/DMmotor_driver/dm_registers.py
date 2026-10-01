@@ -61,6 +61,7 @@ class Reg:
     access: str            # "RW" / "RO"
     limits: str            # 手册里那一列，纯文档
     note: str
+    per_unit: float | None = None   # 1 个计数 = 多少**秒**（None = 与物理量没有换算关系）
 
     @property
     def kind(self) -> str:
@@ -76,9 +77,17 @@ class Reg:
     def from_raw(self, raw4: bytes):
         return uint8s_to_uint32(raw4) if self.kind == "uint32" else uint8s_to_float32(raw4)
 
-    def fmt(self, raw4: bytes) -> str:
-        v = self.from_raw(raw4)
-        return f"{v:g}"
+    def fmt(self, value) -> str:
+        """把**解码后**的值格式化成给人看的字符串。
+
+        带 `per_unit` 的寄存器（0x09 TIMEOUT：1 计数 = 50µs）**同时**标出人看的单位 ——
+        换算规则只在本字段定义这一处（DESIGN D4：别在别处再写一遍，那个坑测废过两轮）。
+        """
+        if value is None:
+            return "读不到"
+        if self.per_unit is None:
+            return f"{value:g}"
+        return f"{value:g}（{value * self.per_unit * 1000:g} ms）"
 
 
 # 手册「寄存器列表及范围」逐条抄下来（`DM-J4340P-2EC V1.1 .md:539+`）
@@ -92,7 +101,7 @@ REGISTERS = [
     Reg(0x06, "MAX_SPD",   "RW", "(0.0, fmax)",   "最大速度"),
     Reg(0x07, "MST_ID",    "RW", "[0, 0x7FF]",    "反馈 ID"),
     Reg(0x08, "ESC_ID",    "RW", "[0, 0x7FF]",    "接收 ID"),
-    Reg(0x09, "TIMEOUT",   "RW", "[0, 2^32-1]",   "超时警报时间（单位 50µs）"),
+    Reg(0x09, "TIMEOUT",   "RW", "[0, 2^32-1]",   "超时警报时间", per_unit=50e-6),
     Reg(0x0A, "CTRL_MODE", "RW", "[0, 4]",        "控制模式（RAM，掉电复位）"),
     Reg(0x0B, "Damp",      "RO", "/",             "电机粘滞系数"),
     Reg(0x0C, "Inertia",   "RO", "/",             "电机转动惯量"),
@@ -135,6 +144,7 @@ REGISTERS = [
 ]
 BY_RID = {r.rid: r for r in REGISTERS}
 BY_NAME = {r.name.lower(): r for r in REGISTERS}
+BY_LABEL = {r.label: r for r in REGISTERS}
 
 # `dump` 的默认读回集合（都不是"危险"寄存器）
 DEFAULT_DUMP = ["MST_ID", "ESC_ID", "CTRL_MODE", "TIMEOUT", "OT_Value", "OC_Value",
@@ -329,7 +339,8 @@ def _open(args) -> MotorBus:
 def cmd_list(args) -> int:
     print(f"{'RID':<7}{'变量':<11}{'读写':<5}{'类型':<8}{'范围':<14}说明")
     for r in REGISTERS:
-        print(f"0x{r.rid:02X}   {r.name:<11}{r.access:<5}{r.kind:<8}{r.limits:<14}{r.note}")
+        unit = "" if r.per_unit is None else f"  [1 计数 = {r.per_unit * 1e6:g} µs]"
+        print(f"0x{r.rid:02X}   {r.name:<11}{r.access:<5}{r.kind:<8}{r.limits:<14}{r.note}{unit}")
     print(f"\n共 {len(REGISTERS)} 个。uint32 类型的 RID（与 SDK is_in_ranges 一致）："
           f"{', '.join(f'0x{r:02X}' for r in sorted(_INT_RIDS))}")
     print(f"默认 dump 集合：{', '.join(DEFAULT_DUMP)}")
@@ -342,7 +353,7 @@ def cmd_dump(args) -> int:
     regs = args.regs.split(",") if args.regs else None
     values, misses = tool.dump(regs, args.timeout)
     for k, v in values.items():
-        print(f"  {k:<18}{v:g}")
+        print(f"  {k:<18}{BY_LABEL[k].fmt(v)}")
     p = save_dump(args.id, args.type, args.port, values, args.tag)
     print(f"\n读了 {len(values)} 个 → {p.relative_to(REPO)}")
     if misses:
@@ -370,9 +381,8 @@ def cmd_set(args) -> int:
     tool.check_writable(reg, args.force)          # 先拒，再备份（拒了就不必备份）
 
     before = tool.read(reg.rid, args.timeout)
-    print(f"{reg.label}（{reg.kind}）  当前 = "
-          f"{'读不到' if before is None else format(before, 'g')}")
-    print(f"  将要写入 = {args.value:g}")
+    print(f"{reg.label}（{reg.kind}）  当前 = {reg.fmt(before)}")
+    print(f"  将要写入 = {reg.fmt(args.value)}")
     if args.dry_run:
         print("--dry-run：一个字节都没写。")
         return 0
@@ -383,7 +393,7 @@ def cmd_set(args) -> int:
     print(f"  写前基线：{p.relative_to(REPO)}")
 
     before, after, echo_ok = tool.write(reg, args.value, args.force, args.timeout)
-    print(f"  写完读回 = {'读不到' if after is None else format(after, 'g')}"
+    print(f"  写完读回 = {reg.fmt(after)}"
           f"{'（回包与发出的字节一致 ✓）' if echo_ok else '（⚠ 回包对不上/超时）'}")
     if after is None:
         print("⚠ 没读到回包：电机可能没接受（RID/类型/接线），**不代表写成功了**")
@@ -424,10 +434,11 @@ def cmd_restore(args) -> int:
             n_skip += 1
             continue
         if not args.yes:
-            print(f"  [将写] {reg.label}: {now} → {want}")
+            print(f"  [将写] {reg.label}: {reg.fmt(now)} → {reg.fmt(want)}")
             continue
         before, after, echo_ok = tool.write(reg, want, args.force, args.timeout)
-        print(f"  {reg.label}: {before} → {after}" + ("" if echo_ok else "  ⚠ 回包对不上"))
+        print(f"  {reg.label}: {reg.fmt(before)} → {reg.fmt(after)}"
+              + ("" if echo_ok else "  ⚠ 回包对不上"))
         n_ok += 1 if after is not None else 0
     if not args.yes:
         print("\n上面是**计划**；确认要写就加 --yes")

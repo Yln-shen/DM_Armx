@@ -16,8 +16,8 @@
 | 控制模式常量 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | ✅ |
 | 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障；**2026-10-01 真机跑通 MIT 与 POS_VEL**（各做零增益抽检 + ±0.08 rad 点动去回）；力位混控**真机未跑** |
 | 配置解析 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) + [config/joint.yaml](config/joint.yaml) | ✅ 6 关节 |
-| 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机验证**：读全 ✓、写 4 个 PID + 切 `0x0A` 均回包一致（**写 RAM**，flash 未验证） |
-| 整臂层 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 监控 + **MIT 力矩钳位**；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz、零误报）；**未做**：方向/零位标定、带目标的动作、`0x09` 看门狗统一配置、ROS2 |
+| 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
+| 整臂层 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控 + MIT 力矩钳位；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz、零误报）；**未做**：方向/零位标定、带目标的动作、ROS2 |
 | ROS2 集成 | — | ❌ 未做（**当前代码不 import rclpy**） |
 | 夹爪 | — | ❌ 本阶段不做 |
 
