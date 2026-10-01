@@ -25,7 +25,7 @@
 | [dm_frames.py](src/DMmotor_driver/DMmotor_driver/dm_frames.py) | 435 | CAN 帧编解码**纯函数**：30B 发送帧模板、8B 数据段、16B 收帧切分、反馈解码、**寄存器读/写/存参数帧 + 回包分类解码** | 不 import 本包、不打屏、不发帧、不判安全、**`_TX_TEMPLATE` 是不可推导的魔数**（改错=适配器不认帧且无报错） |
 | [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | 531 | 一条总线的**非阻塞**收发：唯一发送出口 `send_frame()`、`poll()` 抽干、`MotorState` 缓存、`registered_ids` 准入、**寄存器 I/O（`read/write_register`/`save_params`）** | **不写寄存器** —— 它只发寄存器帧，写什么由 `dm_registers.py` 决定；不设零位、不自动使能、不判安全；`close()` 不负责失能 |
 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | 27 | 模式编码 `MODE_MIT=1/POS_VEL=2/FORCE_POS=4` + `MODE_NAMES` | 零 import；**3 = 速度模式，不是力位混控** |
-| [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | 271 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 / **MIT 力矩钳位 `_clamp_mit_torque`** | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**MIT 与 POS_VEL 已真机跑通**（2026-10-01）；力位混控**真机未跑** |
+| [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | 271 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 / **MIT 力矩钳位 `_clamp_mit_torque`** | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**三种模式都已真机跑通**（MIT/POS_VEL 2026-10-01 上午；**力位混控 2026-10-01 深夜**）|
 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 188 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`/**`torque_max`**）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（力矩阈值与 `torque_max` 都必须 < 型号峰值，峰值表 `_PEAK_TORQUE`） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | 417 | `DmArm`：连接/关闭、使能失能、批量 POS_VEL / MIT、状态（`get_state`/`refresh_all_states`/`sync_states`）、健康检查与急停、**力矩+温度监控**、发/收两个阻塞循环（节拍与退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都阻塞、**不能同时跑**（调用方开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**循环与监控已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz / 监控零误报） |
 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | 492 | 寄存器工具：49 条寄存器表（`Reg` 带 **`per_unit`**：换算只在这一处）+ `RegisterTool` + CLI `list/dump/verify/set/restore` | 只管寄存器 I/O：**不使能、不发控制帧、不判安全**；默认不碰 flash。**读 + 写 RAM + `--save` 写 flash 都已真机验证**（2026-10-01：写 `0x09` 后**断电重上电仍在** ⇒ 手册的 `0xAA`/`0x01` 字节是对的） |
@@ -49,7 +49,7 @@ prepare_frame(pos)                      # NaN 拦 → 软限位 → 换算 → P
 set_mit(kp, kd, q, dq=0.0, tau=0.0)     # 仅 mode==1；torque_max 不是 None 时先钳 tau_ff
 _clamp_mit_torque(...)                  # 私有：PD 项自己超 → 拒发；否则把 tau_ff 钳到 ±torque_max
 set_pos_vel(pos, vlim)                  # 仅 mode==2；vlim 是幅值、负值抛
-set_force_pos(pos, vel, current)        # 仅 mode==4；current ∈ [0,1]
+set_force_pos(pos, vel, current)        # 仅 mode==4；current ∈ [0,1] 电流上限（已真机跑通）
 get_state()   -> JointState             # 无反馈 ⇒ 抛 RuntimeError
 assert_healthy() -> None                # 只查 ERR（温度归上层）；故障 ⇒ 先失能再抛
 switch_mode(mode)                       # 永远抛 NotImplementedError（附五步指引）
@@ -115,6 +115,22 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 - 收尾把 `0x0A` 写回 **1**，与 `config/joint.yaml` 的冷启动声明一致（`0x0A` 本来就是 RAM）。
 - 证据快照：`registers/06/20261001-170644_baseline.json`、`..._170902_before_pid.json`、`..._171147_before_posvel.json`
 
+**2026-10-01 真机力位混控（mode 4）实测**（单台 id=6 / 4310，裸机平放、无负载；全程只使能这一台）：
+- 做法：`dm_registers` 写 `0x0A=4`（RAM）→ **进程内**把 `joint.mode` 改成 4（`switch_mode()` 指引的那一步，
+  **不改仓库 yaml**）→ 手写 100 Hz 发/收节拍循环（含 ERR 与"位移 >0.5 rad"守卫）；收尾 `0x0A` 写回 1、PID 还原工厂值
+- `enable()` 的保持帧（`i_des=1.0` + 实测位置）⇒ 漂移 **0.00000 rad** ⇒ **使能本身不动** ✓
+- **`i_des` 语义实测（陷阱 #3 结案）**：目标 +0.08 rad、vel=0.5
+  - `i_des=0.0` ⇒ 150 圈/1.5 s **完全不动**（末位 +1.7977、残差 +0.0800、|tau| **0.0073**）
+  - `i_des=0.2` ⇒ 到位 **+1.8774**、残差 **+0.0003**、|tau| 0.169
+  - `i_des=1.0` ⇒ 到位 +1.8774、残差 **+0.0003**、|tau| 0.173 ⇒ **与 0.2 完全一致**
+    ⇒ 电流上限只在环路"想要更多电流"时（负载/加速）才起作用：**空载自由轴上 0.2 与 1.0 无差别**
+- **PID 对比**：工厂值（0.00372/0.002/54/0）与 DESIGN 计划值（0.0008/0.002/70/1.0）在这台空载上几乎无差别
+  （残差 +0.0003 / −0.0005，回位残差稳定在 −0.0004，|tau| 峰值 0.15~0.19）
+- 全程 **100.0 Hz、0 超时、ERR 恒 1、温度 34/31 ℃**；收尾 6 台 ERR 全 0
+- ⚠️ 结束时 j6 比开始时偏 **+0.0008 rad**（0.046°：稳态残差 −0.0004 + 最后一帧后的自然停靠）
+- 证据：`registers/06/20261001-233044_before_mode4.json`、`..._233104_after_mode4.json`
+  （另有 `..._233028_before_mode4.json` 是首次尝试崩溃前的快照，当时 `0x0A` 还是 1）
+
 **2026-10-01 真机整臂实测**（6 台**裸电机平放桌面、无负载、未组装**；`/dev/ttyACM0`；⚠️ 各 ID 与物理位置的对应关系**未确认**，用户说"地址顺序可能不对"）：
 - **电机侧看门狗 `0x09`：6 台已统一为 `10000` 计数 = 500 ms，并已存 flash**（2026-10-01）。
   过程：先只动 id1（`set --force --save --yes`：写前自动 dump 基线 → 写 10000 → 读回一致 → 存 flash 收到回包）
@@ -166,7 +182,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 |---|---|---|
 | 1 | **`NaN` 会穿过钳位**（`min/max` 与 NaN 比较恒 False） | `prepare_frame()` 入口 + 三个 `set_*` 各自 `math.isfinite` 拦；抛 `ValueError` 且**不失能**（NaN 是软件错，失能反而危险） |
 | 2 | **切进位置类模式时电机内部指令被清零** | `enable()` 在 mode 2/4 下**没有缓存位置就拒绝使能**，并使能后**立刻补"保持帧"** |
-| 3 | **力位混控的 `i_des` 是电流上限、不是力矩前馈** | 给 0 = 一点力都不给（负载下会垂）；`enable()` 的保持帧用 `1.0`（真保持，但**依赖未标定 PID**） |
+| 3 | **力位混控的 `i_des` 是电流上限、不是力矩前馈** | 给 0 = 一点力都不给（负载下会垂）；`enable()` 的保持帧用 `1.0`。**2026-10-01 真机结案**：`i_des=0.0` ⇒ 1.5s 内**完全不动**（\|tau\| 0.007）；`i_des=0.2` 与 `1.0` 在**空载自由轴上结果完全一致**（残差都 0.0003）⇒ 上限只在环路真要更多电流时（负载/加速）才起作用 |
 | 4 | **`force_pos_frame` 与 SDK 约定不同** | 我们收**物理量**（rad/s、0~1 标幺）并在函数内放大；SDK `control_pos_force` 收**已放大**的整数。别把 SDK 参数直接抄过来（数值已逐字节对拍一致） |
 | 5 | **两层 `get_state()` 语义不同** | `MotorBus.get_state()` 返回 `None`（"从没收到过"是正常）；**`Joint.get_state()` 抛 `RuntimeError`** |
 | 6 | **所有 `send_*` 先查 `registered_ids`**（`_require_registered`）；`send_frame` **查不了**（它不收 `motor_id`，CAN ID 已在帧里） | 忘注册会 `RuntimeError`；`_limit()` 也从 `KeyError` 改成了 `RuntimeError` |
