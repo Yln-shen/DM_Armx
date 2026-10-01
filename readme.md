@@ -17,6 +17,7 @@
 | 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障 / **力矩上限（MIT 钳 tau_ff、力位钳 i_des）**；**2026-10-01 三种模式都真机跑通**（MIT/POS_VEL 各做零增益抽检 + ±0.08 rad 点动去回；力位混控另测 `i_des` A/B/C） |
 | 配置解析 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) + [config/joint.yaml](config/joint.yaml) | ✅ 6 关节 |
 | 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
+| 单电机排障脚本 | [dm_bringup.py](src/DMmotor_driver/DMmotor_driver/dm_bringup.py) | ✅ `read`/`monitor`/`jog --mit`/`bandwidth`；**刻意不 import 本包**、只走厂商 SDK（排障时用来分清是封装错还是链路错）。2026-10-01 恢复并真机只读验证 |
 | 整臂层 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控 + MIT 力矩钳位；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz、零误报）；**未做**：方向/零位标定、带目标的动作、ROS2 |
 | ROS2 集成 | — | ❌ 未做（**当前代码不 import rclpy**） |
 | 夹爪 | — | ❌ 本阶段不做 |

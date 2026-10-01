@@ -29,8 +29,9 @@
 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 200 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`/**`torque_max`**）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（力矩阈值与 `torque_max` 都必须 < 型号峰值 `_PEAK_TORQUE`；**声明 mode 4 还要求型号在 `NM_PER_I_DES` 里**） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | 417 | `DmArm`：连接/关闭、使能失能、批量 POS_VEL / MIT、状态（`get_state`/`refresh_all_states`/`sync_states`）、健康检查与急停、**力矩+温度监控**、发/收两个阻塞循环（节拍与退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都阻塞、**不能同时跑**（调用方开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**循环与监控已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz / 监控零误报） |
 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | 492 | 寄存器工具：49 条寄存器表（`Reg` 带 **`per_unit`**：换算只在这一处）+ `RegisterTool` + CLI `list/dump/verify/set/restore` | 只管寄存器 I/O：**不使能、不发控制帧、不判安全**；默认不碰 flash。**读 + 写 RAM + `--save` 写 flash 都已真机验证**（2026-10-01：写 `0x09` 后**断电重上电仍在** ⇒ 手册的 `0xAA`/`0x01` 字节是对的） |
+| [dm_bringup.py](src/DMmotor_driver/DMmotor_driver/dm_bringup.py) | 1169 | **单电机排障脚本**（2026-10-01 从 git 历史恢复，见 §8）：`read` / `monitor` / `jog [--mit]` / `bandwidth` 四条子命令，会把每条 CAN 帧摊开讲 | **刻意不 import 本包任何模块** —— 只依赖 vendored SDK + pyserial（价值就在这：排障时能分清"是我们的封装错"还是"链路本身错"）。默认**只读**、永不写寄存器/零位、使能必须 `--yes`、退出（含 Ctrl-C）必失能；**使能时 `--hz` 硬限制 ≥5Hz**（否则会撞 500ms 看门狗） |
 | [config/joint.yaml](config/joint.yaml) | — | 6 关节静态参数 | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
-| [setup.py](src/DMmotor_driver/setup.py) | 40 | 装 `share/DMmotor_driver/config/joint.yaml`（用 `Path(__file__).parents[2]` 定位仓库根） | `entry_points` 的 `dm-dump-registers` 现在**有模块可指**了；`dm-bringup` 仍指向不存在的模块 |
+| [setup.py](src/DMmotor_driver/setup.py) | 40 | 装 `share/DMmotor_driver/config/joint.yaml`（用 `Path(__file__).parents[2]` 定位仓库根） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` **现在都有模块可指**（后者靠 2026-10-01 恢复的 `dm_bringup.py`） |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -77,7 +78,7 @@ joint_to_motor(v) / motor_to_joint(v) / clamp(pos) / clamp_pmax(motor_pos)
 CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`--save --yes` 才写 flash 且**写前自动 dump 基线**；
 `restore` 默认只打印计划。发送前 `is_reg_response` 把寄存器回包与反馈帧分开。
 
-**未实现（别以为有）**：`dm_bringup` CLI · ROS2 节点/话题/URDF/`ros2_control` · 夹爪 · 速度模式(3) · 重力补偿 ·
+**未实现（别以为有）**：ROS2 节点/话题/URDF/`ros2_control` · 夹爪 · 速度模式(3) · 重力补偿 ·
 电压监控（本层读不到 `0x3C`）· 方向/零位标定 · **任何测试文件**。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
@@ -233,7 +234,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 22 | **MIT 的力矩上限是"近似"的**：`torque_max` 只能按 `kp·(q_des−q)+kd·(dq_des−dq)+tau_ff` **预测**，而 `q/dq` 来自缓存（滞后 1~20ms） | 已实现（`Joint._clamp_mit_torque`）：PD 项自己超 ⇒ 拒发；否则钳 `tau_ff`。慢速时预测很准，快速运动时（5 rad/s、kp=10）可能差 ~1 N·m ⇒ **别把它当硬保证**，POS_VEL 侧还有事后监控兜底 |
 | 23 | **监控挂在收循环上** ⇒ 只跑 `run_control_loop`（发）就**完全没有力矩/温度监控** | 两个循环必须成对跑（或自己在 `fn` 里调 `_monitor_step`）。另外：**自己写排空循环极易写错** —— 真机实测 `flush → refresh → sleep`（sleep 之后不 poll）会让新到的回包在下一轮被 `flush` 掉，于是永远读到旧的 `ERR=1`。**直接用 `sync_states()`**（它 poll 到安静之后才取状态），真机 **102 ms** 给出真相 |
 | 24 | **使能了却不发帧的关节会被"电机侧看门狗"打掉**：`enable_all()` 后只给一部分关节发目标，其余关节收不到 CAN 帧 ⇒ 超时 ⇒ **锁存 ERR=13（通讯丢失），只能断电重上电** | 真机实测（2026-10-01）：当时 id1 的 `0x09=15000`（750ms）、其余为 0，`enable_all()` + 只给 id6 发帧 1.5 秒 ⇒ **id1 锁存 ERR=13**。⇒ **要么只使能你要控制的关节，要么每圈给所有已使能关节发帧**。⚠️ 现在 **6 台都装上了 500ms 看门狗**（`0x09=10000`，已存 flash）⇒ 这条规矩**普遍适用**；正常控制循环每台 2~10ms 一帧，余量 50~250 倍。**保护本身已实测**：400ms 喂狗 2.4s 不触发；700ms 静默 ⇒ 电机自己关输出并锁存（这就是"主机崩了电机松力"那层，代价是必须断电才能恢复） |
-| 25 | **已使能关节的"发帧空档"不能超过 `0x09`（现在 500ms）**：看门狗是在保护你，但它**只认喂狗帧、且一触发就锁存**。所以控制循环里任何 >500ms 的阻塞都会让**全臂掉力并锁存 ERR=13**（`sleep`、慢计算、阻塞式服务调用/日志、串口重连、调试器断点、GC/调度卡顿） | 实测（2026-10-01）：400ms 喂狗 2.4s 不触发；700ms ⇒ 触发 + 锁存 ⇒ 超时窗口 (400, 700]。⇒ **`fn` 里不许有 >100ms 的阻塞**（留 5 倍余量）；要慢操作就搬到别的线程/进程，或先 `disable_all()` 再做。⚠️ **ROS2 集成时头号坑**：回调里一个阻塞调用就能打掉整条臂，而且恢复要断电 |
+| 25 | **已使能关节的"发帧空档"不能超过 `0x09`（现在 500ms）**：看门狗是在保护你，但它**只认喂狗帧、且一触发就锁存**。所以控制循环里任何 >500ms 的阻塞都会让**全臂掉力并锁存 ERR=13**（`sleep`、慢计算、阻塞式服务调用/日志、串口重连、调试器断点、GC/调度卡顿） | 实测（2026-10-01）：400ms 喂狗 2.4s 不触发；700ms ⇒ 触发 + 锁存 ⇒ 超时窗口 (400, 700]。⇒ **`fn` 里不许有 >100ms 的阻塞**（留 5 倍余量）；要慢操作就搬到别的线程/进程，或先 `disable_all()` 再做。⚠️ **ROS2 集成时头号坑**：回调里一个阻塞调用就能打掉整条臂，而且恢复要断电。`dm_bringup` 的 `jog` / `bandwidth --enable` 已在代码里硬限制 `--hz ≥ 5`（`MIN_HZ_WITH_ENABLE`）|
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -273,7 +274,7 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 | `docs/reading_guide.md`、`docs/architecture_notes.md` | 外部参考（reBot / PyArmX）导读，与当前代码无关 |
 
 **已移出工作区、但在 git 历史里可取回**（`git show <commit>:<path>`，用 `HEAD~1` 或 `f17aec1`）：
-旧版 `dm_bringup.py`、旧版 `dm_registers.py`（605 行）、旧版 `arm_config.py`（674 行）、`tools/*.py`（`smoke_*.py`/`scan_bus.py`/`bus_probe.py`）、
+旧版 `dm_registers.py`（605 行）、旧版 `arm_config.py`（674 行）、`tools/*.py`（`smoke_*.py`/`scan_bus.py`/`bus_probe.py`）、**（`dm_bringup.py` 已于 2026-10-01 恢复回包内）**、
 `src/mujoco_pkg/`、`src/rebotarm_msgs/`、`src/fake_driver_pkg/`、`ARCHITECTURE.md`、`CURRENT_STATE.md`、旧 `config/rebotarm_b601_mixed.yaml`。
 ⚠️ 现在这个 `arm_config.py`（200 行）**覆盖**了历史里同名的那份 674 行版本；`dm_registers.py`、`arm.py` 也都是新写的（不是恢复的）。
 
