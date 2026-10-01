@@ -26,8 +26,8 @@
 | [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | 531 | 一条总线的**非阻塞**收发：唯一发送出口 `send_frame()`、`poll()` 抽干、`MotorState` 缓存、`registered_ids` 准入、**寄存器 I/O（`read/write_register`/`save_params`）** | **不写寄存器** —— 它只发寄存器帧，写什么由 `dm_registers.py` 决定；不设零位、不自动使能、不判安全；`close()` 不负责失能 |
 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | 27 | 模式编码 `MODE_MIT=1/POS_VEL=2/FORCE_POS=4` + `MODE_NAMES` | 零 import；**3 = 速度模式，不是力位混控** |
 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | 217 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**MIT 与 POS_VEL 已真机跑通**（2026-10-01）；力位混控**真机未跑** |
-| [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 129 | `config/joint.yaml` → `JointConfig` / `ArmConfig`（channel/baud/serial_timeout/send_hz/feedback_hz + joints 表）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__` | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
-| [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | 319 | `DmArm`：连接/关闭、整体使能失能、批量 POS_VEL / MIT、批量读状态、批量刷新、健康检查与急停、**发/收两个阻塞控制循环**（节拍/退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都是阻塞的，**不能同时跑**（调用方自己开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**控制循环已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz） |
+| [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 170 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（含 **力矩阈值 < 型号峰值扭矩**，峰值表 `_PEAK_TORQUE`） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
+| [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | 414 | `DmArm`：连接/关闭、使能失能、批量 POS_VEL / MIT、状态（`get_state`/`refresh_all_states`/`sync_states`）、健康检查与急停、**力矩+温度监控**、发/收两个阻塞循环（节拍与退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都阻塞、**不能同时跑**（调用方开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**循环与监控已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz / 监控零误报） |
 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | 481 | 寄存器工具：49 条寄存器表 + `RegisterTool` + CLI `list/dump/verify/set/restore` | 只管寄存器 I/O：**不使能、不发控制帧、不判安全**；默认不碰 flash。**读 + 写 RAM 已真机验证**（2026-10-01：写 4 个 PID、切 `0x0A` 都回包一致）；**`--save` 写 flash 未验证** |
 | [config/joint.yaml](config/joint.yaml) | — | 6 关节静态参数 | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
 | [setup.py](src/DMmotor_driver/setup.py) | 40 | 装 `share/DMmotor_driver/config/joint.yaml`（用 `Path(__file__).parents[2]` 定位仓库根） | `entry_points` 的 `dm-dump-registers` 现在**有模块可指**了；`dm-bringup` 仍指向不存在的模块 |
@@ -38,7 +38,7 @@
 `add_motor(id, limit, motor_type=None)` · `set_limit` · `motors()` · `registered_ids` ·
 `send_frame` · `send_pos_vel` · `send_pos_vel_batch` · `send_mit` · `send_force_pos` · `send_enable` · `send_disable` · `send_refresh` ·
 `poll` · `wait_feedback` · `send_and_wait` · `poll_and_wait` · `get_state` · `states` · `flush` · `stats` ·
-`read_register(rid)` · `write_register(rid, raw4)` · `save_params()`（**这三个不查注册** —— 注册检查是给控制帧的，寄存器 I/O 不解反馈帧，且 `limit` 正是它要读的东西）
+`read_register(motor_id, rid, timeout=0.05)` · `write_register(motor_id, rid, raw4, timeout=0.05)` · `save_params(motor_id, timeout=0.5)`（**这三个不查注册** —— 注册检查是给控制帧的，寄存器 I/O 不解反馈帧，且 `limit` 正是它要读的东西；`raw4` 是 4 字节，类型由 rid 决定，见陷阱 #15）
 
 **`Joint`（全实现）**：
 ```python
@@ -56,24 +56,27 @@ joint_to_motor(v) / motor_to_joint(v) / clamp(pos) / clamp_pmax(motor_pos)
 ```
 `JointState` 字段：`name, position, velocity, torque, err, err_text, temp_mos, temp_rotor, enabled, timestamp`
 
-**`arm_config`**：`JointConfig(...)` · `load_joint_configs(path) -> dict[str, JointConfig]` · `ArmConfig(channel, joints, baud=921600, serial_timeout=0.003, send_hz=500, feedback_hz=100)` · `load_arm_config(path) -> ArmConfig`
+**`arm_config`**：`JointConfig(..., torque_monitor_threshold, torque_monitor_count=10)` · `load_joint_configs(path)` · `ArmConfig(channel, joints, baud, serial_timeout, send_hz, feedback_hz, temp_warn=80, temp_fault=100)` · `load_arm_config(path)`
 
-**`DmArm`（13 个方法全实现）**：`__init__(config)` · `connect()`（开串口 + 建关节，**不写寄存器**）· `shutdown()`（**先失能再关串口**）·
+**`DmArm`（13 个公开方法 + 2 个私有）**：`__init__(config)` · `connect()`（开串口 + 建关节，**不写寄存器**）· `shutdown()`（**先失能再关串口**）·
 `enable_all()`（任一个失败 → **回滚已使能的**再抛）· `disable_all()`（**全部尝试**，最后抛汇总）·
 `set_joint_positions(targets, vlim)`（POS_VEL，vlim 支持标量或 dict）· `set_joint_mit_all(targets, kp, kd, dq=0, tau=0)` ·
 `get_state()`（**只返回有反馈的关节**）· `refresh_all_states()`（6 条 0x7FF + 一次 poll，**不等回包**）·
+`sync_states(timeout=2.0, quiet=0.05)`（**排空陈旧回包**再取状态，对付陷阱 #20）·
 `check_health()`（逐个 `Joint.assert_healthy()`，**收集齐再一次抛**；只查 ERR）·
 `emergency_disable()`（**永不抛**：逐关节尽力失能，失败只打 stderr）·
 `run_control_loop(hz, fn)`（**阻塞**发循环：每圈 `check_health()` → `fn(self)`）·
-`run_feedback_loop(hz, fn)`（**阻塞**收循环：每圈 `bus.poll()` → `fn(self)`）；
+`run_feedback_loop(hz, fn)`（**阻塞**收循环：每圈 `bus.poll()` → **`_monitor_step()`** → `fn(self)`）；
+私有：`_monitor_step()`（力矩+温度监控，见下）、`_require_connected()`；
 两个循环都返回 `{"iters","overruns","elapsed","hz_actual","interrupted"}`
 
 **`dm_registers`（工具）**：`RegisterTool(bus, motor_id, motor_type=None)` · `read` / `write` / `check_writable` / `dump` / `verify`；
 CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`--save --yes` 才写 flash 且**写前自动 dump 基线**；
 `restore` 默认只打印计划。发送前 `is_reg_response` 把寄存器回包与反馈帧分开。
 
-**未实现（别以为有）**：力矩监控（按型号分档，DESIGN §4.3）· 温度策略 · **电机侧看门狗（`0x09` 现为 0=关闭）** ·
-`dm_bringup` CLI · ROS2 节点/话题/URDF/`ros2_control` · 夹爪 · 速度模式(3) · 重力补偿 · **任何测试文件**。
+**未实现（别以为有）**：**MIT 的 `torque_max` 预测钳位**（DESIGN 有、代码没有 ⇒ MIT 现在**无上位机力矩保护**，见陷阱 #22）·
+**电机侧看门狗 `0x09`（现为 0=关闭）** · `dm_bringup` CLI · ROS2 节点/话题/URDF/`ros2_control` · 夹爪 ·
+速度模式(3) · 重力补偿 · 电压监控（本层读不到 `0x3C`）· **任何测试文件**。
 ⚠️ 寄存器工具**读 + 写 RAM 已真机跑通**（2026-10-01）；**`--save` 写 flash 未验证**。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
@@ -122,6 +125,18 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 - 零增益使能全程**零位移**；收尾 `disable_all()` + 排空后 ERR=0 且位置与开始时逐位一致
 - ⚠️ 未做：方向/零位标定（`offset` 全 0.0）、任何带目标的动作测试
 
+**力矩 / 温度监控（`DmArm._monitor_step()`，挂在**收循环**上 ⇒ 采样率 = `feedback_hz`）**：
+- **力矩只查 POS_VEL**：阈值来自 yaml 的 `torque_monitor_threshold`（j1~j3=**15.0**、j4~j6=**5.0**），
+  连续 `torque_monitor_count` 次（默认 **10** ⇒ 100Hz 下 **100ms** 防抖）越限才算故障。
+  三模式分工：MIT 发之前钳位（**未实现**）、力位混控 `i_des` 限幅（已实现）、**POS_VEL 只能事后监控**
+- **温度所有模式都查**：`temp_mos` 与 `temp_rotor` 各自独立判，共用 `temp_warn=80` / `temp_fault=100`℃；
+  warn 限流打 stderr（每 `MONITOR_WARN_INTERVAL`=5s 至多一条），fault 抛 → 收循环先急停再抛
+- 真机误报体检（2026-10-01，15 秒双循环 100Hz）：最大 |力矩| **0.012~0.048 N·m**（阈值 5/15）、
+  温度 **30~33 ℃**（warn 80）⇒ **零误报、零漂移**
+- **真机注入验证**（2026-10-01，单台 j4/4310）：写 `0x0A=2`（RAM）+ 把阈值临时设成 **0.005**（低于实测噪声）
+  ⇒ 收循环 **92 ms** 报 `力矩 |-0.022| N·m 连续 10 次 ≥ 阈值 0.005（约 100 ms）` → **自动急停 6 台**（ERR 全 0）
+  → 位置 **+2.7815 未变**（POS_VEL 保持帧确实不经过钳位/换算）→ 收尾 `0x0A` 写回 **1** 并读回确认
+
 **单位与换算**：位置 `电机侧 = direction × 关节侧 + offset`（逆换算 `关节侧 = direction × (电机侧 − offset)`）；
 **速度 / 力矩是矢量：只乘 `direction`，不加 `offset`**。本层**没有减速比折算**（电机报的就是输出轴 rad）。
 
@@ -149,7 +164,9 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 18 | **两个循环都是阻塞的** ⇒ 不能同时跑（设计里的"500Hz 发 + 100Hz 收"要并行得调用方自己开线程） | 真机实测：**500Hz 单跑 499.7Hz / 1 超时**；**与收循环同跑掉到 482.3Hz / 35 超时（2.4%）**（两个 Python 线程 GIL 争用）⇒ 要干净的 500Hz 就降到 ~400Hz，或把收侧放到另一个进程 |
 | 19 | **`fn` 的返回值严格判 `is False`**：没写 `return` 的函数（返回 `None`）**不会**让循环停 | 要停就 `return False`，或 Ctrl-C（Ctrl-C 会**先急停**再返回统计）。⚠️ **2026-10-01 真机测试真的踩了**：写成 `lambda a: t > DUR`（"完成了吗"式布尔）→ 第一次就返回 `False` → **静默只跑 1 圈就"正常退出"**（不失能、不报错、`iters=1`）。正确写法只有 `if 超时: return False`（隐式 `None` = 继续） |
 | 20 | **陈旧回包会骗缓存**：发循环单跑（没人 `poll()`）时回包全堆在适配器/OS 缓冲里；之后 `get_state()`/`check_health()` 读到的是**旧帧**。真机实测：3 秒 500Hz 压测（9000 帧）后 `disable_all()` 明明成功，缓存却连续两轮显示 `ERR=1`（实际已 `ERR=0`），各轮还涌入 32 / 256 / 224 条积压 | 排空要 `bus.flush()` + **多轮**刷新直到连续两轮一致（实测 3 轮才收敛）。⇒ **两个循环必须成对跑**；压测/单跑发循环之后，**先排空再信状态** |
-| 21 | **未标定（`offset=0.0`）时"保持当前位置"是会动的命令**：`prepare_frame()` 先做**关节侧软限位钳位**，而电机原始读数未必落在软限位内 | 真机实测 joint4 原始 `pos=+2.7815`，软限位 `[-1.87, 1.57]` ⇒ 若给它发"保持当前位置"，会被钳成 `1.57`，等于**命令它转 −1.2 rad（≈−69°）**。装臂前必须先标定方向/零位 |
+| 21 | **未标定（`offset=0.0`）时把"当前位置"当目标是会动的命令**：`prepare_frame()` 会先做**关节侧软限位钳位**，而电机原始读数未必落在软限位内 | 真机实测 joint4 原始 `pos=+2.7815`、软限位 `[-1.87, 1.57]` ⇒ 用户发"保持当前位置"会被钳成 `1.57`，等于**命令它转 −1.2 rad（≈−69°）**。⚠️ 但 `enable()` 在 POS_VEL 下的保持帧**故意绕过钳位/换算**（直接发电机侧实测值）⇒ **使能本身不会动**，两者别混。装臂前必须先标定 |
+| 22 | **MIT 模式上位机对力矩零保护**：DESIGN §4.2 有 `torque_max`（"仅 MIT/力位生效"），但代码里**没有这个字段、`set_mit` 也不钳任何力矩** | 现有保护只有电机的 `TMAX`/`OC_Value`。要补就得钳**总预测力矩** `kp·(q_des−q)+kd·(dq_des−dq)+tau_ff`（只钳 `tau_ff` 没用：大 kp×大误差照样顶穿），且预测用的 `q` 是缓存值（滞后 1~20ms）⇒ 只能是**近似**钳位。**下一轮待做** |
+| 23 | **监控挂在收循环上** ⇒ 只跑 `run_control_loop`（发）就**完全没有力矩/温度监控** | 两个循环必须成对跑（或自己在 `fn` 里调 `_monitor_step`）。另外：**自己写排空循环极易写错** —— 真机实测 `flush → refresh → sleep`（sleep 之后不 poll）会让新到的回包在下一轮被 `flush` 掉，于是永远读到旧的 `ERR=1`。**直接用 `sync_states()`**（它 poll 到安静之后才取状态），真机 **102 ms** 给出真相 |
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -191,7 +208,7 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 **已移出工作区、但在 git 历史里可取回**（`git show <commit>:<path>`，用 `HEAD~1` 或 `f17aec1`）：
 旧版 `dm_bringup.py`、旧版 `dm_registers.py`（605 行）、旧版 `arm_config.py`（674 行）、`tools/*.py`（`smoke_*.py`/`scan_bus.py`/`bus_probe.py`）、
 `src/mujoco_pkg/`、`src/rebotarm_msgs/`、`src/fake_driver_pkg/`、`ARCHITECTURE.md`、`CURRENT_STATE.md`、旧 `config/rebotarm_b601_mixed.yaml`。
-⚠️ 现在这个 `arm_config.py`（129 行）**覆盖**了历史里同名的那份 674 行版本；`dm_registers.py`、`arm.py` 也都是新写的（不是恢复的）。
+⚠️ 现在这个 `arm_config.py`（170 行）**覆盖**了历史里同名的那份 674 行版本；`dm_registers.py`、`arm.py` 也都是新写的（不是恢复的）。
 
 ## 9. 接手后的第一件事
 

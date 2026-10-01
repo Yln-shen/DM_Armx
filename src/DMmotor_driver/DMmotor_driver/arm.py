@@ -28,7 +28,11 @@ import time
 
 from arm_config import ArmConfig
 from dm_bus import MotorBus
+from dm_modes import MODE_POS_VEL
 from joint import Joint, JointState
+
+# 温度 warn 的打印间隔（秒）：warn 不是故障，但 100Hz 下每圈打一条会刷屏
+MONITOR_WARN_INTERVAL = 5.0
 
 
 class DmArm:
@@ -38,6 +42,9 @@ class DmArm:
         self.config = config
         self.bus: MotorBus | None = None
         self.joints: dict[str, Joint] = {}
+        # 监控状态：连续越限计数（按关节名）、warn 上次打印时间（按 关节/传感器）
+        self._torque_over_count: dict[str, int] = {}
+        self._warn_last: dict[str, float] = {}
 
     # ───────────────────────── 生命周期 ─────────────────────────
     def connect(self) -> "DmArm":
@@ -208,7 +215,7 @@ class DmArm:
         每个关节的语义与 `Joint.assert_healthy()` 完全一致：ERR 不在 {0,1} → **先失能那一台**
         再报错；缓存里没有反馈 → 报错（不编一个零值）。所以故障关节在这一步**已经被失能**了。
 
-        ⚠️ 这里**只查 ERR**（温度与力矩监控还没做）。
+        ⚠️ 这里**只查 ERR**：力矩与温度由收循环里的 `_monitor_step()` 查（采样率 = `feedback_hz`）。
         ⚠️ 它**不**自动整臂急停：一台关节故障就让整臂一起松掉，在重力负载下更危险 ——
         要不要 `emergency_disable()` 由调用方决定。
         """
@@ -226,6 +233,58 @@ class DmArm:
                 f"  要不要整臂急停由你决定：arm.emergency_disable()\n"
                 f"  ⚠️ 失能 ≠ 停住：带重力负载的关节会掉下来"
             )
+
+    def _monitor_step(self) -> None:
+        """一次监控：**力矩（仅 POS_VEL）+ 温度（所有模式）**。收循环每圈调，采样率 = feedback_hz。
+
+        为什么力矩只在 POS_VEL 查：MIT 是"发之前钳位"、力位混控是 `i_des` 电流限幅 ——
+        那两种模式主机能在**发之前**限力矩；**POS_VEL 的位置环在固件里，主机没有任何力矩通道**，
+        只能事后看反馈帧的 `torque`（DESIGN §2.2）。也正因为它是电机由电流估算的（带噪声），
+        必须连续 `torque_monitor_count` 次越限才算故障，否则加/减速峰值就会误触发。
+
+        - warn（温度 ≥ `temp_warn`）：限流打 stderr（每 `MONITOR_WARN_INTERVAL` 秒至多一条）
+        - fault（温度 ≥ `temp_fault`，或 POS_VEL 下力矩连续越限）：**收集齐后抛 RuntimeError**，
+          由 `run_feedback_loop` 的异常路径自动 `emergency_disable()`
+
+        ⚠️ 它挂在**收循环**上：只跑 `run_control_loop`（发）就**没有监控**。
+        ⚠️ 没有反馈的关节直接跳过（不编造温度/力矩）；力矩取绝对值（正反向都算越限）。
+        """
+        faults: list[str] = []
+        warns: list[tuple[str, str]] = []
+        now = time.monotonic()
+        for name, joint in self.joints.items():
+            m = self.bus.get_state(joint.motor_id)
+            if m is None:
+                continue                          # 这台还没回过包
+            cfg = self.config.joints[name]
+            # 力矩：只有 POS_VEL 需要"事后监控"
+            if joint.mode == MODE_POS_VEL and abs(m.tau) >= cfg.torque_monitor_threshold:
+                n = self._torque_over_count.get(name, 0) + 1
+                self._torque_over_count[name] = n
+                if n >= cfg.torque_monitor_count:
+                    faults.append(
+                        f"{name}(0x{joint.motor_id:02X}): 力矩 |{m.tau:.3f}| N·m 连续 {n} 次 ≥ "
+                        f"阈值 {cfg.torque_monitor_threshold}（约 "
+                        f"{n / self.config.feedback_hz * 1000:.0f} ms）"
+                    )
+            else:
+                self._torque_over_count[name] = 0
+            # 温度：所有模式都查；MOS 与线圈各自独立判，共用同一对阈值
+            for label, val in (("MOS", m.temp_mos), ("线圈", m.temp_rotor)):
+                if val >= self.config.temp_fault:
+                    faults.append(f"{name}(0x{joint.motor_id:02X}): {label}温度 {val}℃ ≥ "
+                                  f"temp_fault {self.config.temp_fault}")
+                elif val >= self.config.temp_warn:
+                    warns.append((f"{name}/{label}",
+                                  f"{name} {label}温度 {val}℃ ≥ temp_warn "
+                                  f"{self.config.temp_warn}"))
+        if faults:
+            raise RuntimeError("监控发现故障（收循环会先急停再抛）：\n  · " + "\n  · ".join(faults))
+        for key, text in warns:
+            last = self._warn_last.get(key)
+            if last is None or now - last >= MONITOR_WARN_INTERVAL:
+                self._warn_last[key] = now
+                print(f"[DmArm] ⚠ {text}", file=sys.stderr)
 
     def emergency_disable(self) -> None:
         """**尽力**让每个关节失能，**永不抛**。
@@ -276,16 +335,19 @@ class DmArm:
         return self._paced_loop(hz, each)
 
     def run_feedback_loop(self, hz: float, fn) -> dict:
-        """以 `hz` 收帧的**阻塞**循环：每圈 `bus.poll()` → `fn(self)`。
+        """以 `hz` 收帧的**阻塞**循环：每圈 `bus.poll()` → **监控** → `fn(self)`。
 
-        `bus.poll()` 是 bus 缓存（以及将来的力矩监控）的**唯一驱动** —— 不跑它，
-        `get_state()` / `check_health()` 看到的永远是旧状态。
+        `bus.poll()` 是 bus 缓存的**唯一驱动** —— 不跑它，`get_state()` / `check_health()`
+        看到的永远是旧状态；**力矩与温度监控也挂在这里**（采样率 = `feedback_hz`，
+        DESIGN §4.3 要求力矩计数按反馈率走，**不能**按 500Hz 发帧率数）。
 
-        与 `run_control_loop` 只差两点：每圈先 `poll()` 而不是 `check_health()`
-        （健康检查在发那一侧），且它**只收不发**。
+        与 `run_control_loop` 只差：每圈先 `poll()` + 监控，而不是 `check_health()`
+        （ERR 检查在发那一侧），且它**只收不发**。
+        ⚠️ 监控判故障会**抛出** → 本循环的异常路径先 `emergency_disable()` 再抛。
         """
         def each():
             self.bus.poll()
+            self._monitor_step()
             return fn(self)
         return self._paced_loop(hz, each)
 
