@@ -27,6 +27,10 @@ class JointConfig:
 
     `torque_monitor_threshold` 是 **POS_VEL 事后监控**的力矩阈值（N·m）。POS_VEL 下
     上位机限不了力矩，只能靠事后监控兜底（DESIGN §2.2），所以它是**必填、没有开关**。
+
+    `torque_max` 是 **MIT 发帧前**的力矩上限（N·m，DESIGN §4.2/§4.3 的额定值）：
+    MIT 出的是 `kp·(q_des−q) + kd·(dq_des−dq) + tau_ff`，主机能在发之前算出来。
+    只对 MIT 生效 —— 力位混控有自己的 `i_des` 电流限幅。
     """
 
     name: str
@@ -35,6 +39,7 @@ class JointConfig:
     direction: int
     limit: tuple[float, float, float]
     torque_monitor_threshold: float
+    torque_max: float
     offset: float = 0.0
     torque_monitor_count: int = 10
     position_min: float | None = None
@@ -95,6 +100,19 @@ class JointConfig:
             raise ValueError(
                 f"{self.name}: torque_monitor_count 必须 ≥1（连续几次越限才算故障），"
                 f"收到 {self.torque_monitor_count!r} —— 给 0 等于一碰就停"
+            )
+        # MIT 的发帧前力矩上限：同样必须落在 (0, 峰值) 内，且不该高于事后监控阈值
+        # （高于它 ⇒ 监控先跳闸，钳位永远轮不到，配合起来没意义）
+        if not 0 < self.torque_max < peak:
+            raise ValueError(
+                f"{self.name}: torque_max={self.torque_max} 必须落在 (0, {peak}) 内"
+                f"（{self.motor_type} 峰值扭矩）"
+            )
+        if self.torque_max > self.torque_monitor_threshold:
+            raise ValueError(
+                f"{self.name}: torque_max={self.torque_max} 高于 torque_monitor_threshold="
+                f"{self.torque_monitor_threshold} —— 监控会先跳闸、钳位永远轮不到；"
+                f"正常配置是 torque_max ≤ 阈值（如 4340P 12≤15、4310 3.5≤5.0）"
             )
 
 

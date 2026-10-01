@@ -40,6 +40,7 @@ joints:
     offset: 0.0
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
+    torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
     position_min: -2.8
     position_max: 2.8
     mode: 1
@@ -51,6 +52,7 @@ joints:
     offset: 0.0
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
+    torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
     position_min: -3.14
     position_max: 0.0
     mode: 1
@@ -62,6 +64,7 @@ joints:
     offset: 0.0
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
+    torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
     position_min: -3.14
     position_max: 0.0
     mode: 1
@@ -73,6 +76,7 @@ joints:
     offset: 0.0
     limit: [12.5, 30.0, 10.0]
     torque_monitor_threshold: 5.0    # 4310：额定 3.5 / 峰值 12.5（别沿用 15）
+    torque_max: 3.5                  # MIT 发帧前的力矩上限（额定值）
     position_min: -1.87
     position_max: 1.57
     mode: 1
@@ -84,6 +88,7 @@ joints:
     offset: 0.0
     limit: [12.5, 30.0, 10.0]
     torque_monitor_threshold: 5.0    # 4310：额定 3.5 / 峰值 12.5（别沿用 15）
+    torque_max: 3.5                  # MIT 发帧前的力矩上限（额定值）
     position_min: -1.57
     position_max: 1.57
     mode: 1
@@ -95,6 +100,7 @@ joints:
     offset: 0.0
     limit: [12.5, 30.0, 10.0]
     torque_monitor_threshold: 5.0    # 4310：额定 3.5 / 峰值 12.5（别沿用 15）
+    torque_max: 3.5                  # MIT 发帧前的力矩上限（额定值）
     position_min: -3.14
     position_max: 3.14
     mode: 1

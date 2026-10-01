@@ -4,9 +4,14 @@ from dm_modes import MODE_MIT, MODE_POS_VEL, MODE_FORCE_POS, MODE_NAMES
 from dataclasses import dataclass
 import math
 import sys
+import time
 
 # 使能后补的那一帧"保持"的速度上限（rad/s）
 HOLD_VLIM = 0.1
+
+# tau_ff 被钳位时的日志间隔（秒）：钳位会改变控制律，应该看得见，但 500Hz 下不能刷屏。
+# （arm.py 里的 MONITOR_WARN_INTERVAL 是同类东西，但 joint 在 arm 下面，不能反向 import）
+CLAMP_WARN_INTERVAL = 5.0
 
 @dataclass
 class JointState:
@@ -30,11 +35,14 @@ class Joint:
                  offset: float = 0.0,
                  position_min: float | None = None,
                  position_max: float | None = None,
-                 mode: int = MODE_MIT):
+                 mode: int = MODE_MIT,
+                 torque_max: float | None = None):
 
         if mode not in MODE_NAMES:
             allowed = "/".join(f"{k}({v})" for k, v in sorted(MODE_NAMES.items()))
             raise ValueError(f"mode 只能是 {allowed}，收到 {mode!r}")
+        if torque_max is not None and not torque_max > 0:      # 顺手挡住 NaN
+            raise ValueError(f"torque_max 要么是 None，要么是正数，收到 {torque_max!r}")
 
         self.bus = bus
         self.motor_id = motor_id
@@ -45,6 +53,8 @@ class Joint:
         self.position_min = position_min
         self.position_max = position_max
         self.mode = mode
+        self.torque_max = torque_max                           # None = 不钳位
+        self._clamp_warn_at = -CLAMP_WARN_INTERVAL             # 首次钳位一定打日志
 
         # 注册到 bus：发帧与解反馈都要用这份映射范围。冲突直接拒 ——
         # 同一个电机出现两个映射范围 ⇒ 解出来的力矩差数倍且不报错
@@ -96,6 +106,7 @@ class Joint:
         return motor_pos
 
     def set_mit(self, kp, kd, q, dq=0.0, tau=0.0):
+        """MIT 发一帧。`torque_max` 不是 None 时，先按**预测总力矩**钳 `tau_ff`（见 `_clamp_mit_torque`）。"""
         if self.mode != MODE_MIT:
             raise RuntimeError(
                 f"声明模式是 {self.mode}({MODE_NAMES.get(self.mode, '?')})，"
@@ -105,8 +116,51 @@ class Joint:
         for name, val in [("kp", kp), ("kd", kd), ("q", q), ("dq", dq), ("tau", tau)]:
             if not math.isfinite(val):
                 raise ValueError(f"{name} 是非有限数：{val}")
-        self.bus.send_mit(self.motor_id, kp, kd, self.prepare_frame(q),
-                          self.direction * dq, self.direction * tau)
+        q_motor = self.prepare_frame(q)
+        dq_motor = self.direction * dq
+        tau_motor = self.direction * tau
+        if self.torque_max is not None:
+            tau_motor = self._clamp_mit_torque(kp, kd, q_motor, dq_motor, tau_motor)
+        self.bus.send_mit(self.motor_id, kp, kd, q_motor, dq_motor, tau_motor)
+
+    def _clamp_mit_torque(self, kp, kd, q_des, dq_des, tau_ff):
+        """按 `torque_max` 钳 MIT 的 `tau_ff`（入参与返回都是**电机侧**量）。
+
+        电机出的是 `tau = kp·(q_des − q) + kd·(dq_des − dq) + tau_ff`，所以：
+
+        - **PD 项自己就超** `torque_max` ⇒ 钳 `tau_ff` 救不回来（得改 `q_des` 或 `kp`）⇒ **拒发**
+        - 否则把 `tau_ff` 钳到"总力矩 = ±`torque_max`"的边界
+
+        ⚠️ 用的是**缓存里**的 `pos`/`vel`（滞后 1~20ms）⇒ 这是**近似**钳位，不是硬保证：
+        慢速时可忽略，5 rad/s 时 kp=10 大约差 1 N·m。
+        ⚠️ 没有缓存状态就**拒发**（算不出来就别装作算过了）。
+        """
+        m = self.bus.get_state(self.motor_id)
+        if m is None:
+            raise RuntimeError(
+                f"{self.name}: 没有缓存位置/速度，预测不了力矩（torque_max={self.torque_max}）"
+                f" —— 先 poll() 拿到反馈再发 MIT 帧"
+            )
+        limit = self.torque_max
+        pd = kp * (q_des - m.pos) + kd * (dq_des - m.vel)
+        if abs(pd) > limit:
+            raise RuntimeError(
+                f"{self.name}: PD 项 {pd:+.3f} N·m 已超过 torque_max={limit} "
+                f"（kp={kp}, kd={kd}, q_des−q={q_des - m.pos:+.4f} rad, "
+                f"dq_des−dq={dq_des - m.vel:+.4f} rad/s）—— 钳 tau_ff 救不回来，拒发；"
+                f"要么降 kp/kd，要么把目标挪近"
+            )
+        total = pd + tau_ff
+        if abs(total) > limit:
+            clamped = math.copysign(limit - abs(pd), total)
+            now = time.monotonic()
+            if now - self._clamp_warn_at >= CLAMP_WARN_INTERVAL:
+                self._clamp_warn_at = now
+                print(f"[{self.name}] tau_ff 被钳：{tau_ff:+.3f} → {clamped:+.3f} N·m"
+                      f"（PD {pd:+.3f} + tau_ff 会到 {total:+.3f}，超 torque_max {limit}）",
+                      file=sys.stderr)
+            return clamped
+        return tau_ff
 
     def set_pos_vel(self, pos, vlim):
         if self.mode != MODE_POS_VEL:

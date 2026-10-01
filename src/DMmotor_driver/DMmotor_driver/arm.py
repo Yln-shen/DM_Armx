@@ -60,7 +60,8 @@ class DmArm:
         self.joints = {
             name: Joint(self.bus, cfg.slave_id, cfg.name, cfg.direction, cfg.limit,
                         offset=cfg.offset, position_min=cfg.position_min,
-                        position_max=cfg.position_max, mode=cfg.mode)
+                        position_max=cfg.position_max, mode=cfg.mode,
+                        torque_max=cfg.torque_max)
             for name, cfg in self.config.joints.items()
         }
         return self
@@ -146,6 +147,8 @@ class DmArm:
         ⚠️ 需要**按型号给增益**：4310（j4~j6）与 4340P（j1~j3）的 kp 量级差 5 倍以上，
         给同一组值必然一个太软、一个太猛 —— 所以这个"统一增益"的接口只适合点动调试，
         整臂控制请按关节给不同增益（下一轮）。
+        ⚠️ 每台自己的 `torque_max`（yaml）会生效：预测总力矩超限时**钳 `tau_ff`**；
+        若 PD 项自己就超则**抛**（见 `Joint.set_mit` / `_clamp_mit_torque`）。
         """
         self._require_connected()
         unknown = set(targets) - set(self.joints)
