@@ -17,7 +17,7 @@
 | 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障；**2026-10-01 真机跑通 MIT 与 POS_VEL**（各做零增益抽检 + ±0.08 rad 点动去回）；力位混控**真机未跑** |
 | 配置解析 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) + [config/joint.yaml](config/joint.yaml) | ✅ 6 关节 |
 | 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机验证**：读全 ✓、写 4 个 PID + 切 `0x0A` 均回包一致（**写 RAM**，flash 未验证） |
-| 整臂层 / 控制循环 | — | ❌ 未做 |
+| 整臂层 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | ⚠️ **部分**：13 个方法全实现，**真机 6 台验证**（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz、零增益零漂移）；**未做**：方向/零位标定、带目标的动作、力矩监控、温度策略、看门狗 |
 | ROS2 集成 | — | ❌ 未做（**当前代码不 import rclpy**） |
 | 夹爪 | — | ❌ 本阶段不做 |
 

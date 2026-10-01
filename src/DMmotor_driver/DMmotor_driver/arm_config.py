@@ -1,4 +1,4 @@
-"""arm_config —— 关节静态参数的解析层（读 config/joint.yaml）。
+"""arm_config —— 配置解析层（读 config/joint.yaml）：整臂全局参数 + 每个关节的静态参数。
 
 只管两件事：**读 yaml** 与**纯参数自洽校验**。
 不做通信、不做寄存器 I/O、不碰运行期状态、不 import rclpy。
@@ -75,3 +75,55 @@ def load_joint_configs(path: str | Path) -> dict[str, JointConfig]:
     """
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return {name: JointConfig(name=name, **cfg) for name, cfg in data["joints"].items()}
+
+
+@dataclass
+class ArmConfig:
+    """整臂的全局参数 + 每个关节的静态参数（构造 `DmArm` 的输入）。
+
+    `serial_timeout` 必须**远小于** 1/send_hz：它是 pyserial 的读超时，
+    大了会把"发一帧等一帧"那条路拖死（见 `dm_bus.DEFAULT_TIMEOUT` 的注释）。
+    """
+
+    channel: str
+    joints: dict[str, JointConfig]
+    baud: int = 921600
+    serial_timeout: float = 0.003
+    send_hz: float = 500.0
+    feedback_hz: float = 100.0
+
+    def __post_init__(self):
+        # 纯参数自洽校验（只用本 dataclass 自己的字段，不依赖外部状态）
+        if not self.channel:
+            raise ValueError("channel 不能为空（USB-CAN 适配器的串口，如 /dev/ttyACM0）")
+        if self.baud <= 0:
+            raise ValueError(f"baud 必须为正，收到 {self.baud!r}")
+        if self.serial_timeout <= 0:
+            raise ValueError(f"serial_timeout 必须为正，收到 {self.serial_timeout!r}")
+        if self.send_hz <= 0 or self.feedback_hz <= 0:
+            raise ValueError(f"send_hz/feedback_hz 必须为正，收到 {self.send_hz!r}/{self.feedback_hz!r}")
+        if not self.joints:
+            raise ValueError("joints 不能为空（至少一个关节）")
+        seen, dup = set(), []
+        for cfg in self.joints.values():
+            if cfg.slave_id in seen:
+                dup.append(cfg.slave_id)
+            seen.add(cfg.slave_id)
+        if dup:
+            raise ValueError(f"slave_id 重复：{', '.join(f'0x{i:02X}' for i in dup)} —— "
+                             f"同一 ID 出现两个关节，回包分不清是谁的")
+
+
+# yaml 里的全局字段（`joints:` 之外的键）。没写就用 dataclass 的默认值。
+_GLOBAL_KEYS = ("channel", "baud", "serial_timeout", "send_hz", "feedback_hz")
+
+
+def load_arm_config(path: str | Path) -> ArmConfig:
+    """读整份 yaml：全局字段 + `joints:` 表。
+
+    ⚠️ 这份文件会被读两遍（`load_joint_configs` 也读一次）—— 配置只有几百字节，
+    换来"关节解析只有一份实现"，值得。
+    """
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    globals_ = {k: data[k] for k in _GLOBAL_KEYS if k in data}
+    return ArmConfig(joints=load_joint_configs(path), **globals_)
