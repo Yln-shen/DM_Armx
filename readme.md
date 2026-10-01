@@ -14,15 +14,15 @@
 | 协议帧编解码（纯函数） | [dm_frames.py](src/DMmotor_driver/DMmotor_driver/dm_frames.py) | ✅ MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 反馈解码 |
 | 总线非阻塞收发 | [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | ✅ 唯一发送出口 + 注册准入 + 状态缓存 |
 | 控制模式常量 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | ✅ |
-| 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障 |
+| 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障；**2026-10-01 真机跑通 MIT 与 POS_VEL**（各做零增益抽检 + ±0.08 rad 点动去回）；力位混控**真机未跑** |
 | 配置解析 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) + [config/joint.yaml](config/joint.yaml) | ✅ 6 关节 |
-| 寄存器工具 | — | ❌ 未做（读 `0x15/0x16/0x17` 校对 limit、写 `0x0A` 与 PID） |
+| 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机验证**：读全 ✓、写 4 个 PID + 切 `0x0A` 均回包一致（**写 RAM**，flash 未验证） |
 | 整臂层 / 控制循环 | — | ❌ 未做 |
 | ROS2 集成 | — | ❌ 未做（**当前代码不 import rclpy**） |
 | 夹爪 | — | ❌ 本阶段不做 |
 
-> ⚠️ **现在还不能真的驱动整臂**：能发单帧、能读状态，但**没有控制循环**（`set_mit` 是"发一帧"，不是"走到位"），
-> 也**没有寄存器工具**（位置速度模式要先写 `0x0A=2` 与 PID 才能跑）。真机试要按下面「安全守则」手工来。
+> ⚠️ **现在还不能真的驱动整臂**：单关节的 MIT 与 POS_VEL 都已在真机上跑通（见上表），但**没有整臂层、没有控制循环**
+> （`set_mit`/`set_pos_vel` 都是"发一帧"，循环要自己写），也没有力位混控与夹爪。
 
 ## 一页架构
 
@@ -76,6 +76,26 @@ j.set_mit(kp=3.0, kd=0.5, q=st.position)    # ③ q 给"现在在哪"，不是"�
 j.disable()                    # ④ 结束前失能
 ```
 
+## 寄存器工具（调试 / 标定用）
+
+```bash
+# 建议先设好路径（裸 import 风格需要包目录在 sys.path）
+export PYTHONPATH=src/DMmotor_driver/DMmotor_driver
+DM=src/DMmotor_driver/DMmotor_driver/dm_registers.py
+
+python3 $DM list                        # 不接硬件：列出 49 条寄存器与类型
+python3 $DM verify --id 1               # 读 Gr/PMAX/VMAX/TMAX/CTRL_MODE，跟型号档位表 + joint.yaml 对拍
+python3 $DM dump   --id 1 --tag baseline # 读一批存 JSON（写前的基线，也是 restore 的来源）
+python3 $DM set    --id 1 --rid Data --value 4.0            # 默认只写 RAM（掉电丢）
+python3 $DM set    --id 1 --rid CTRL_MODE --value 2         # 切位置速度模式（RAM！）
+python3 $DM set    --id 1 --rid Data --value 4.0 --save --yes   # 这才写 flash
+python3 $DM restore --id 1 --file registers/01/xxxx_baseline.json --yes
+```
+
+- **写 flash 前必须先失能**（手册），flash 寿命约 1 万次；`--save` 没有 `--yes` 会拒。
+- 改 ID / CAN 波特率 / 看门狗 / 环带宽这类寄存器在**拒写清单**里，要 `--force`；RO 的一律拒。
+- `verify` 会顺便检查 `0x1F`（位置类模式的阻尼因子必须非 0）。
+
 ## 真机安全守则
 
 | # | 守则 | 为什么 |
@@ -108,12 +128,12 @@ DM_Armx/
 └─ src/DMmotor_driver/
    ├─ setup.py
    ├─ DM-J4340P-2EC V1.1 .md  /  DM-J4310-2EC.md     两份电机手册（**权威**）
-   └─ DMmotor_driver/          dm_frames.py · dm_bus.py · dm_modes.py · joint.py · arm_config.py
+   └─ DMmotor_driver/          dm_frames.py · dm_bus.py · dm_modes.py · joint.py · arm_config.py · dm_registers.py
 ```
 
 ## 接下来做什么
 
-1. **寄存器工具**（下一块硬骨头）：读 `0x15/0x16/0x17` 逐台校对 `limit`；写 `0x0A` 切模式；写 `0x19~0x1C`/`0x1F` 配位置速度 PID。
+1. **真机验证寄存器工具**：逐台 `verify` 校对 limit；写 `0x0A=2` 与 PID；确认位置速度模式能跑。
 2. **整臂层**：6 个 `Joint` 组装 + 发/收双循环（发 500Hz、收 100Hz）+ 急停 / 力矩监控 / 看门狗。
 3. **ROS2 集成**：节点 / 话题 / URDF（限位真源）/ `ros2_control`。
 4. **夹爪**（4310，`0x07`）与重力补偿。

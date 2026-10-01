@@ -59,6 +59,9 @@ try:
     from DMmotor_driver.dm_frames import (
         ERR_OK, CMD_ENABLE, CMD_DISABLE,
         pos_vel_frame, mit_frame, force_pos_frame, cmd_frame, refresh_frame,
+        reg_read_frame, reg_write_frame, save_params_frame,
+        is_reg_response, decode_reg_response,
+        REG_CMD_READ, REG_CMD_WRITE, REG_CMD_SAVE,
         RxBuf, read_frames, flush_rx, decode_feedback,
     )
 except ImportError:  # 裸脚本直跑：parents[1] 就是 src/DMmotor_driver
@@ -66,6 +69,9 @@ except ImportError:  # 裸脚本直跑：parents[1] 就是 src/DMmotor_driver
     from DMmotor_driver.dm_frames import (
         ERR_OK, CMD_ENABLE, CMD_DISABLE,
         pos_vel_frame, mit_frame, force_pos_frame, cmd_frame, refresh_frame,
+        reg_read_frame, reg_write_frame, save_params_frame,
+        is_reg_response, decode_reg_response,
+        REG_CMD_READ, REG_CMD_WRITE, REG_CMD_SAVE,
         RxBuf, read_frames, flush_rx, decode_feedback,
     )
 
@@ -321,6 +327,68 @@ class MotorBus:
             self.n_sent_broadcast += 1
         return n
 
+    # ───────────────────────── 寄存器 I/O ─────────────────────────
+    # ⚠️ 这几个方法**不查注册**（与上面那些控制帧不同）：注册检查的本意是"保证反馈帧
+    # 用对的映射范围解码"，而寄存器 I/O **不解反馈帧**；而且 `limit` 恰恰是它要读的东西
+    # （0x15/0x16/0x17），先要求注册就成了鸡生蛋。ID 打错靠回包里的 motor_id/RID 回显发现。
+    def read_register(self, motor_id: int, rid: int, timeout: float = 0.05) -> bytes | None:
+        """读一个寄存器，返回 4 字节原始数据；超时返回 None。
+
+        **阻塞**到 deadline —— 寄存器 I/O 是调试动作（一轮读十几个要好几秒），不是控制循环的活。
+        """
+        return self._reg_io(reg_read_frame(motor_id, rid), REG_CMD_READ, rid, timeout)
+
+    def write_register(self, motor_id: int, rid: int, raw4, timeout: float = 0.05) -> bytes | None:
+        """写一个寄存器（**只进 RAM**，掉电丢）；返回回包里的 4 字节，超时 None。
+
+        ⚠️ 那 4 字节是 float32 还是 uint32 **由 RID 决定**，编错不报错、只会静默写坏
+        （类型表在 `dm_registers.py`）。
+        ⚠️ 要进 flash 得另外调 `save_params()`。
+        """
+        return self._reg_io(reg_write_frame(motor_id, rid, raw4), REG_CMD_WRITE, rid, timeout)
+
+    def save_params(self, motor_id: int, timeout: float = 0.5) -> bool:
+        """存储参数（把当前全部参数写进片内 flash）。True = 收到回包。
+
+        ⚠️ 手册：**只在失能状态下生效**；写入最长 30ms；flash 擦写寿命约 1 万次 ——
+        别在循环里调、也别频繁调。
+        """
+        return self._reg_io(save_params_frame(motor_id), REG_CMD_SAVE, None, timeout) is not None
+
+    def _reg_io(self, frame: bytes, cmd: int, rid: int | None, timeout: float) -> bytes | None:
+        """「flush → 发 → 只等这一条寄存器回包」。
+
+        与 `send_and_wait()` 的区别：那个等的是**控制反馈帧**，这个等的是**寄存器回包** ——
+        两者在适配器层都是 `CMD=0x11`，只能靠数据段第 3 字节区分（见 `is_reg_response`）。
+        途中收到的普通反馈帧照旧解进缓存，别让控制循环的状态断档。
+        """
+        if self.ser is None:
+            raise RuntimeError("串口没开，先调 open() / connect()")
+        deadline = time.monotonic() + timeout
+        with self._lock:
+            flush_rx(self.ser, self.rx)
+            self.send_frame(frame)
+            while True:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                raw_sink: list[bytes] = []
+                fb = read_frames(self.ser, self.rx, want=1, timeout=left,
+                                 raw_sink=raw_sink)
+                if raw_sink:
+                    self.rx_bytes += sum(len(c) for c in raw_sink)
+                self.n_recv += len(fb)
+                for f in fb:
+                    if is_reg_response(f):
+                        r = decode_reg_response(f)
+                        if r["cmd"] == cmd and (rid is None or r["rid"] == rid):
+                            return r["data"]
+                        continue
+                    mid = f[7] & 0x0F
+                    if mid in self._limits:
+                        d = decode_feedback(f[7:15], self._limits[mid])
+                        self._cache[mid] = MotorState.from_decoded(d, time.monotonic())
+
     # ───────────────────────── 接收 ─────────────────────────
     def poll(self) -> int:
         """**非阻塞抽干**：把"已经到了"的字节收进来、切帧、更新缓存。**绝不等待。**
@@ -344,6 +412,8 @@ class MotorBus:
             ts = time.monotonic()
             n = 0
             for f in fb:
+                if is_reg_response(f):
+                    continue          # 寄存器回包不是反馈帧（当状态解会得到垃圾）
                 mid = f[7] & 0x0F
                 if mid not in self._limits:
                     self.unknown_ids.add(mid)
@@ -376,6 +446,8 @@ class MotorBus:
                     self.rx_bytes += sum(len(c) for c in raw_sink)
                 self.n_recv += len(fb)
                 for f in fb:
+                    if is_reg_response(f):
+                        continue      # 同上：寄存器回包别当反馈帧解
                     mid = f[7] & 0x0F
                     if mid not in self._limits:
                         self.unknown_ids.add(mid)

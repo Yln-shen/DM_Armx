@@ -40,7 +40,15 @@ FEEDBACK_CMD = 0x11        # 反馈帧的 CMD
 
 CMD_ENABLE = 0xFC
 CMD_DISABLE = 0xFD
-CANID_REFRESH = 0x7FF      # 刷新帧是广播，所有电机都回
+CANID_BROADCAST = 0x7FF    # 广播 ID：刷新帧与寄存器读写都用它（目标 ID 在数据段里）
+CANID_REFRESH = CANID_BROADCAST   # 旧名（0x7FF 刷新帧）
+
+# 寄存器命令字（手册「读取参数 / 写入参数 / 存储参数」）。
+# 报文 ID 都是广播 0x7FF，但数据段前两字节带目标电机 ID，所以只有那台电机会回。
+REG_CMD_READ = 0x33
+REG_CMD_WRITE = 0x55
+REG_CMD_SAVE = 0xAA
+REG_RESP_CMDS = (REG_CMD_READ, REG_CMD_WRITE, REG_CMD_SAVE)
 
 # ERR 是反馈帧 D[0] 的高 4 位（手册"反馈帧"表 + ERR 状态表）
 ERR_DECODE = {
@@ -125,6 +133,21 @@ def float_to_uint8s(value) -> bytes:
     """float32 **小端** 4 字节。SDK 写的是 `unpack('4B', pack('f', v))`，字节相同；
     显式 `<f` 比 SDK 的本地字节序更不容易出错。"""
     return struct.pack("<f", float(value))
+
+
+def uint32_to_uint8s(value) -> bytes:
+    """uint32 **小端** 4 字节（寄存器写用）。与 SDK 的 `data_to_uint8s` 一致。"""
+    return int(value).to_bytes(4, "little")
+
+
+def uint8s_to_uint32(b4) -> int:
+    """4 字节 **小端** → uint32（寄存器读用，低位在 D4）。"""
+    return int.from_bytes(bytes(b4), "little")
+
+
+def uint8s_to_float32(b4) -> float:
+    """4 字节 **小端** float32 → float（寄存器读用）。"""
+    return struct.unpack("<f", bytes(b4))[0]
 
 
 def mit_frame(slave_id, p_des, v_des, kp, kd, t_ff, limit) -> bytes:
@@ -216,6 +239,43 @@ def refresh_frame(slave_id) -> bytes:
         CANID_REFRESH,
         bytes([slave_id & 0xFF, (slave_id >> 8) & 0xFF, 0xCC, 0, 0, 0, 0, 0]),
     )
+
+
+def _reg_head(slave_id, cmd: int, rid: int = 0) -> bytes:
+    """寄存器帧数据段的头 4 字节：`[ID_L, ID_H, CMD, RID]`。"""
+    return bytes([slave_id & 0xFF, (slave_id >> 8) & 0xFF, cmd, rid])
+
+
+def reg_read_frame(slave_id, rid: int) -> bytes:
+    """读寄存器帧（手册「读取参数」）。CAN ID = **广播 0x7FF**。
+
+    数据段 `[ID_L, ID_H, 0x33, RID, 0,0,0,0]` —— 与 SDK 的 `__read_RID_param`
+    （`DM_CAN.py:424-429`）逐字节一致。
+    """
+    return build_tx(CANID_BROADCAST, _reg_head(slave_id, REG_CMD_READ, rid) + bytes(4))
+
+
+def reg_write_frame(slave_id, rid: int, raw4) -> bytes:
+    """写寄存器帧（手册「写入参数」）。数据段 `[ID_L, ID_H, 0x55, RID, 数据4]`。
+
+    ⚠️ 那 4 字节是 **float32 还是 uint32 由 RID 决定**（SDK 的 `is_in_ranges`：
+    7~10 / 13~16 / 35~36 是 uint32，其余 float32）—— 编错**不报错**，只会静默写坏。
+    类型表在 `dm_registers.py`（按手册逐条列）。
+    """
+    raw = bytes(raw4)
+    if len(raw) != 4:
+        raise ValueError(f"寄存器数据必须 4 字节，收到 {len(raw)} 字节：{raw.hex(' ')}")
+    return build_tx(CANID_BROADCAST, _reg_head(slave_id, REG_CMD_WRITE, rid) + raw)
+
+
+def save_params_frame(slave_id) -> bytes:
+    """存储参数帧（写 flash）。数据段 `[ID_L, ID_H, 0xAA, 0x01, 0,0,0,0]`。
+
+    ⚠️ 手册写 D[3] = 0x01，而 SDK 的 `save_motor_param`（`DM_CAN.py:473`）发的是 0x00
+    —— 这里**按手册**。真机若存不住，先怀疑这个字节。
+    ⚠️ 手册：只在**失能**状态下生效；写入最长 30ms；flash 擦写寿命约 1 万次。
+    """
+    return build_tx(CANID_BROADCAST, _reg_head(slave_id, REG_CMD_SAVE, 0x01) + bytes(4))
 
 
 # ───────────────────────────── 2. 接收与解码 ─────────────────────────────
@@ -339,4 +399,37 @@ def decode_feedback(data: bytes, limit: tuple[float, float, float]) -> dict:
         "t_mos_raw": data[6],
         "t_rotor_raw": data[7],
         "raw": bytes(data),
+    }
+
+
+def is_reg_response(frame: bytes) -> bool:
+    """这条 16 字节接收帧是**寄存器回包**，而不是控制反馈帧吗？
+
+    适配器对两者都用 `CMD = 0x11`（SDK `__process_set_param_packet`，`DM_CAN.py:373`
+    的判据就是 `CMD == 0x11 and data[2] in (0x33, 0x55)`），所以只能靠数据段第 3 字节区分。
+
+    ⚠️ `MotorBus.poll()` / `wait_feedback()` **必须先过这一关**：寄存器回包的数据段
+    是 `[ID_L, ID_H, 0x33, RID, ...]`，当成反馈帧解出来的 pos/vel/tau 全是垃圾，
+    还会塞进状态缓存污染控制循环。
+    """
+    return (len(frame) == RX_FRAME_LEN and frame[1] == FEEDBACK_CMD
+            and frame[9] in REG_RESP_CMDS)
+
+
+def decode_reg_response(frame: bytes) -> dict:
+    """解一条寄存器回包 → `{motor_id, cmd, rid, data(4B), raw(8B)}`。
+
+    数据段布局（手册「读取参数」的返回帧）：
+        D[0:2] = CANID_L/H（回包电机的 ID，低位在前）
+        D[2]   = 0x33 读 / 0x55 写 / 0xAA 存参数
+        D[3]   = RID
+        D[4:8] = 数据（低位在 D[4]）
+    """
+    d = frame[7:15]
+    return {
+        "motor_id": d[1] << 8 | d[0],
+        "cmd": d[2],
+        "rid": d[3],
+        "data": bytes(d[4:8]),
+        "raw": bytes(d),
     }
