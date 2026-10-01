@@ -36,13 +36,16 @@ class Joint:
                  position_min: float | None = None,
                  position_max: float | None = None,
                  mode: int = MODE_MIT,
-                 torque_max: float | None = None):
+                 torque_max: float | None = None,
+                 nm_per_unit: float | None = None):
 
         if mode not in MODE_NAMES:
             allowed = "/".join(f"{k}({v})" for k, v in sorted(MODE_NAMES.items()))
             raise ValueError(f"mode 只能是 {allowed}，收到 {mode!r}")
         if torque_max is not None and not torque_max > 0:      # 顺手挡住 NaN
             raise ValueError(f"torque_max 要么是 None，要么是正数，收到 {torque_max!r}")
+        if nm_per_unit is not None and not nm_per_unit > 0:    # 顺手挡住 NaN
+            raise ValueError(f"nm_per_unit 要么是 None，要么是正数，收到 {nm_per_unit!r}")
 
         self.bus = bus
         self.motor_id = motor_id
@@ -54,6 +57,7 @@ class Joint:
         self.position_max = position_max
         self.mode = mode
         self.torque_max = torque_max                           # None = 不钳位
+        self.nm_per_unit = nm_per_unit                         # 力位混控 i_des↔N·m；None = 不钳
         self._clamp_warn_at = -CLAMP_WARN_INTERVAL             # 首次钳位一定打日志
 
         # 注册到 bus：发帧与解反馈都要用这份映射范围。冲突直接拒 ——
@@ -162,6 +166,28 @@ class Joint:
             return clamped
         return tau_ff
 
+    def _limit_i_des(self, current):
+        """按 `torque_max` 钳力位混控的电流上限 `i_des`（入参/返回都是 0~1 标幺）。
+
+        换算是**实测**的：`i_des = torque_max / nm_per_unit`（`arm_config.NM_PER_I_DES`，
+        2026-10-01 摩擦阈值扫描；见 AGENTS §5）。
+        `current` 是**上限**不是需求 ⇒ 钳它是单调安全的（只会让力矩更小），所以**钳 + 限流日志**，
+        不像 MIT 那样拒发。没有 `torque_max` / `nm_per_unit`（单关节直用）就原样放行。
+        ⚠️ `enable()` 的保持帧**不经过这里**（直发 `i_des=1.0`），使能仍是真保持。
+        """
+        if self.torque_max is None or self.nm_per_unit is None:
+            return current
+        cap = self.torque_max / self.nm_per_unit
+        if current <= cap:
+            return current
+        now = time.monotonic()
+        if now - self._clamp_warn_at >= CLAMP_WARN_INTERVAL:
+            self._clamp_warn_at = now
+            print(f"[{self.name}] i_des 被钳：{current:+.3f} → {cap:+.3f}"
+                  f"（torque_max {self.torque_max:g} N·m ÷ {self.nm_per_unit:g} N·m/单位"
+                  f" ≈ {self.torque_max:g} N·m 上限）", file=sys.stderr)
+        return cap
+
     def set_pos_vel(self, pos, vlim):
         if self.mode != MODE_POS_VEL:
             raise RuntimeError(
@@ -191,7 +217,8 @@ class Joint:
         if not (0.0 <= current <= 1.0):
             raise ValueError(f"current={current} 不在 [0, 1]；协议里是 uint16 标幺值，"
                              f"超出会被静默钳掉")
-        self.bus.send_force_pos(self.motor_id, self.prepare_frame(pos), vel, current)
+        self.bus.send_force_pos(self.motor_id, self.prepare_frame(pos), vel,
+                                self._limit_i_des(current))
 
     def switch_mode(self, mode):
         #模式切换

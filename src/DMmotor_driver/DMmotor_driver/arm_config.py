@@ -9,12 +9,18 @@ from pathlib import Path
 
 import yaml
 
-from dm_modes import MODE_MIT, MODE_NAMES
+from dm_modes import MODE_FORCE_POS, MODE_MIT, MODE_NAMES
 
 
 # 各型号的**峰值扭矩**（N·m，手册值）：只用来校验力矩阈值有没有意义（DESIGN §4.3）。
 # 4340P：额定 12 / 峰值 40；4310：额定 3.5 / 峰值 12.5。
 _PEAK_TORQUE = {"4340P": 40.0, "4310": 12.5}
+
+# 力位混控的电流上限换算（N·m / 每单位 i_des）：i_des = torque_max / NM_PER_I_DES[型号]
+# 2026-10-01 真机**摩擦阈值扫描**实测（方法见 AGENTS §5）：4310 = 18~22、4340P = 35~40。
+# 取**上界**：假设的 k 偏大 ⇒ 算出的电流上限偏小 ⇒ 实际力矩不会超过 torque_max。
+# ⚠️ 只在这两种型号上测过，而且是在裸机/单温度点上；新型号**必须重测**，别照抄。
+NM_PER_I_DES = {"4340P": 40.0, "4310": 22.0}
 
 
 @dataclass
@@ -28,9 +34,9 @@ class JointConfig:
     `torque_monitor_threshold` 是 **POS_VEL 事后监控**的力矩阈值（N·m）。POS_VEL 下
     上位机限不了力矩，只能靠事后监控兜底（DESIGN §2.2），所以它是**必填、没有开关**。
 
-    `torque_max` 是 **MIT 发帧前**的力矩上限（N·m，DESIGN §4.2/§4.3 的额定值）：
-    MIT 出的是 `kp·(q_des−q) + kd·(dq_des−dq) + tau_ff`，主机能在发之前算出来。
-    只对 MIT 生效 —— 力位混控有自己的 `i_des` 电流限幅。
+    `torque_max` 是**力矩上限**（N·m，DESIGN §4.2/§4.3 的额定值），两种模式都生效：
+    MIT 出的是 `kp·(q_des−q) + kd·(dq_des−dq) + tau_ff`，主机发帧前能算出来 ⇒ 直接钳 `tau_ff`；
+    力位混控没有力矩通道、只有 `i_des` 电流上限 ⇒ 用 `NM_PER_I_DES` 换算后钳 `i_des`。
     """
 
     name: str
@@ -90,6 +96,12 @@ class JointConfig:
             raise ValueError(
                 f"{self.name}: 型号 {self.motor_type!r} 不在峰值扭矩表里（{sorted(_PEAK_TORQUE)}）"
                 f" —— 没法校验力矩阈值"
+            )
+        if self.mode == MODE_FORCE_POS and self.motor_type not in NM_PER_I_DES:
+            raise ValueError(
+                f"{self.name}: 声明了 mode 4，但 {self.motor_type!r} 没有实测的 i_des↔N·m 换算"
+                f"（NM_PER_I_DES 只有 {sorted(NM_PER_I_DES)}）—— 算不出力矩上限；"
+                f"要么补测（摩擦阈值扫描，见 AGENTS §5），要么把它声明成 mode 1/2"
             )
         if self.torque_monitor_threshold >= peak:
             raise ValueError(

@@ -26,7 +26,7 @@
 import sys
 import time
 
-from arm_config import ArmConfig
+from arm_config import ArmConfig, NM_PER_I_DES
 from dm_bus import MotorBus
 from dm_modes import MODE_POS_VEL
 from joint import Joint, JointState
@@ -61,7 +61,7 @@ class DmArm:
             name: Joint(self.bus, cfg.slave_id, cfg.name, cfg.direction, cfg.limit,
                         offset=cfg.offset, position_min=cfg.position_min,
                         position_max=cfg.position_max, mode=cfg.mode,
-                        torque_max=cfg.torque_max)
+                        torque_max=cfg.torque_max, nm_per_unit=NM_PER_I_DES.get(cfg.motor_type))
             for name, cfg in self.config.joints.items()
         }
         return self

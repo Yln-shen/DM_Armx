@@ -14,7 +14,7 @@
 | 协议帧编解码（纯函数） | [dm_frames.py](src/DMmotor_driver/DMmotor_driver/dm_frames.py) | ✅ MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 反馈解码 |
 | 总线非阻塞收发 | [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | ✅ 唯一发送出口 + 注册准入 + 状态缓存 |
 | 控制模式常量 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | ✅ |
-| 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障；**2026-10-01 三种模式都真机跑通**（MIT/POS_VEL 各做零增益抽检 + ±0.08 rad 点动去回；力位混控另测 `i_des` A/B/C） |
+| 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障 / **力矩上限（MIT 钳 tau_ff、力位钳 i_des）**；**2026-10-01 三种模式都真机跑通**（MIT/POS_VEL 各做零增益抽检 + ±0.08 rad 点动去回；力位混控另测 `i_des` A/B/C） |
 | 配置解析 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) + [config/joint.yaml](config/joint.yaml) | ✅ 6 关节 |
 | 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
 | 整臂层 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控 + MIT 力矩钳位；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz、零误报）；**未做**：方向/零位标定、带目标的动作、ROS2 |

@@ -25,8 +25,8 @@
 | [dm_frames.py](src/DMmotor_driver/DMmotor_driver/dm_frames.py) | 435 | CAN 帧编解码**纯函数**：30B 发送帧模板、8B 数据段、16B 收帧切分、反馈解码、**寄存器读/写/存参数帧 + 回包分类解码** | 不 import 本包、不打屏、不发帧、不判安全、**`_TX_TEMPLATE` 是不可推导的魔数**（改错=适配器不认帧且无报错） |
 | [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | 531 | 一条总线的**非阻塞**收发：唯一发送出口 `send_frame()`、`poll()` 抽干、`MotorState` 缓存、`registered_ids` 准入、**寄存器 I/O（`read/write_register`/`save_params`）** | **不写寄存器** —— 它只发寄存器帧，写什么由 `dm_registers.py` 决定；不设零位、不自动使能、不判安全；`close()` 不负责失能 |
 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | 27 | 模式编码 `MODE_MIT=1/POS_VEL=2/FORCE_POS=4` + `MODE_NAMES` | 零 import；**3 = 速度模式，不是力位混控** |
-| [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | 271 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 / **MIT 力矩钳位 `_clamp_mit_torque`** | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**三种模式都已真机跑通**（MIT/POS_VEL 2026-10-01 上午；**力位混控 2026-10-01 深夜**）|
-| [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 188 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`/**`torque_max`**）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（力矩阈值与 `torque_max` 都必须 < 型号峰值，峰值表 `_PEAK_TORQUE`） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
+| [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | 298 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 / **力矩上限：MIT 钳 `tau_ff`（`_clamp_mit_torque`）+ 力位混控钳 `i_des`（`_limit_i_des`）** | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**三种模式都已真机跑通**（MIT/POS_VEL 2026-10-01 上午；**力位混控 2026-10-01 深夜**）|
+| [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 200 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`/**`torque_max`**）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（力矩阈值与 `torque_max` 都必须 < 型号峰值 `_PEAK_TORQUE`；**声明 mode 4 还要求型号在 `NM_PER_I_DES` 里**） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | 417 | `DmArm`：连接/关闭、使能失能、批量 POS_VEL / MIT、状态（`get_state`/`refresh_all_states`/`sync_states`）、健康检查与急停、**力矩+温度监控**、发/收两个阻塞循环（节拍与退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都阻塞、**不能同时跑**（调用方开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**循环与监控已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz / 监控零误报） |
 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | 492 | 寄存器工具：49 条寄存器表（`Reg` 带 **`per_unit`**：换算只在这一处）+ `RegisterTool` + CLI `list/dump/verify/set/restore` | 只管寄存器 I/O：**不使能、不发控制帧、不判安全**；默认不碰 flash。**读 + 写 RAM + `--save` 写 flash 都已真机验证**（2026-10-01：写 `0x09` 后**断电重上电仍在** ⇒ 手册的 `0xAA`/`0x01` 字节是对的） |
 | [config/joint.yaml](config/joint.yaml) | — | 6 关节静态参数 | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
@@ -43,13 +43,15 @@
 **`Joint`（全实现）**：
 ```python
 Joint(bus, motor_id, name, direction, limit, offset=0.0,
-      position_min=None, position_max=None, mode=MODE_MIT, torque_max=None)
+      position_min=None, position_max=None, mode=MODE_MIT,
+      torque_max=None, nm_per_unit=None)
 enable() / disable()
 prepare_frame(pos)                      # NaN 拦 → 软限位 → 换算 → PMax
 set_mit(kp, kd, q, dq=0.0, tau=0.0)     # 仅 mode==1；torque_max 不是 None 时先钳 tau_ff
 _clamp_mit_torque(...)                  # 私有：PD 项自己超 → 拒发；否则把 tau_ff 钳到 ±torque_max
+_limit_i_des(current)                   # 私有：力位混控钳 i_des 到 torque_max/nm_per_unit（实测换算）
 set_pos_vel(pos, vlim)                  # 仅 mode==2；vlim 是幅值、负值抛
-set_force_pos(pos, vel, current)        # 仅 mode==4；current ∈ [0,1] 电流上限（已真机跑通）
+set_force_pos(pos, vel, current)        # 仅 mode==4；current ∈ [0,1] 电流上限，会被 _limit_i_des 钳
 get_state()   -> JointState             # 无反馈 ⇒ 抛 RuntimeError
 assert_healthy() -> None                # 只查 ERR（温度归上层）；故障 ⇒ 先失能再抛
 switch_mode(mode)                       # 永远抛 NotImplementedError（附五步指引）
@@ -57,7 +59,7 @@ joint_to_motor(v) / motor_to_joint(v) / clamp(pos) / clamp_pmax(motor_pos)
 ```
 `JointState` 字段：`name, position, velocity, torque, err, err_text, temp_mos, temp_rotor, enabled, timestamp`
 
-**`arm_config`**：`JointConfig(..., torque_monitor_threshold, torque_max, torque_monitor_count=10)` · `load_joint_configs(path)` · `ArmConfig(channel, joints, baud, serial_timeout, send_hz, feedback_hz, temp_warn=80, temp_fault=100)` · `load_arm_config(path)`
+**`arm_config`**：`_PEAK_TORQUE`（峰值表）· `NM_PER_I_DES`（**实测** i_des↔N·m：4340P 40 / 4310 22）· `JointConfig(..., torque_monitor_threshold, torque_max, torque_monitor_count=10)` · `load_joint_configs(path)` · `ArmConfig(channel, joints, baud, serial_timeout, send_hz, feedback_hz, temp_warn=80, temp_fault=100)` · `load_arm_config(path)`
 
 **`DmArm`（13 个公开方法 + 2 个私有）**：`__init__(config)` · `connect()`（开串口 + 建关节，**不写寄存器**）· `shutdown()`（**先失能再关串口**）·
 `enable_all()`（任一个失败 → **回滚已使能的**再抛）· `disable_all()`（**全部尝试**，最后抛汇总）·
@@ -87,6 +89,7 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 | 故障码含义 / `ERR_OK=(0,1)` | `dm_frames.ERR_DECODE` / `ERR_OK` |
 | 关节限位、方向、零位、模式声明 | `config/joint.yaml`（源头是 URDF，**已移出工作区**） |
 | `limit` 档位数值 | **只能回读** `0x15/0x16/0x17`；实测记录在 `docs/TESTING.md` §2.5/§2.6 |
+| **力位混控 `i_des` ↔ 扭矩的换算** | `arm_config.NM_PER_I_DES`（实测值，**别按峰值比例外推**：4340P 40 / 4310 22，不是 3.2 倍关系） |
 | 设计意图 | `docs/DESIGN.md`（**部分历史段已过期**） |
 
 ## 5. 关键事实表
@@ -141,7 +144,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
   ⚠️ 推论：`i_des ≥ ~0.5` 时封顶扭矩已超过 4310 峰值 **12.5 N·m** ⇒ 再往上"限制因素"变成电机/TMAX，不是 `i_des`。
   ⚠️ **方法学教训**：前两轮"用手扭住轴"想测上限**测不出来** —— 手在 ~0.5 N·m 就打滑（每次 0.6 s 滑掉 0.12 rad、误差停在 0.18 rad），
   而 `i_des=0.05` 封顶就有 ~1 N·m ⇒ **手永远先滑**。带载验证要用"摩擦阈值法"或机械硬限位，别用手。
-  → 可用来给 mode 4 配力矩上限：`i_des ≈ torque_max / k`（如 j4~j6 的 3.5 N·m ⇒ `i_des ≈ 0.175`）
+  → 这就是下面 `NM_PER_I_DES` 的来源（取上界：4340P 40、4310 22 N·m/单位）
 
 **2026-10-01 真机整臂实测**（6 台**裸电机平放桌面、无负载、未组装**；`/dev/ttyACM0`；⚠️ 各 ID 与物理位置的对应关系**未确认**，用户说"地址顺序可能不对"）：
 - **电机侧看门狗 `0x09`：6 台已统一为 `10000` 计数 = 500 ms，并已存 flash**（2026-10-01）。
@@ -183,7 +186,21 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 - ⚠️ 用的是缓存 `q/vel`（滞后 1~20ms）⇒ **近似**钳位：慢速可忽略，5 rad/s 时 kp=10 约差 1 N·m
 - 真机验证（2026-10-01，单台 j6/4310）：拒发路 `kp=10 / Δq=0.5` → PD=5.0>3.5 抛异常，**总线 `sent` 一个字节没增**；
   钳位路注入 `torque_max=0.05` → 日志 `tau_ff 被钳：+0.500 → +0.010`，0.5 秒持续发帧**零位移**（0.05 N·m < 摩擦 0.145）
-- ⚠️ 力位混控**不做**这个换算（它有自己的 `i_des` 电流限幅；按力矩反推 `i_des` 需要 `0x01 KT_Value` 与最大电流，手上没有）
+- 力位混控用**另一条路**（见下）：没有力矩通道，就把 `torque_max` 换算成 `i_des` 电流上限
+
+**力位混控的力矩上限（`Joint._limit_i_des`，2026-10-01 加）**：
+- 换算：`i_des_cap = torque_max / nm_per_unit`，`nm_per_unit` 来自 `arm_config.NM_PER_I_DES`
+  （**实测上界**：4340P = 40、4310 = 22 N·m/单位；方法 = 摩擦阈值扫描，见下）
+- `current` 是**上限**不是需求 ⇒ **钳 + 限流日志（5s）**，不像 MIT 那样拒发（钳它是单调安全的）
+- 没有 `torque_max` / `nm_per_unit`（单关节直用）⇒ 原样放行；**`enable()` 的保持帧直发 `i_des=1.0`，不经过这里** ⇒ 使能仍是真保持
+- 于是 yaml 的 `torque_max` 在两种模式下都生效（DESIGN §4.2 原本就这么写）：
+  j1~j3 `12.0 / 40` ⇒ `i_des ≤ 0.300`；j4~j6 `3.5 / 22` ⇒ `i_des ≤ 0.159`
+- ⚠️ 声明 mode 4 时，型号**必须**在 `NM_PER_I_DES` 里，否则 `arm_config` 加载即拒（算不出上限就别用）
+- 真机**预测性验证（2026-10-01，单台 j6/4310）**：用上一步测出的静摩擦阈值 `i_des≈0.0065` 预测，
+  4/4 命中 ——
+  `torque_max=0.12`（cap 0.00545 < 阈值）⇒ **位移 +0.0038 不动**，且 `|tau| 0.1294 ≈ 上限 0.12`（**独立复现 k≈23.7**）；
+  `torque_max=0.20`（cap 0.00909 > 阈值）⇒ 动 −0.3006；真值 3.5 + 请求 0.1 ⇒ 不钳、动；
+  真值 3.5 + 请求 1.0 ⇒ 钳到 0.159、动 ✓
 
 **单位与换算**：位置 `电机侧 = direction × 关节侧 + offset`（逆换算 `关节侧 = direction × (电机侧 − offset)`）；
 **速度 / 力矩是矢量：只乘 `direction`，不加 `offset`**。本层**没有减速比折算**（电机报的就是输出轴 rad）。
@@ -194,7 +211,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 |---|---|---|
 | 1 | **`NaN` 会穿过钳位**（`min/max` 与 NaN 比较恒 False） | `prepare_frame()` 入口 + 三个 `set_*` 各自 `math.isfinite` 拦；抛 `ValueError` 且**不失能**（NaN 是软件错，失能反而危险） |
 | 2 | **切进位置类模式时电机内部指令被清零** | `enable()` 在 mode 2/4 下**没有缓存位置就拒绝使能**，并使能后**立刻补"保持帧"** |
-| 3 | **力位混控的 `i_des` 是电流上限、不是力矩前馈** | 给 0 = 一点力都不给（负载下会垂）；`enable()` 的保持帧用 `1.0`。**2026-10-01 真机结案**：`i_des=0.0` ⇒ 完全不动（\|tau\| 0.007）；空载自由轴上 `0.05~1.0` 结果一致（5% 就够驱动）⇒ 上限只在环路真要更多电流（负载/加速）时才起作用；**带载用摩擦阈值扫描验证**（见 §5）：阈值 `i_des ∈ (0.006, 0.007]`、`k ≈ 18~22 N·m/单位`。⚠️ **别用手测上限**：手在 ~0.5 N·m 就打滑（试过两轮，测出来的只是手） |
+| 3 | **力位混控的 `i_des` 是电流上限、不是力矩前馈** | 给 0 = 一点力都不给（负载下会垂）；`enable()` 的保持帧用 `1.0`。**2026-10-01 真机结案**：`i_des=0.0` ⇒ 完全不动（\|tau\| 0.007）；空载自由轴上 `0.05~1.0` 结果一致（5% 就够驱动）⇒ 上限只在环路真要更多电流（负载/加速）时才起作用；**带载用摩擦阈值扫描验证**（见 §5）：阈值 `i_des ∈ (0.006, 0.007]`、`k ≈ 18~22 N·m/单位`。⚠️ **别用手测上限**：手在 ~0.5 N·m 就打滑（试过两轮，测出来的只是手）。**上位机侧的上限已实现**：`i_des ≤ torque_max / NM_PER_I_DES[型号]`（见 §5） |
 | 4 | **`force_pos_frame` 与 SDK 约定不同** | 我们收**物理量**（rad/s、0~1 标幺）并在函数内放大；SDK `control_pos_force` 收**已放大**的整数。别把 SDK 参数直接抄过来（数值已逐字节对拍一致） |
 | 5 | **两层 `get_state()` 语义不同** | `MotorBus.get_state()` 返回 `None`（"从没收到过"是正常）；**`Joint.get_state()` 抛 `RuntimeError`** |
 | 6 | **所有 `send_*` 先查 `registered_ids`**（`_require_registered`）；`send_frame` **查不了**（它不收 `motor_id`，CAN ID 已在帧里） | 忘注册会 `RuntimeError`；`_limit()` 也从 `KeyError` 改成了 `RuntimeError` |
@@ -258,7 +275,7 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 **已移出工作区、但在 git 历史里可取回**（`git show <commit>:<path>`，用 `HEAD~1` 或 `f17aec1`）：
 旧版 `dm_bringup.py`、旧版 `dm_registers.py`（605 行）、旧版 `arm_config.py`（674 行）、`tools/*.py`（`smoke_*.py`/`scan_bus.py`/`bus_probe.py`）、
 `src/mujoco_pkg/`、`src/rebotarm_msgs/`、`src/fake_driver_pkg/`、`ARCHITECTURE.md`、`CURRENT_STATE.md`、旧 `config/rebotarm_b601_mixed.yaml`。
-⚠️ 现在这个 `arm_config.py`（188 行）**覆盖**了历史里同名的那份 674 行版本；`dm_registers.py`、`arm.py` 也都是新写的（不是恢复的）。
+⚠️ 现在这个 `arm_config.py`（200 行）**覆盖**了历史里同名的那份 674 行版本；`dm_registers.py`、`arm.py` 也都是新写的（不是恢复的）。
 
 ## 9. 接手后的第一件事
 
