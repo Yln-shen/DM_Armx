@@ -23,7 +23,8 @@
 | ROS2 接口包 | [arm_msgs](src/arm_msgs) | ✅ 3 个 msg（`JointMotorCmd` / `JointMotorState` / `ArmStatus`）+ 1 个 action（`MoveToPose`）；夹爪本阶段不做 |
 | 机器人描述 | [arm_description](src/arm_description) | ✅ URDF/xacro（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **[config/align.yaml](src/arm_description/config/align.yaml)（模型对齐，2026-10-04 M1b 实测）**；joint limit 已换算成本项目标定值 |
 | ROS2 胶水层 | [arm_bringup](src/arm_bringup) | ✅ `real_joint_states`：**只读**真机 → `/joint_states`（模型镜像/对齐用）；串口连续失败会 FATAL 退出（不装死） |
-| ROS2 控制 | — | ⚠️ **未接**：`ros2_control` 硬件接口（M5）、MoveIt（M6）还没做；目前只有上面那个只读节点会 import rclpy |
+| C++ 协议层 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`：6 类发送帧（MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 寄存器）+ 收帧切分 + 反馈/寄存器解码；**与 Python 那份逐字节对拍**（34 用例全过，`colcon test`）；串口层与插件待做（M4/M5） |
+| ROS2 控制 | — | ⚠️ **未接**：`ros2_control` 硬件接口（M5）、MoveIt（M6）还没做；mock 链路（M2）已跑通，目前只有只读镜像节点会 import rclpy |
 | 夹爪 | — | ❌ 本阶段不做 |
 
 > ⚠️ **现在还不能真的驱动整臂**：驱动层（协议 / 总线 / 单关节 / 整臂 / 标定）已就绪，但**上层还没接** ——
@@ -140,16 +141,19 @@ DM_Armx/
    │  ├─ config/align.yaml      模型对齐 sign/zero_shift（**真源**，M1b 实测）
    │  ├─ urdf/ …                arm.urdf.xacro + inc/{arm_geometry, gripper, arm.ros2_control}
    │  └─ launch/ rviz/ meshes/(73M) reference/
-   ├─ arm_bringup/              ROS2 胶水层（`real_joint_states`：只读真机 → /joint_states）
-   └─ third_party/              厂商 SDK（u2can / u2canfd）
+   ├─ arm_bringup/              ROS2 胶水层（`real_joint_states`：只读真机 → /joint_states；mock 控制链路）
+   ├─ motor_driver_hardware/    C++ 侧协议层（`dm_frames`；与 Python 逐字节对拍）
+   └─ third_party/              厂商 SDK（Python 例程 + C++ 例程 u2can）
 ```
 
 ## 接下来做什么
 
 **路线：MoveIt 算 IK / 轨迹 → ros2_control 下发执行**（不自搭运动学 / 轨迹 / 控制循环）。
 
-- 已完成：6 轴**方向 / 零位 / 软限位标定**（M1b 模型对齐 + 限位换算进 URDF）；`arm_msgs` 接口包；`arm_description`
-- 下一步（M2）：用 `mock_components/GenericSystem` 把 `controller_manager → joint_trajectory_controller → joint_state_broadcaster` 跑通（**不碰真机**）
-- 之后（M3~M6）：C++ 硬件接口（基于达妙官方 `damiao.h` 裁剪，修掉 `data[2]` 误判）→ `SystemInterface` 接真机 → MoveIt（SRDF / kinematics / ompl）
+- 已完成：6 轴**方向 / 零位 / 软限位标定**（M1b 模型对齐 + 限位换算进 URDF）；`arm_msgs`；`arm_description`；
+  **M2 mock 链路**（`controller_manager` + JTC + 广播器，两个控制器 active、轨迹验收通过，不碰真机）；
+  **M3 C++ 协议层**（`dm_frames` 与 Python 逐字节对拍，34 用例全过）
+- 下一步（M4）：C++ 串口 / 总线层（非阻塞帧泵）+ 关节模型（换算 / 限位 / 力矩钳位 / 故障解码）
+- 之后（M5~M6）：`SystemInterface` 插件接真机（只读 → 小动作 → 验收）→ MoveIt（SRDF / kinematics / ompl）
 
 细节看 [AGENTS.md](AGENTS.md)（精确到方法的状态与不变量）与 [docs/DESIGN.md](docs/DESIGN.md)（设计意图）。

@@ -38,6 +38,7 @@
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
+| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧协议层**（`dm_frames` 纯函数库）：30B 发送帧（MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 寄存器）+ 16B 收帧切分（`extract_rx` / `RxBuf`）+ 反馈与寄存器回包解码 + `is_reg_response` | **不开发送、不碰串口、不判安全**；与 `dm_frames.py` 是**两份实现**，靠 `test/test_dm_frames.cpp`（直接调 Python 造帧）**逐字节对拍**；串口层与 `SystemInterface` 还没做 |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -84,8 +85,10 @@ joint_to_motor(v) / motor_to_joint(v) / clamp(pos) / clamp_pmax(motor_pos)
 CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`--save --yes` 才写 flash 且**写前自动 dump 基线**；
 `restore` 默认只打印计划。发送前 `is_reg_response` 把寄存器回包与反馈帧分开。
 
-**未实现（别以为有）**：`ros2_control` 硬件接口插件 · MoveIt 配置（URDF/SRDF/限位）· `arm_msgs` 之上的节点 ·
-夹爪 · 速度模式(3) · 重力补偿 · 电压监控（本层读不到 `0x3C`）· **任何测试文件**。
+**未实现（别以为有）**：`ros2_control` 硬件接口插件（C++ 侧**协议层已就位**，串口层与插件还没写）·
+MoveIt 配置（SRDF / kinematics / ompl）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) · 重力补偿 ·
+电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
+C++ 包的 `test/` 是唯一例外，见 §7）。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 
@@ -276,6 +279,8 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 27 | **`launch_ros.actions.Node` 的关键字是 `parameters=`，不是 `params=`**（`params` 是 rclcpp/C++ 的写法） | 2026-10-04 真踩：`arm_description/launch/display.launch.py` 写成 `params=[{"robot_description": ...}]` ⇒ `ros2 launch` 在**加载文件阶段**就抛 `TypeError: Action.__init__() got an unexpected keyword argument 'params'`，**一个节点都不会启动**（报错里还跟着一条误导性的 `InvalidFrontendLaunchFileError: The launch file may have a syntax error`）。⇒ **改完 launch 文件先跑 `ros2 launch <pkg> <file> --show-args`**：它只解析不启动，能立刻暴露这类构造错误 |
 | 28 | **USB-CAN 适配器的设备号会变**（`/dev/ttyACM0` ↔ `/dev/ttyACM1`，随插拔顺序），而 `config/joint.yaml` 的 `channel` 是写死的 | 2026-10-04 真踩：设备从 ttyACM0 变成 ttyACM1 ⇒ 只读节点每轮读串口都失败（当时只打 ERROR、不退出）⇒ **RViz 里模型冻在最后一帧**，看起来像"调参没生效"，白折腾半天。⇒ ①`channel` 要跟着改（已改 ttyACM1）；②节点已加"连续 `max_fail_streak` 轮失败就 FATAL 退出"；③根治是按适配器序列号加 udev 规则固定成 `/dev/dm_can` |
 | 29 | **`joint_state_publisher*` 会订阅 `/joint_states` 再回发** ⇒ 与"真机镜像"节点同时开着，两个发布者打架 | 2026-10-04 真踩：M1a 的 `display.launch.py` 没关，`/joint_states` 有 2 个发布者（一个 RELIABLE、一个 BEST_EFFORT），RViz 里的机械臂**发抖**。⇒ 镜像前先 `ros2 topic info /joint_states` 确认 **Publisher count: 1**；`ros2 node list` 里出现**两个 `/robot_state_publisher`** 是同一问题的征兆 |
+| 30 | **协议有两份实现（Python `dm_frames.py` + C++ `dm_frames`），浮点运算顺序不一致就差 1 个 LSB** | `float_to_uint` 必须"先钳位 → 先减、后除、再乘 → **向零截断**"（Python `int()` 与 C++ `static_cast` 都是向零）；把乘法换个位置（例如 `x * 4095 / 500`）就可能差 1 LSB。`pos_vel`/`force_pos` 的 float32 也必须走同样的 `double → float` 一轮转换。⇒ **不靠人眼看**：`colcon test --packages-select motor_driver_hardware` 的 34 个逐字节对拍用例就是这条的机器保证 |
+| 31 | **往 `src/` 里拷第三方 CMake 工程，会被 colcon 当成"包"** | 2026-10-04 真踩：把达妙官方 C++ 例程拷进 `src/third_party/C++例程/u2can/`，它的 `CMakeLists.txt` 里是 `project (dm_Linux_Drive)`（**`project` 与 `(` 之间有空格**，grep `project(` 抓不到）⇒ colcon 把它识别成 plain cmake 包：`colcon list` 多出一个 `dm_Linux_Drive`，全量构建报 `1 package aborted: motor_driver`（连累了无关的包）。⇒ 修法是标准做法：在 `src/third_party/` 放一个**空的 `COLCON_IGNORE`**（colcon 跳过该目录及其全部子目录）。⚠️ 之前拷 Python 例程没暴露这个问题，只是因为它们**没有 CMakeLists.txt** |
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -300,6 +305,10 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 - **假串口测寄存器 I/O**：给 `bus.ser` 直接塞一个带 `in_waiting` / `read(n)` / `write(frame)` 的对象，
   在 `write()` 里按手册回 16 字节（`[0]=0xAA`、`[1]=0x11`、`[7:15]=8 字节数据`、`[15]=0x55`）——
   不用硬件就能端到端跑 `read/write/dump/verify` 和整个 CLI（把 `dm_registers._open` 换成返回这个假 bus）。
+- **C++ ↔ Python 协议对拍**（本仓库**唯一**的测试文件，在 `motor_driver_hardware/test/`）：
+  `colcon test --packages-select motor_driver_hardware` —— C++ 造帧，同时用 `popen` 直接调 Python 的
+  `dm_frames` 造同样的帧，**逐字节比**（34 个用例：6 类发送帧 + 边界 + 收帧切分 + `RxBuf` 分块 +
+  反馈解码 + `is_reg_response` 边界）。**改了任一份 `dm_frames` 都要重跑**，否则两份实现会悄悄漂开。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
 

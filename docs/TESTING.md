@@ -310,3 +310,11 @@ j1 −0.041076 · j2 −0.191649 · j3 −0.049248 · j4 −0.157540 · j5 +0.04
 `joint_trajectory_controller`（`update_rate: 100`）两个控制器都 **active**、6 个 `position` 命令接口被 claimed；
 发一条两点轨迹（起点 = mock 初始姿态、终点 `(1.45, −1.10, −0.80, 0.35, 0.10, 0.10)`）⇒
 `Goal successfully reached!`，且 `/joint_states` 的 position 精确变成该终点值。**全程未接真机。**
+
+**M3（C++ 协议层）当天验过**：新包 `motor_driver_hardware` 的 `dm_frames` 与 Python 的 `dm_frames.py`
+**逐字节对拍**通过 —— `colcon test --packages-select motor_driver_hardware` ⇒ `colcon test-result` 报
+`6 tests, 0 errors, 0 failures`。34 个用例覆盖：6 类发送帧（含 `q=±PMAX`、`kp=500 / kd=5`、
+力位混控两个无符号量的钳位与负值归零）、接收切分（干净流 / 含垃圾 / 尾部残片）、
+`RxBuf` 分块喂（残片必须留到下一次）、反馈解码（含 2026-10-03 那条真实 id2 帧 `02 92 55 7f f7 fe 1c 1b`）、
+`is_reg_response` 边界（真寄存器回包 vs 停在低字节 0x55 的反馈帧）。**对拍不写"期望字节"，而是直接调 Python 那份**，
+所以两份实现漂了就会红（这也是 AGENTS 陷阱 #30 的机器保证）。

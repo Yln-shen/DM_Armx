@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>motor_driver_hardware</name>
+  <version>0.0.0</version>
+  <description>
+    DM_Armx 的 C++ 侧。当前只有**协议层**（帧编解码，逐字节对齐 Python 的
+    motor_driver/dm_frames.py）；串口/总线层与 ros2_control 硬件接口在后面几步加。
+  </description>
+  <maintainer email="3432607998@qq.com">ylnn</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
