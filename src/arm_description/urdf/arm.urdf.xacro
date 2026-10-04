@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- DM_Armx 6 轴机械臂描述（主文件）
+
+  展开：xacro arm.urdf.xacro use_gripper:=false > arm.urdf
+  看模型：ros2 launch arm_description display.launch.py
+
+  ⚠️ joint limit 的 lower/upper 目前是**模型坐标**下的参考值（见 inc/arm_geometry.urdf.xacro
+     顶部注释）：本项目自己标定的零位/软限位与模型零位不是同一姿态，需要 M1b 定出
+     每关节的零点差 δ 与符号 s 后，才能把 src/motor_driver/config/joint.yaml 的值换算进来。
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dm_armx">
+  <xacro:arg name="use_gripper" default="false"/>
+
+  <xacro:include filename="inc/arm_geometry.urdf.xacro"/>
+  <xacro:include filename="inc/gripper.urdf.xacro"/>
+  <xacro:include filename="inc/arm.ros2_control.xacro"/>
+
+  <!-- MoveIt 用的末端参考点（相对 end_link，偏移取自参考模型） -->
+  <link name="gripper_tcp"/>
+  <joint name="gripper_tcp_joint" type="fixed">
+    <origin xyz="-0.105 0 0" rpy="0 0 0"/>
+    <parent link="end_link"/>
+    <child link="gripper_tcp"/>
+  </joint>
+
+  <xacro:if value="$(arg use_gripper)">
+    <xacro:gripper_links/>
+  </xacro:if>
+
+  <xacro:arm_ros2_control/>
+</robot>
