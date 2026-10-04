@@ -1,0 +1,23 @@
+{
+  "saved_at": "2026-10-03T23:26:20",
+  "port": "/dev/ttyACM0",
+  "motor_id": 3,
+  "motor_type": null,
+  "registers": {
+    "0x07 MST_ID": 19,
+    "0x08 ESC_ID": 3,
+    "0x0A CTRL_MODE": 1,
+    "0x09 TIMEOUT": 10000,
+    "0x02 OT_Value": 100.0,
+    "0x03 OC_Value": 0.800000011920929,
+    "0x14 Gr": 40.0,
+    "0x15 PMAX": 12.5,
+    "0x16 VMAX": 10.0,
+    "0x17 TMAX": 28.0,
+    "0x19 KP_ASR": 0.0038399999029934406,
+    "0x1A KI_ASR": 0.0020000000949949026,
+    "0x1B KP_APR": 54.0,
+    "0x1C KI_APR": 0.0,
+    "0x1F Data": 4.0
+  }
+}

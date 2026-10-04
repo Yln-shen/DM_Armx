@@ -1,0 +1,9 @@
+# Goal
+geometry_msgs/Pose target_pose    # 目标位姿
+---
+# Result
+bool success
+string message
+---
+# Feedback
+geometry_msgs/Pose current_pose   # 当前位姿  为什么需要这个文

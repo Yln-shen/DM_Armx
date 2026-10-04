@@ -1,13 +1,11 @@
-from pathlib import Path
-
 from setuptools import find_packages, setup
 
-package_name = 'DMmotor_driver'
+package_name = 'motor_driver'
 
-# 关节配置在**仓库根**的 config/（不在包内），而 setup.py 在 src/DMmotor_driver/ 下 ——
-# 所以 parents[2] 才是仓库根。写死 'config/joint.yaml' 会错指到 src/DMmotor_driver/config/。
-_repo_root = Path(__file__).resolve().parents[2]
-
+# 关节配置在**包内**的 config/（src/motor_driver/config/joint.yaml），随包装到
+#   share/motor_driver/config/joint.yaml
+# ⚠️ data_files 的源路径**必须是相对路径**：colcon 的 ament_python task 会
+#    `assert not os.path.isabs(source)`，用 Path(__file__) 拼绝对路径会直接构建失败。
 setup(
     name=package_name,
     version='0.0.0',
@@ -16,9 +14,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        # 安装后路径：share/DMmotor_driver/config/joint.yaml
-        ('share/' + package_name + '/config',
-            [str(_repo_root / 'config' / 'joint.yaml')]),
+        ('share/' + package_name + '/config', ['config/joint.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -33,8 +29,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'dm-bringup = DMmotor_driver.dm_bringup:main',
-            'dm-dump-registers = DMmotor_driver.dm_registers:main',
+            'dm-bringup = motor_driver.dm_bringup:main',
+            'dm-dump-registers = motor_driver.dm_registers:main',
         ],
     },
 )

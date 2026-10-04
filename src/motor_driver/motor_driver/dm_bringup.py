@@ -27,25 +27,25 @@
 ## 用法（在 DM_Armx 根目录，一切走 pixi）
 
     # 不接硬件先看帧长什么样（不需要 pyserial，现在就能跑）
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py read --dry-run
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py jog --dry-run
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py read --dry-run
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py jog --dry-run
 
     # 接上硬件。先只读（默认就是 joint4 = 0x04/0x14，4310，力矩最小的一档）
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py read
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py monitor --duration 10
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py read
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py monitor --duration 10
 
     # 确认无误后，单电机低速点动（必须 --yes）
     #   MIT 模式：零寄存器写入，裸电机首选。三段阶梯：零刚度 → 原地保持 → 正弦
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py jog --mit --dry-run
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py jog --mit --yes
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py jog --mit --dry-run
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py jog --mit --yes
     #   POS_VEL 模式：需电机已切到 CTRL_MODE=2（本脚本不切）
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py jog --yes --amp 0.2
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py jog --yes --amp 0.2
 
     # 链路吞吐实测：先不加 --enable（纯发帧，电机不动），再加 --enable 看完整闭环
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 500 --duration 30
-    pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py bandwidth --hz 500 --duration 30 --enable --yes
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py bandwidth --hz 500 --duration 30
+    pixi run python src/motor_driver/motor_driver/dm_bringup.py bandwidth --hz 500 --duration 30 --enable --yes
 
-设计依据见 src/DMmotor_driver/DESIGN.md §7（标定）/ §8（上电序列）/ §11.2（本脚本范围）。
+设计依据见 src/motor_driver/DESIGN.md §7（标定）/ §8（上电序列）/ §11.2（本脚本范围）。
 """
 from __future__ import annotations
 
@@ -58,25 +58,25 @@ from pathlib import Path
 
 # ── 协议原语：已下沉到 dm_frames.py（协议代码全项目只允许有一份）──────────────
 # 这里**逐个再导出**，只为兼容既有调用方：tools/ 下 4 个脚本与 dm_registers.py
-# 全都写的是 `from DMmotor_driver import dm_bringup as B` 然后用 `B.build_tx(...)`。
+# 全都写的是 `from motor_driver import dm_bringup as B` 然后用 `B.build_tx(...)`。
 # 有了这段再导出，它们一行都不用改。
 #
 # 为什么要 try/except：本文件**既被当模块 import，也被当裸脚本直跑**
-# （readme 里全是 `pixi run python src/DMmotor_driver/DMmotor_driver/dm_bringup.py ...`）。
+# （readme 里全是 `pixi run python src/motor_driver/motor_driver/dm_bringup.py ...`）。
 # 裸脚本直跑时本文件是 `__main__`，不是包成员，**相对导入会直接失败** ——
-# 所以这里用绝对导入；失败再把 src/DMmotor_driver 塞进 sys.path 重试。
+# 所以这里用绝对导入；失败再把 src/motor_driver 塞进 sys.path 重试。
 # dm_registers.py:78-81 出于同样的理由用了同一套写法。
 try:
-    from DMmotor_driver.dm_frames import (  # noqa: F401
+    from motor_driver.dm_frames import (  # noqa: F401
         TX_FRAME_LEN, RX_FRAME_LEN, FEEDBACK_CMD, ERR_DECODE, ERR_OK,
         CMD_ENABLE, CMD_DISABLE, CANID_REFRESH,
         tx_template, build_tx, mit_frame, pos_vel_frame, cmd_frame, refresh_frame,
         extract_rx, RxBuf, read_frames, flush_rx, decode_feedback,
     )
-except ImportError:  # 裸脚本直跑：把 src/DMmotor_driver 加进来再试一次
-    # parents[1] 就是 src/DMmotor_driver（本文件在 src/DMmotor_driver/DMmotor_driver/ 下）
+except ImportError:  # 裸脚本直跑：把 src/motor_driver 加进来再试一次
+    # parents[1] 就是 src/motor_driver（本文件在 src/motor_driver/motor_driver/ 下）
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from DMmotor_driver.dm_frames import (  # noqa: F401
+    from motor_driver.dm_frames import (  # noqa: F401
         TX_FRAME_LEN, RX_FRAME_LEN, FEEDBACK_CMD, ERR_DECODE, ERR_OK,
         CMD_ENABLE, CMD_DISABLE, CANID_REFRESH,
         tx_template, build_tx, mit_frame, pos_vel_frame, cmd_frame, refresh_frame,
@@ -123,7 +123,7 @@ def find_sdk_dir(explicit: str | None) -> Path:
     """定位 vendored 的 DM_CAN.py。路径含中文与空格，全程 pathlib。
 
     从本文件向上最多 8 层找 `src/third_party/Python例程/u2can/DM_CAN.py`，
-    这样源码树（src/.../DMmotor_driver/dm_bringup.py）和 --symlink-install 后的
+    这样源码树（src/.../motor_driver/dm_bringup.py）和 --symlink-install 后的
     安装树（install/.../site-packages/...）都能找到。
     """
     if explicit:

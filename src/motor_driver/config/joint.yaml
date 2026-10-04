@@ -1,5 +1,5 @@
 # 关节配置 —— Joint 层的**静态参数**
-# 解析层：src/DMmotor_driver/DMmotor_driver/arm_config.py（load_joint_configs）
+# 解析层：src/motor_driver/motor_driver/arm_config.py（load_joint_configs）
 #
 # ⚠️ limit = (PMAX, VMAX, TMAX) 是电机的 **MIT 映射范围**，必须用 0x15/0x16/0x17 的
 #    **回读值**填，不要抄手册、更不要抄别的型号（用错档位解出来的力矩差数倍**且不报错**）：
@@ -7,8 +7,14 @@
 #      4310  实测回读 = 12.5 / 30 / 10   （docs/TESTING.md §2.5）
 #    换电机、刷固件、改过寄存器之后，要重新回读核对。
 #
-# ⚠️ direction / offset 现在全是 +1 / 0.0，含义是**未标定**，不是标定结果
-#    （DESIGN.md §2.1："默认值必须让『不标定即等于 reBot 行为』"）。
+# ⚠️ offset / direction 已于 2026-10-03 按**本项目自己的定义**标定（真机只读 0x50 p_m）：
+#    offset = 各关节零位姿态下的电机侧读数；direction 由"沿各自 + 方向手推、看读数符号"定出。
+#    direction 先用"手推定符号"得到、再用通电小动作逐个复核（2026-10-03）：j1~j5 = −1、**j6 = +1**。
+#    ⚠️ j6 手推时判反了（当时报的是"顺时针"），通电复核发现它实际逆时针转 ⇒ 改成 +1；+ 的物理含义：
+#    j1 俯视顺时针 / j2 末端向上 / j3 向上 / j4 向上 / j5 从上方看与 j1 相反 / j6 面对电机轴看顺时针。
+#    ⚠️ 以上是**本项目自定义**，与 DESIGN.md 引用的参考项目不同（那套在 j2/j3 上正好相反）。
+#    ⚠️ 软限位 position_min/max 也已按本项目"摆姿态 + 读 0x50 换算"定出（同日，端点由用户逐关节指定）：
+#      j1/j2/j3 的允许范围只在零位的一侧（零位即区间端点），j4 在另一侧，j5/j6 为两侧。
 #
 # ⚠️ mode 是**声明**（本层读不到寄存器 0x0A），必须与电机实际值一致：
 #      1=MIT　2=位置速度　4=力位混控（**力位混控是 4 不是 3**，3 是速度模式）
@@ -36,71 +42,71 @@ joints:
   joint1:
     motor_type: "4340P"
     slave_id: 1
-    direction: 1
-    offset: 0.0
+    direction: -1
+    offset: 1.306486
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
     torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
-    position_min: -2.8
-    position_max: 2.8
+    position_min: -0.096419
+    position_max: 0.137522
     mode: 1
 
   joint2:
     motor_type: "4340P"
     slave_id: 2
-    direction: 1
-    offset: 0.0
+    direction: -1
+    offset: 1.594229
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
     torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
-    position_min: -3.14
-    position_max: 0.0
+    position_min: 0.0
+    position_max: 2.188275
     mode: 1
 
   joint3:
     motor_type: "4340P"
     slave_id: 3
-    direction: 1
-    offset: 0.0
+    direction: -1
+    offset: -0.341649
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
     torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
-    position_min: -3.14
-    position_max: 0.0
+    position_min: 0.0
+    position_max: 1.842548
     mode: 1
 
   joint4:
     motor_type: "4310"
     slave_id: 4
-    direction: 1
-    offset: 0.0
+    direction: -1
+    offset: 1.675259
     limit: [12.5, 30.0, 10.0]
     torque_monitor_threshold: 5.0    # 4310：额定 3.5 / 峰值 12.5（别沿用 15）
     torque_max: 3.5                  # MIT 发帧前的力矩上限（额定值）
-    position_min: -1.87
-    position_max: 1.57
+    position_min: -1.095672
+    position_max: 0.0
     mode: 1
 
   joint5:
     motor_type: "4310"
     slave_id: 5
-    direction: 1
-    offset: 0.0
+    direction: -1
+    offset: 1.278440
     limit: [12.5, 30.0, 10.0]
     torque_monitor_threshold: 5.0    # 4310：额定 3.5 / 峰值 12.5（别沿用 15）
     torque_max: 3.5                  # MIT 发帧前的力矩上限（额定值）
-    position_min: -1.57
-    position_max: 1.57
+    position_min: -0.865009
+    position_max: 1.019013
     mode: 1
 
   joint6:
     motor_type: "4310"
     slave_id: 6
     direction: 1
-    offset: 0.0
+    offset: 2.010141
     limit: [12.5, 30.0, 10.0]
     torque_monitor_threshold: 5.0    # 4310：额定 3.5 / 峰值 12.5（别沿用 15）
     torque_max: 3.5                  # MIT 发帧前的力矩上限（额定值）
-    position_min: -3.14
-    position_max: 3.14
+    position_min: -3.141593
+    position_max: 3.141593
     mode: 1

@@ -22,16 +22,16 @@
 
 | 文件 | 行数 | 职责 | 边界 / 不变量 |
 |---|---|---|---|
-| [dm_frames.py](src/DMmotor_driver/DMmotor_driver/dm_frames.py) | 435 | CAN 帧编解码**纯函数**：30B 发送帧模板、8B 数据段、16B 收帧切分、反馈解码、**寄存器读/写/存参数帧 + 回包分类解码** | 不 import 本包、不打屏、不发帧、不判安全、**`_TX_TEMPLATE` 是不可推导的魔数**（改错=适配器不认帧且无报错） |
-| [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | 531 | 一条总线的**非阻塞**收发：唯一发送出口 `send_frame()`、`poll()` 抽干、`MotorState` 缓存、`registered_ids` 准入、**寄存器 I/O（`read/write_register`/`save_params`）** | **不写寄存器** —— 它只发寄存器帧，写什么由 `dm_registers.py` 决定；不设零位、不自动使能、不判安全；`close()` 不负责失能 |
-| [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | 27 | 模式编码 `MODE_MIT=1/POS_VEL=2/FORCE_POS=4` + `MODE_NAMES` | 零 import；**3 = 速度模式，不是力位混控** |
-| [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | 298 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 / **力矩上限：MIT 钳 `tau_ff`（`_clamp_mit_torque`）+ 力位混控钳 `i_des`（`_limit_i_des`）** | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**三种模式都已真机跑通**（MIT/POS_VEL 2026-10-01 上午；**力位混控 2026-10-01 深夜**）|
-| [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) | 200 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`/**`torque_max`**）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（力矩阈值与 `torque_max` 都必须 < 型号峰值 `_PEAK_TORQUE`；**声明 mode 4 还要求型号在 `NM_PER_I_DES` 里**） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
-| [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | 417 | `DmArm`：连接/关闭、使能失能、批量 POS_VEL / MIT、状态（`get_state`/`refresh_all_states`/`sync_states`）、健康检查与急停、**力矩+温度监控**、发/收两个阻塞循环（节拍与退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都阻塞、**不能同时跑**（调用方开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**循环与监控已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz / 监控零误报） |
-| [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | 492 | 寄存器工具：49 条寄存器表（`Reg` 带 **`per_unit`**：换算只在这一处）+ `RegisterTool` + CLI `list/dump/verify/set/restore` | 只管寄存器 I/O：**不使能、不发控制帧、不判安全**；默认不碰 flash。**读 + 写 RAM + `--save` 写 flash 都已真机验证**（2026-10-01：写 `0x09` 后**断电重上电仍在** ⇒ 手册的 `0xAA`/`0x01` 字节是对的） |
-| [dm_bringup.py](src/DMmotor_driver/DMmotor_driver/dm_bringup.py) | 1169 | **单电机排障脚本**（2026-10-01 从 git 历史恢复，见 §8）：`read` / `monitor` / `jog [--mit]` / `bandwidth` 四条子命令，会把每条 CAN 帧摊开讲 | **刻意不 import 本包任何模块** —— 只依赖 vendored SDK + pyserial（价值就在这：排障时能分清"是我们的封装错"还是"链路本身错"）。默认**只读**、永不写寄存器/零位、使能必须 `--yes`、退出（含 Ctrl-C）必失能；**使能时 `--hz` 硬限制 ≥5Hz**（否则会撞 500ms 看门狗） |
-| [config/joint.yaml](config/joint.yaml) | — | 6 关节静态参数 | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
-| [setup.py](src/DMmotor_driver/setup.py) | 40 | 装 `share/DMmotor_driver/config/joint.yaml`（用 `Path(__file__).parents[2]` 定位仓库根） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` **现在都有模块可指**（后者靠 2026-10-01 恢复的 `dm_bringup.py`） |
+| [dm_frames.py](src/motor_driver/motor_driver/dm_frames.py) | 435 | CAN 帧编解码**纯函数**：30B 发送帧模板、8B 数据段、16B 收帧切分、反馈解码、**寄存器读/写/存参数帧 + 回包分类解码** | 不 import 本包、不打屏、不发帧、不判安全、**`_TX_TEMPLATE` 是不可推导的魔数**（改错=适配器不认帧且无报错） |
+| [dm_bus.py](src/motor_driver/motor_driver/dm_bus.py) | 531 | 一条总线的**非阻塞**收发：唯一发送出口 `send_frame()`、`poll()` 抽干、`MotorState` 缓存、`registered_ids` 准入、**寄存器 I/O（`read/write_register`/`save_params`）** | **不写寄存器** —— 它只发寄存器帧，写什么由 `dm_registers.py` 决定；不设零位、不自动使能、不判安全；`close()` 不负责失能 |
+| [dm_modes.py](src/motor_driver/motor_driver/dm_modes.py) | 27 | 模式编码 `MODE_MIT=1/POS_VEL=2/FORCE_POS=4` + `MODE_NAMES` | 零 import；**3 = 速度模式，不是力位混控** |
+| [joint.py](src/motor_driver/motor_driver/joint.py) | 298 | 单关节：换算 / 软限位+PMax / NaN 拦 / 三模式发帧 / 使能失能 / 状态 / 故障 / **力矩上限：MIT 钳 `tau_ff`（`_clamp_mit_torque`）+ 力位混控钳 `i_des`（`_limit_i_des`）** | **不拥有控制循环**（`set_*` 只发一帧）；**不写寄存器**（`switch_mode()` 永远抛）；**不 poll**。**三种模式都已真机跑通**（MIT/POS_VEL 2026-10-01 上午；**力位混控 2026-10-01 深夜**）|
+| [arm_config.py](src/motor_driver/motor_driver/arm_config.py) | 200 | `config/joint.yaml` → `JointConfig`（+ `torque_monitor_threshold`/`torque_monitor_count`/**`torque_max`**）/ `ArmConfig`（+ `temp_warn`/`temp_fault`）+ `load_joint_configs` / `load_arm_config`；**纯参数自洽**校验在 `__post_init__`（力矩阈值与 `torque_max` 都必须 < 型号峰值 `_PEAK_TORQUE`；**声明 mode 4 还要求型号在 `NM_PER_I_DES` 里**） | 不通信、不碰运行期状态、**不 import 驱动层**（只 import `dm_modes` + yaml） |
+| [arm.py](src/motor_driver/motor_driver/arm.py) | 417 | `DmArm`：连接/关闭、使能失能、批量 POS_VEL / MIT、状态（`get_state`/`refresh_all_states`/`sync_states`）、健康检查与急停、**力矩+温度监控**、发/收两个阻塞循环（节拍与退出策略集中在 `_paced_loop`） | **不拥有线程**：两个循环都阻塞、**不能同时跑**（调用方开线程）；不做寄存器 I/O、不碰运动学、不重复限位。**循环与监控已在真机 6 台跑通**（100Hz 双循环 0 超时 / 500Hz 单跑 499.7Hz / 监控零误报） |
+| [dm_registers.py](src/motor_driver/motor_driver/dm_registers.py) | 492 | 寄存器工具：49 条寄存器表（`Reg` 带 **`per_unit`**：换算只在这一处）+ `RegisterTool` + CLI `list/dump/verify/set/restore` | 只管寄存器 I/O：**不使能、不发控制帧、不判安全**；默认不碰 flash。**读 + 写 RAM + `--save` 写 flash 都已真机验证**（2026-10-01：写 `0x09` 后**断电重上电仍在** ⇒ 手册的 `0xAA`/`0x01` 字节是对的） |
+| [dm_bringup.py](src/motor_driver/motor_driver/dm_bringup.py) | 1169 | **单电机排障脚本**（2026-10-01 从 git 历史恢复，见 §8）：`read` / `monitor` / `jog [--mit]` / `bandwidth` 四条子命令，会把每条 CAN 帧摊开讲 | **刻意不 import 本包任何模块** —— 只依赖 vendored SDK + pyserial（价值就在这：排障时能分清"是我们的封装错"还是"链路本身错"）。默认**只读**、永不写寄存器/零位、使能必须 `--yes`、退出（含 Ctrl-C）必失能；**使能时 `--hz` 硬限制 ≥5Hz**（否则会撞 500ms 看门狗） |
+| [config/joint.yaml](src/motor_driver/config/joint.yaml) | — | 6 关节静态参数（**已按本项目标定**：offset / direction / 软限位） | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
+| [setup.py](src/motor_driver/setup.py) | 36 | 装 `share/motor_driver/config/joint.yaml`；**`data_files` 的源路径只能写相对路径**（colcon 的 ament_python task 会 assert 拒绝绝对路径） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` 指向 `motor_driver.*` |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -88,7 +88,7 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 | 协议字节布局 / 帧构造 / 反馈解码 | `dm_frames.py` |
 | 模式编码与名字 | `dm_modes.py`（`MODE_NAMES`） |
 | 故障码含义 / `ERR_OK=(0,1)` | `dm_frames.ERR_DECODE` / `ERR_OK` |
-| 关节限位、方向、零位、模式声明 | `config/joint.yaml`（源头是 URDF，**已移出工作区**） |
+| 关节限位、方向、零位、模式声明 | `src/motor_driver/config/joint.yaml`（**本项目自己标定**；源头 URDF 已移出工作区） |
 | `limit` 档位数值 | **只能回读** `0x15/0x16/0x17`；实测记录在 `docs/TESTING.md` §2.5/§2.6 |
 | **力位混控 `i_des` ↔ 扭矩的换算** | `arm_config.NM_PER_I_DES`（实测值，**别按峰值比例外推**：4340P 40 / 4310 22，不是 3.2 倍关系） |
 | 设计意图 | `docs/DESIGN.md`（**部分历史段已过期**） |
@@ -220,6 +220,13 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 **单位与换算**：位置 `电机侧 = direction × 关节侧 + offset`（逆换算 `关节侧 = direction × (电机侧 − offset)`）；
 **速度 / 力矩是矢量：只乘 `direction`，不加 `offset`**。本层**没有减速比折算**（电机报的就是输出轴 rad）。
 
+**2026-10-03 真机（6 轴整臂，`/dev/ttyACM0`）**：
+- **`MST_ID(0x07)` 已统一为 `0x11~0x16`**（用户改的；`ESC_ID` 仍 1~6）。本层认电机只看反馈数据段 `D[0] & 0x0F`，**不看接收帧里的 CAN ID** ⇒ 改 MST_ID 对 `dm_bus`/`Joint`/`dm_registers` 无影响；`dm_bringup` 的 `--fb-id` 默认正是 `0x10+id`。
+- **位置真源 = 寄存器 `0x50 p_m`（float32）== 反馈帧的 `pos`**；**≠ `0x51 xout`**（真机实测每台差一个常数：+0.072 / −0.016 / −0.031 / +0.058 / +0.170 / +0.259 rad；交替读数证明它不随时间漂）⇒ 标定与换算一律按 `p_m`（或反馈帧）。
+- **多圈绝对位置跨断电保持**：6 台断电约 8 s 再上电，位置 Δ ≤ **0.00015 rad** ⇒ `offset` 标一次长期有效，不必每次上电回零。
+- **本项目的零位/方向/软限位已标定**（`config/joint.yaml`）：offset 逐关节目视零位读数；direction 手推**加通电复核**（j1~j5 = −1、**j6 = +1**）；软限位由用户摆姿态端点换算（j1/j2/j3/j4 只在零位一侧，j5/j6 两侧）。⚠️ 这是**本项目自定义**的零位与方向，与 DESIGN.md 引用的参考项目不同。
+- **`kp` 只能把关节推到离目标"负载/kp"的地方**：真机 j1 `kp=15` 差 0.042 rad（≈ 4340P 静摩擦 0.62 ÷ kp）、j3 `kp=30` 差 0.06 rad（重力 1.76 ÷ kp）。**把残差积进 `tau_ff` 前馈**后能贴到 **0.03°~0.6°**（j3/j4/j5/j6 实测），总力矩仍受 `torque_max` 钳位。
+
 ## 6. 陷阱清单（都是这个工程真踩过的）
 
 | # | 陷阱 | 处置 |
@@ -233,8 +240,8 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 7 | **`set_*` 写串口失败只抛、不失能**（用户明确要求） | 只有 `enable()` 有失能兜底；且兜底失能**也失败**时 → stderr 告警 + **重抛原异常** |
 | 8 | `mode` 是**声明不是读数**，声明错 → 帧被电机**静默丢掉** | 每个 `set_*` 先 `_require_mode` 式检查；切完 `0x0A` 必须同步改 `Joint.mode`（`switch_mode()` 只给步骤，不会替你改） |
 | 9 | **`limit` 用错档位：力矩差数倍且不报错** | `arm_config` 加载时校验软限位换算是否落在 ±PMAX；`Joint` 构造时校验 bus 上注册冲突 |
-| 10 | **配置在仓库根** `config/joint.yaml`，不在包内 | `setup.py` 用 `Path(__file__).resolve().parents[2]`；安装后路径 `share/DMmotor_driver/config/joint.yaml` |
-| 11 | **裸 import 风格**（`from dm_bus import ...`）需要包目录在 `sys.path` | 裸跑：`PYTHONPATH=src/DMmotor_driver/DMmotor_driver`；**按包导入**：`PYTHONPATH=src/DMmotor_driver`（`src/DMmotor_driver/` 是 ROS 包目录，python 包在它**里面**）；`dm_bus` 对 `dm_frames` 有兜底；`dm_registers` 自己把包目录插进 `sys.path`，所以裸跑/`-m`/console script 都能用 |
+| 10 | **配置在包内** `src/motor_driver/config/joint.yaml`（2026-10-04 从仓库根移入） | `setup.py` 的 `data_files` **源路径只能相对**：colcon 的 ament_python task 会 `assert not os.path.isabs(source)`，用 `Path(__file__)` 拼绝对路径会直接构建失败；安装后路径 `share/motor_driver/config/joint.yaml` |
+| 11 | **裸 import 风格**（`from dm_bus import ...`）需要包目录在 `sys.path` | 裸跑：`PYTHONPATH=src/motor_driver/motor_driver`；**按包导入**：`PYTHONPATH=src/motor_driver`（`src/motor_driver/` 是 ROS 包目录，python 包在它**里面**）；`dm_bus` 对 `dm_frames` 有兜底；`dm_registers` 自己把包目录插进 `sys.path`，所以裸跑/`-m`/console script 都能用 |
 | 12 | `Joint.__init__` 参数顺序（有默认值的 `offset` 之后不能再有必填项） | 当前签名：`(bus, motor_id, name, direction, limit, offset=0.0, ...)` |
 | 13 | **寄存器回包与反馈帧共用 `CMD=0x11`**（SDK `DM_CAN.py:373` 靠 `data[2] ∈ {0x33, 0x55}` 区分） | `poll()` / `wait_feedback()` / `_reg_io()` **一律先过 `is_reg_response()`**；否则寄存器回包会被当反馈帧解出**垃圾 `MotorState`** 并污染缓存（已修） |
 | 14 | **存储参数帧手册与 SDK 不一致**：手册 `0xAA`+`0x01`，SDK `save_motor_param` 发 `0x00` | `save_params_frame()` 按**手册**发 `0x01` —— **2026-10-01 断电验证通过**（写 `0x09=10000` 后断电重上电仍是 10000）⇒ **别改成 `0x00`** |
@@ -249,6 +256,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 23 | **监控挂在收循环上** ⇒ 只跑 `run_control_loop`（发）就**完全没有力矩/温度监控** | 两个循环必须成对跑（或自己在 `fn` 里调 `_monitor_step`）。另外：**自己写排空循环极易写错** —— 真机实测 `flush → refresh → sleep`（sleep 之后不 poll）会让新到的回包在下一轮被 `flush` 掉，于是永远读到旧的 `ERR=1`。**直接用 `sync_states()`**（它 poll 到安静之后才取状态），真机 **102 ms** 给出真相 |
 | 24 | **使能了却不发帧的关节会被"电机侧看门狗"打掉**：`enable_all()` 后只给一部分关节发目标，其余关节收不到 CAN 帧 ⇒ 超时 ⇒ **锁存 ERR=13（通讯丢失），只能断电重上电** | 真机实测（2026-10-01）：当时 id1 的 `0x09=15000`（750ms）、其余为 0，`enable_all()` + 只给 id6 发帧 1.5 秒 ⇒ **id1 锁存 ERR=13**。⇒ **要么只使能你要控制的关节，要么每圈给所有已使能关节发帧**。⚠️ 现在 **6 台都装上了 500ms 看门狗**（`0x09=10000`，已存 flash）⇒ 这条规矩**普遍适用**；正常控制循环每台 2~10ms 一帧，余量 50~250 倍。**保护本身已实测**：400ms 喂狗 2.4s 不触发；700ms 静默 ⇒ 电机自己关输出并锁存（这就是"主机崩了电机松力"那层，代价是必须断电才能恢复） |
 | 25 | **已使能关节的"发帧空档"不能超过 `0x09`（现在 500ms）**：看门狗是在保护你，但它**只认喂狗帧、且一触发就锁存**。所以控制循环里任何 >500ms 的阻塞都会让**全臂掉力并锁存 ERR=13**（`sleep`、慢计算、阻塞式服务调用/日志、串口重连、调试器断点、GC/调度卡顿） | 实测（2026-10-01）：400ms 喂狗 2.4s 不触发；700ms ⇒ 触发 + 锁存 ⇒ 超时窗口 (400, 700]。⇒ **`fn` 里不许有 >100ms 的阻塞**（留 5 倍余量）；要慢操作就搬到别的线程/进程，或先 `disable_all()` 再做。⚠️ **ROS2 集成时头号坑**：回调里一个阻塞调用就能打掉整条臂，而且恢复要断电。`dm_bringup` 的 `jog` / `bandwidth --enable` 已在代码里硬限制 `--hz ≥ 5`（`MIN_HZ_WITH_ENABLE`）|
+| 26 | **`is_reg_response()` 靠 `D[2] ∈ {0x33,0x55,0xAA}` 分辨寄存器回包，可反馈帧的 `D[2]` 是 POS16 低字节** ⇒ 电机停在低字节恰为 `33/55/AA` 的位置时（约占位置范围 1.2%，而且停住就一直中招），它**每一条反馈都被当寄存器回包丢掉** ⇒ 该电机在缓存里**彻底隐身**（`get_state()` 抛、力矩/温度监控全瞎） | 真机实测（2026-10-03）：id2 停在 +1.79 rad（低字节 0x55）⇒ **20/20 条反馈被丢**、`unknown_ids` 为空但缓存里没有 id2。修法：判据补 `D[0]≤0x0F 且 D[1]==0x00`（真寄存器回包实测恒为"目标 ID 小端"）。残留（已写进注释）：失能 + `pos∈[-12.5,-12.40)` 的 3 个 LSB 仍会误判 |
 
 ## 7. 怎么验证（没有硬件时）
 

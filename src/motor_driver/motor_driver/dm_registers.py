@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 本文件既要能被裸跑（python dm_registers.py），也要能从包里 import
-# （`DMmotor_driver.dm_registers`，例如 setup.py 的 console_scripts）。
+# （`motor_driver.dm_registers`，例如 setup.py 的 console_scripts）。
 # 把自己所在目录塞进 sys.path，两条路都能用裸 import 走通。
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -41,8 +41,8 @@ from dm_frames import (                                        # noqa: E402
     uint8s_to_uint32, uint8s_to_float32, uint32_to_uint8s, float_to_uint8s,
 )
 
-REPO = Path(__file__).resolve().parents[3]
-CONFIG = REPO / "config" / "joint.yaml"
+REPO = Path(__file__).resolve().parents[3]                              # 仓库根（registers/ 证据目录在它下面）
+CONFIG = Path(__file__).resolve().parents[1] / "config" / "joint.yaml"   # 关节配置在**包内**（src/motor_driver/config/）
 
 # 编码类型表：**必须与 SDK 的 `DM_CAN.is_in_ranges` 一致**（`DM_CAN.py:606`）：
 #     def is_in_ranges(n): return (7 <= n <= 10) or (13 <= n <= 16) or (35 <= n <= 36)

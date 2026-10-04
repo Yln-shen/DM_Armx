@@ -411,9 +411,19 @@ def is_reg_response(frame: bytes) -> bool:
     ⚠️ `MotorBus.poll()` / `wait_feedback()` **必须先过这一关**：寄存器回包的数据段
     是 `[ID_L, ID_H, 0x33, RID, ...]`，当成反馈帧解出来的 pos/vel/tau 全是垃圾，
     还会塞进状态缓存污染控制循环。
+
+    ⚠️ 2026-10-03 修：原来只看 `D[2] ∈ {0x33, 0x55, 0xAA}`，可**反馈帧的 D[2] 是 POS16
+    的低字节** —— 电机停在低字节恰为 33/55/AA 的位置时（约占位置范围的 1.2%，而且停住
+    就一直中招），它每一条反馈帧都被当成寄存器回包丢掉，这台电机在缓存里**彻底隐身**
+    （真机实测：id2 停在 +1.79 rad，20/20 条反馈全被丢弃，`get_state()` 直接抛、
+    力矩/温度监控对它是瞎的）。真寄存器回包的 `D[0:2]` 是"目标电机 ID 小端"，真机实测
+    恒为 `D[0]=ID`（≤0x0F）、`D[1]=0x00`，补上这两个条件即可分开：反馈帧 `D[0]=ID|ERR<<4`
+    （ERR≥1 时 ≥0x10）、`D[1]` 是 POS16 高字节。
+    残留（已知且接受）：失能(ERR=0)且 `pos ∈ [-12.5, -12.40)` 的 3 个 LSB 位置仍会误判。
     """
     return (len(frame) == RX_FRAME_LEN and frame[1] == FEEDBACK_CMD
-            and frame[9] in REG_RESP_CMDS)
+            and frame[9] in REG_RESP_CMDS
+            and frame[7] <= 0x0F and frame[8] == 0x00)
 
 
 def decode_reg_response(frame: bytes) -> dict:

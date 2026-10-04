@@ -153,7 +153,7 @@ rad/s → m/s: 系数 0.10 / -5.0 = -0.02
 | 0x3C | VBus | RO | 电源电压 → 欠压检查 |
 | 0x3D/0x3E | Tpcb / Tmt | RO | 驱动板温度 / 电机温度 |
 | 0x14 | Gr | RO | 实际减速比（想验证型号就读它：应为 10 或 40） |
-| 0x50/0x51 | p_m / xout | RO | 电机侧位置 / **输出轴位置（本层用的就是它）** |
+| 0x50/0x51 | p_m / xout | RO | **电机侧位置（本层用的就是它；== 反馈帧 `pos`）** / 输出轴位置（与 `p_m` 差一个常数，2026-10-03 实测，**不要**用于标定/换算） |
 
 ### 2.5 错误码（反馈帧 D[0] 高 4 位，来源手册:341-355）
 
@@ -473,7 +473,7 @@ MIT 是上位机自己做 PD，所以**稳态残差有上界 摩擦/kp，压不�
 
 新增两个类：`MotorBus`（承担 D2 的非阻塞收发）与 `RegisterTool`（承担 D7）。
 
-> **✅ v0.7 进展**：`MotorBus` 已实现（`src/DMmotor_driver/DMmotor_driver/dm_bus.py`）。
+> **✅ v0.7 进展**：`MotorBus` 已实现（`src/motor_driver/motor_driver/dm_bus.py`）。
 > 与下面这张类图有两处**有意的偏差**，都不是遗漏：
 > 1. `send_frame(frame)` 只收已拼好的 30 字节帧，**不再单独传 motor_id** ——
 >    CAN ID 已经在帧的 `[13:15]` 里了，传两个来源的 ID 就有不一致的机会。
@@ -486,7 +486,7 @@ MIT 是上位机自己做 PD，所以**稳态残差有上界 摩擦/kp，压不�
 > （关节侧、经 dir/offset 换算）**是两个类型，不要合并** —— 这一轮不实现 `JointState`。
 
 > **✅ v0.12 进展（2026-09-28）**：`Joint` 按本节类图**重写落地**
-> （`src/DMmotor_driver/DMmotor_driver/joint.py`，563 行 = 代码 325 + 文档 141 + 注释 34）。
+> （`src/motor_driver/motor_driver/joint.py`，563 行 = 代码 325 + 文档 141 + 注释 34）。
 > **与类图 / §4.2 的有意偏差**（都不是遗漏）：
 >
 > 1. **只实现 MIT(1) 与位置速度(2)**。`set_force_pos()` 与速度模式**不实现** —— 它们的 CAN 帧
@@ -512,12 +512,12 @@ MIT 是上位机自己做 PD，所以**稳态残差有上界 摩擦/kp，压不�
 > **本轮不生成验证脚本**（用户要求）：验证改为进程内 55 项断言（heredoc，不落盘）。
 
 > ⚠️ **2026-09-28 工作区现状（读本文档前先看这条）**：当天有一批文件被移入回收站，
-> 目前 `src/DMmotor_driver` 下**只剩** `dm_frames.py`、`dm_bus.py`、`joint.py`、
+> 目前 `src/motor_driver` 下**只剩** `dm_frames.py`、`dm_bus.py`、`joint.py`、
 > `config/rebotarm_b601_mixed.yaml`（外加两份电机手册）。已移出但**都还在** `git HEAD`
 > 与回收站里的有：`arm_config.py`、`dm_bringup.py`、`dm_registers.py`、`tools/*.py`
 > （含 `smoke_dm_frames.py` / `smoke_dm_bus.py` / `smoke_joint.py`）、`mujoco_pkg/`
 > （**含 URDF 限位真源**）、`rebotarm_msgs/`、`fake_driver_pkg/`、`ARCHITECTURE.md`、
-> `CURRENT_STATE.md`、`src/DMmotor_driver/design.md`。
+> `CURRENT_STATE.md`、`src/motor_driver/design.md`。
 > ⇒ 本文档里凡引用 `tools/` 冒烟脚本、`dm_bringup.py`、**URDF 限位**、`arm_config.py`
 > 的段落，**当前都跑不起来**；v0.12 那段说明了本轮 `joint.py` 如何绕开这些依赖。
 
@@ -753,7 +753,7 @@ safety:
 | 0 | 只连一个电机（如 joint4/4310，力矩小） | 电机空载、固定好 | 总线通 |
 | 1 | 读 0x14 `Gr`、0x15/0x16/0x17、0x19~0x1C 并落盘 | 只读，不动 | `dump_<date>.yaml` |
 | 2 | `enable` → 低速点动 ±0.2 rad（`vlim=0.3`） | 全程手放在急停/电源上 | **direction** 判定 |
-| 3 | 读回 0x51 `xout`，确认"指令 +0.2 rad → 反馈也 +0.2" | 若反向则 direction=-1 | direction 定值 |
+| 3 | 读回 **0x50 `p_m`**（或反馈帧 `pos`；⚠️ **不要用 0x51 `xout`**——它与关节侧位置差一个常数，2026-10-03 真机实测），确认"指令 +0.2 rad → 反馈也 +0.2" | 若反向则 direction=-1；**务必再用通电小动作目视复核一次**（2026-10-03：j6 手推判反了，通电才发现） | direction 定值 |
 | 4 | 手动把关节推到机械零位（或对准标记），记 `xout` | 先 `disable` | **offset = -xout·dir** |
 | 5 | 写入 offset，重跑步 2-3 复核 | —— | offset 定值 |
 | 6 | 逐关节重复 3-5 | 一次只动一个关节 | 全部 offset |
@@ -821,16 +821,16 @@ shutdown: 停循环 → disable → sleep(0.5) → 逐关节 shutdown → sleep(
 ```python
 entry_points={
     'console_scripts': [
-        'dm-bringup = DMmotor_driver.dm_bringup:main',     # 单电机上电验证（先做）
-        'dm-calibrate = DMmotor_driver.dm_calibrate:main', # 第七节标定流程
-        'dm-dump-registers = DMmotor_driver.dm_registers:main',  # PID/映射范围读写（先读后写）
+        'dm-bringup = motor_driver.dm_bringup:main',     # 单电机上电验证（先做）
+        'dm-calibrate = motor_driver.dm_calibrate:main', # 第七节标定流程
+        'dm-dump-registers = motor_driver.dm_registers:main',  # PID/映射范围读写（先读后写）
     ],
 }
 ```
 
 ### 11.2 bring-up 脚本的范围（`dm_bringup.py`）——**已实现（2026-09-19）**
 
-代码：`DMmotor_driver/dm_bringup.py`。刻意站在封装层**之外**，只依赖 `DM_CAN.py` + `pyserial`，用来把第十节里最关键的几条实测掉：
+代码：`motor_driver/dm_bringup.py`。刻意站在封装层**之外**，只依赖 `DM_CAN.py` + `pyserial`，用来把第十节里最关键的几条实测掉：
 
 | 子命令 | 作用 | 风险 |
 |---|---|---|

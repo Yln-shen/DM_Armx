@@ -11,14 +11,14 @@
 
 | 层 | 文件 | 状态 |
 |---|---|---|
-| 协议帧编解码（纯函数） | [dm_frames.py](src/DMmotor_driver/DMmotor_driver/dm_frames.py) | ✅ MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 反馈解码 |
-| 总线非阻塞收发 | [dm_bus.py](src/DMmotor_driver/DMmotor_driver/dm_bus.py) | ✅ 唯一发送出口 + 注册准入 + 状态缓存 |
-| 控制模式常量 | [dm_modes.py](src/DMmotor_driver/DMmotor_driver/dm_modes.py) | ✅ |
-| 单关节逻辑 | [joint.py](src/DMmotor_driver/DMmotor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障 / **力矩上限（MIT 钳 tau_ff、力位钳 i_des）**；**2026-10-01 三种模式都真机跑通**（MIT/POS_VEL 各做零增益抽检 + ±0.08 rad 点动去回；力位混控另测 `i_des` A/B/C） |
-| 配置解析 | [arm_config.py](src/DMmotor_driver/DMmotor_driver/arm_config.py) + [config/joint.yaml](config/joint.yaml) | ✅ 6 关节 |
-| 寄存器工具 | [dm_registers.py](src/DMmotor_driver/DMmotor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
-| 单电机排障脚本 | [dm_bringup.py](src/DMmotor_driver/DMmotor_driver/dm_bringup.py) | ✅ `read`/`monitor`/`jog --mit`/`bandwidth`；**刻意不 import 本包**、只走厂商 SDK（排障时用来分清是封装错还是链路错）。2026-10-01 恢复并真机只读验证 |
-| 整臂层 | [arm.py](src/DMmotor_driver/DMmotor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz）；**力矩路与过温路都做过阈值注入验证**（监控 92ms / 过温 0.7ms 触发 → 自动急停，零误报）；**未做**：方向/零位标定、带目标的动作、ROS2 |
+| 协议帧编解码（纯函数） | [dm_frames.py](src/motor_driver/motor_driver/dm_frames.py) | ✅ MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 反馈解码 |
+| 总线非阻塞收发 | [dm_bus.py](src/motor_driver/motor_driver/dm_bus.py) | ✅ 唯一发送出口 + 注册准入 + 状态缓存 |
+| 控制模式常量 | [dm_modes.py](src/motor_driver/motor_driver/dm_modes.py) | ✅ |
+| 单关节逻辑 | [joint.py](src/motor_driver/motor_driver/joint.py) | ✅ 换算 / 限位 / 三模式 / 状态 / 故障 / **力矩上限（MIT 钳 tau_ff、力位钳 i_des）**；**2026-10-01 三种模式都真机跑通**（MIT/POS_VEL 各做零增益抽检 + ±0.08 rad 点动去回；力位混控另测 `i_des` A/B/C） |
+| 配置解析 | [arm_config.py](src/motor_driver/motor_driver/arm_config.py) + [config/joint.yaml](src/motor_driver/config/joint.yaml) | ✅ 6 关节（**已按本项目标定** offset / direction / 软限位） |
+| 寄存器工具 | [dm_registers.py](src/motor_driver/motor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
+| 单电机排障脚本 | [dm_bringup.py](src/motor_driver/motor_driver/dm_bringup.py) | ✅ `read`/`monitor`/`jog --mit`/`bandwidth`；**刻意不 import 本包**、只走厂商 SDK（排障时用来分清是封装错还是链路错）。2026-10-01 恢复并真机只读验证 |
+| 整臂层 | [arm.py](src/motor_driver/motor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz）；**力矩路与过温路都做过阈值注入验证**（监控 92ms / 过温 0.7ms 触发 → 自动急停，零误报）；**已做**：6 轴**方向/零位/软限位标定**（2026-10-03，含逐个关节通电停到软限位两端的复核，方向逐个目视确认）；**未做**：带目标的动作、ROS2 |
 | ROS2 集成 | — | ❌ 未做（**当前代码不 import rclpy**） |
 | 夹爪 | — | ❌ 本阶段不做 |
 
@@ -52,7 +52,7 @@
 
 ```bash
 cd ~/DM_Armx
-PYTHONPATH=src/DMmotor_driver/DMmotor_driver pixi run python        # 或用系统 python3
+PYTHONPATH=src/motor_driver/motor_driver pixi run python        # 或用系统 python3
 ```
 
 ```python
@@ -81,8 +81,8 @@ j.disable()                    # ④ 结束前失能
 
 ```bash
 # 建议先设好路径（裸 import 风格需要包目录在 sys.path）
-export PYTHONPATH=src/DMmotor_driver/DMmotor_driver
-DM=src/DMmotor_driver/DMmotor_driver/dm_registers.py
+export PYTHONPATH=src/motor_driver/motor_driver
+DM=src/motor_driver/motor_driver/dm_registers.py
 
 python3 $DM list                        # 不接硬件：列出 49 条寄存器与类型
 python3 $DM verify --id 1               # 读 Gr/PMAX/VMAX/TMAX/CTRL_MODE，跟型号档位表 + joint.yaml 对拍
@@ -118,18 +118,22 @@ DM_Armx/
 ├─ AGENTS.md                    给下一个 AI 接手的精确状态说明
 ├─ ARMWORK.md                   人机协作工作流（访谈→计划→实现→精修→归档）
 ├─ pixi.toml / pixi.lock        环境（robostack-jazzy + pyserial + pyyaml）
-├─ config/joint.yaml            6 个关节的静态参数（安装到 share/DMmotor_driver/config/）
 ├─ docs/
 │  ├─ DESIGN.md                 设计文档（**最全**，但含已过期的历史段）
-│  ├─ TESTING.md                实测数据（映射范围 / 摩擦 / 验证清单）—— 有效真源
+│  ├─ TESTING.md                实测数据（映射范围 / 摩擦 / 标定实测）—— 有效真源
 │  ├─ LESSONS.md                踩坑记录（SDK 四个坑 + 方法上的坑）—— 有效真源
-│  ├─ PLAN_joint.md             ⚠️ 已过期的临时计划（内容已被实现取代，留作历史）
+│  ├─ PLAN_joint.md             ⚠️ 已过期的临时计划（内容已被实现取代，未纳入版本库）
 │  └─ reading_guide.md / architecture_notes.md   外部参考（reBot / PyArmX）导读
+├─ registers/                   寄存器证据快照（按电机 id 分目录）
 ├─ tools/check_env.sh           环境自检
-└─ src/DMmotor_driver/
-   ├─ setup.py
-   ├─ DM-J4340P-2EC V1.1 .md  /  DM-J4310-2EC.md     两份电机手册（**权威**）
-   └─ DMmotor_driver/          dm_frames.py · dm_bus.py · dm_modes.py · joint.py · arm_config.py · dm_registers.py
+└─ src/
+   ├─ motor_driver/             ROS 包：达妙电机驱动（ament_python）
+   │  ├─ setup.py / package.xml
+   │  ├─ config/joint.yaml      6 关节静态参数（**已按本项目标定**；装到 share/motor_driver/config/）
+   │  ├─ DM-J4340P-2EC V1.1 .md / DM-J4310-2EC.md   两份电机手册（**权威**）
+   │  └─ motor_driver/          dm_frames · dm_bus · dm_modes · joint · arm_config · arm · dm_registers · dm_bringup
+   ├─ arm_msgs/                 本项目接口包（msg: JointMotorCmd / JointMotorState / ArmStatus；action: MoveToPose）
+   └─ third_party/              厂商 SDK（u2can / u2canfd）
 ```
 
 ## 接下来做什么

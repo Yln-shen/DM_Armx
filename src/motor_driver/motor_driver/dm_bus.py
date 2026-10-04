@@ -54,9 +54,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # 同 dm_bringup：本文件既被当模块 import，也可能被裸脚本/工具直跑，
-# 所以用绝对导入 + 失败时把 src/DMmotor_driver 塞进 sys.path（详见 dm_bringup.py 的注释）。
+# 所以用绝对导入 + 失败时把 src/motor_driver 塞进 sys.path（详见 dm_bringup.py 的注释）。
 try:
-    from DMmotor_driver.dm_frames import (
+    from motor_driver.dm_frames import (
         ERR_OK, CMD_ENABLE, CMD_DISABLE,
         pos_vel_frame, mit_frame, force_pos_frame, cmd_frame, refresh_frame,
         reg_read_frame, reg_write_frame, save_params_frame,
@@ -64,9 +64,9 @@ try:
         REG_CMD_READ, REG_CMD_WRITE, REG_CMD_SAVE,
         RxBuf, read_frames, flush_rx, decode_feedback,
     )
-except ImportError:  # 裸脚本直跑：parents[1] 就是 src/DMmotor_driver
+except ImportError:  # 裸脚本直跑：parents[1] 就是 src/motor_driver
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from DMmotor_driver.dm_frames import (
+    from motor_driver.dm_frames import (
         ERR_OK, CMD_ENABLE, CMD_DISABLE,
         pos_vel_frame, mit_frame, force_pos_frame, cmd_frame, refresh_frame,
         reg_read_frame, reg_write_frame, save_params_frame,
