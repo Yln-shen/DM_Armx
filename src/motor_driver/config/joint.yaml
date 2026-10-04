@@ -62,7 +62,8 @@ joints:
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
     torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
-    position_min: 0.0
+    position_min: -0.25              # 2026-10-04 放宽：原 0.0；真机"自然停放姿态"在 −0.1916，
+                                     # 不放宽的话第一个"保持当前位置"就会被钳成 11° 的运动
     position_max: 2.188275
     mode: 1
 
@@ -74,7 +75,7 @@ joints:
     limit: [12.5, 10.0, 28.0]
     torque_monitor_threshold: 15.0   # 4340P：额定 12 / 峰值 40
     torque_max: 12.0                 # MIT 发帧前的力矩上限（额定值）
-    position_min: 0.0
+    position_min: -0.10              # 2026-10-04 放宽：原 0.0；自然停放姿态在 −0.0477（同上）
     position_max: 1.842548
     mode: 1
 

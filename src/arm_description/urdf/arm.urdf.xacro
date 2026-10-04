@@ -7,8 +7,8 @@
   ✅ joint limit 已是**本项目标定限位换算到模型坐标**的结果（2026-10-04 M1b 真机实测）：
      q_urdf = sign * q_ours + zero_shift，sign/zero_shift 见 config/align.yaml；
      换算公式与结果见 inc/arm_geometry.urdf.xacro 顶部注释。
-     注意我们的标定限位比上游窄很多（j1 只有 ±0.1 rad 左右），且 j2/j3 的换算范围**不含**
-     "参考初始位姿"——真正跑 MoveIt 前要么把臂停在限位内起步，要么重新摆一套更宽的限位。
+     注意我们的标定限位比上游窄很多（j1 只有 ±0.1 rad 左右）；j2/j3 的下界当天放宽过
+     （让"自然停放姿态"落进限位内，见 inc/arm_geometry.urdf.xacro 顶部注释）。
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dm_armx">
   <xacro:arg name="use_gripper" default="false"/>

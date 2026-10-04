@@ -1,9 +1,12 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'arm_bringup'
 
 # 与 motor_driver 同样的教训：data_files 的源路径**必须相对**（colcon 的 ament_python
 # task 会 assert 拒绝绝对路径），所以这里全部写相对包目录的路径。
+# launch/ 与 config/ 用 glob：以后加文件不用再回来改这里。
 setup(
     name=package_name,
     version='0.0.0',
@@ -12,7 +15,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/real_display.launch.py']),
+        ('share/' + package_name + '/launch', glob('launch/*.py')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

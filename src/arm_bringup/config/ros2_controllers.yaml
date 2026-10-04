@@ -1,0 +1,31 @@
+# M2：mock 硬件上的 ros2_control 配置（**不接真机**）。
+# 用法见 launch/mock_control.launch.py。
+#
+# 真机版本（M5）会另起一份：把硬件接口换成 motor_driver_hardware/DmSystemInterface，
+# 控制器本身不用改（命令接口仍是 position，背后走 POS_VEL）。
+controller_manager:
+  ros__parameters:
+    update_rate: 100          # Hz；也是下面两个控制器的 update 频率
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+arm_controller:
+  ros__parameters:
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    # 末端允许非零速度：轨迹怎么给就怎么走，别在终点硬刹车
+    allow_nonzero_velocity_at_trajectory_end: true

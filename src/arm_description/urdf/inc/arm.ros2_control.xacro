@@ -4,7 +4,11 @@
      controller_manager → joint_trajectory_controller → joint_state_broadcaster 跑通。
      M5 接真机时只换 <plugin>（motor_driver_hardware/DmSystemInterface）并补关节参数
      （motor_id / motor_type / offset / direction / limit / torque_max，真源仍是
-      src/motor_driver/config/joint.yaml）。 -->
+      src/motor_driver/config/joint.yaml）。
+
+     ⚠️ 每个关节的 `initial_value` 是 **mock 的起始姿态**，必须落在**换算后的限位**里
+     （限位见 arm_geometry.urdf.xacro 顶部）：这里取 (1.51, -1.0, -0.9, 0.3, 0.0, 0.0)，
+     FK 验证不自交（非相邻连杆最小间距 4.9 cm）。**写 0 会落在 j1~j3 换算后的限位之外**。 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="arm_ros2_control" params="name:=ArmMockSystem">
@@ -15,22 +19,22 @@
 
       <joint name="joint1">
         <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="position"><param name="initial_value">1.51</param></state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="joint2">
         <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="position"><param name="initial_value">-1.0</param></state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="joint3">
         <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="position"><param name="initial_value">-0.9</param></state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="joint4">
         <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+        <state_interface name="position"><param name="initial_value">0.3</param></state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="joint5">

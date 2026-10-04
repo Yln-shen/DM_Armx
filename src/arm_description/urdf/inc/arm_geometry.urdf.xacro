@@ -9,9 +9,11 @@
          lower/upper = sign * (joint.yaml 的 position_min/max) + zero_shift，再按小/大排序
      真源：src/motor_driver/config/joint.yaml（本项目标定限位） + config/align.yaml（模型对齐）
      换算结果（模型坐标）：
-         joint1 [+1.392202, +1.626143]    joint2 [-2.379924, -0.191649]
-         joint3 [-1.891796, -0.049248]    joint4 [-0.157540, +0.938132]
+         joint1 [+1.392202, +1.626143]    joint2 [-2.379924, +0.058351]
+         joint3 [-1.891796, +0.050752]    joint4 [-0.157540, +0.938132]
          joint5 [-0.970641, +0.913381]    joint6 [-1.359002, +4.924184]（整圈 ±180°，宽 2π）
+     2026-10-04 放宽 j2/j3 下界（joint.yaml：0.0 → −0.25 / −0.10）：真机"自然停放姿态"在
+     q_ours = −0.1916 / −0.0477，原限位不含它 ⇒ 第一个"保持当前位置"会被钳成一次 11° / 2.7° 的运动。
      旁证：j1~j5 换算后全部落在上游参考限位内部。 -->
 <robot name="dm_armx">
   <material name="gripper_finger_black">
@@ -345,14 +347,14 @@
     <parent link="link1" />
     <child link="link2" />
     <axis xyz="0 0 -1" />
-    <limit lower="-2.379924" upper="-0.191649" effort="12" velocity="10" />
+    <limit lower="-2.379924" upper="0.058351" effort="12" velocity="10" />
   </joint>
   <joint name="joint3" type="revolute">
     <origin xyz="-0.264 0 0" rpy="0 0 0" />
     <parent link="link2" />
     <child link="link3" />
     <axis xyz="0 0 1" />
-    <limit lower="-1.891796" upper="-0.049248" effort="12" velocity="10" />
+    <limit lower="-1.891796" upper="0.050752" effort="12" velocity="10" />
   </joint>
   <joint name="joint4" type="revolute">
     <origin xyz="0.2426 -0.054 -0.001625" rpy="0 0 0" />
