@@ -23,7 +23,7 @@
 | ROS2 接口包 | [arm_msgs](src/arm_msgs) | ✅ 3 个 msg（`JointMotorCmd` / `JointMotorState` / `ArmStatus`）+ 1 个 action（`MoveToPose`）；夹爪本阶段不做 |
 | 机器人描述 | [arm_description](src/arm_description) | ✅ URDF/xacro（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **[config/align.yaml](src/arm_description/config/align.yaml)（模型对齐，2026-10-04 M1b 实测）**；joint limit 已换算成本项目标定值 |
 | ROS2 胶水层 | [arm_bringup](src/arm_bringup) | ✅ `real_joint_states`：**只读**真机 → `/joint_states`（模型镜像/对齐用）；串口连续失败会 FATAL 退出（不装死） |
-| C++ 协议层 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`：6 类发送帧（MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 寄存器）+ 收帧切分 + 反馈/寄存器解码；**与 Python 那份逐字节对拍**（34 用例全过，`colcon test`）；串口层与插件待做（M4/M5） |
+| C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL）；**与 Python 三份实现逐字节/逐数值对拍**（21 用例全过）；`SystemInterface` 插件待做（M5） |
 | ROS2 控制 | — | ⚠️ **未接**：`ros2_control` 硬件接口（M5）、MoveIt（M6）还没做；mock 链路（M2）已跑通，目前只有只读镜像节点会 import rclpy |
 | 夹爪 | — | ❌ 本阶段不做 |
 

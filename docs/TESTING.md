@@ -318,3 +318,15 @@ j1 −0.041076 · j2 −0.191649 · j3 −0.049248 · j4 −0.157540 · j5 +0.04
 `RxBuf` 分块喂（残片必须留到下一次）、反馈解码（含 2026-10-03 那条真实 id2 帧 `02 92 55 7f f7 fe 1c 1b`）、
 `is_reg_response` 边界（真寄存器回包 vs 停在低字节 0x55 的反馈帧）。**对拍不写"期望字节"，而是直接调 Python 那份**，
 所以两份实现漂了就会红（这也是 AGENTS 陷阱 #30 的机器保证）。
+
+**M4（C++ 串口 / 总线 / 关节层）当天验过**：`colcon test --packages-select motor_driver_hardware` ⇒
+`colcon test-result` 报 `21 tests, 0 errors, 0 failures`（帧 5 + 总线 8 + 关节 5，另 3 个 ctest 包装）。
+- `test_dm_bus.cpp` 用 **`SerialIo` 假串口**（内存字节流）走通"发帧 → 收反馈 → 进缓存"整条链：发送计数与字节数、
+  注入真实反馈后的状态与 `decode_feedback` 一致、**寄存器回包与陌生 ID 不污染缓存**、一帧拆成两次 `poll()` 不丢、
+  `wait_feedback` 交出**这一台**的原始帧、`sync_states` 先丢陈旧再主动刷新（测试里给假串口装了**应答器**：
+  收到刷新帧就回一条反馈，模拟真适配器）。
+- `test_dm_joint.cpp` 直接调 Python 的 `joint.py` 比 `prepare_frame`/发帧（6 组不同 direction/offset/档位/边界），
+  并验"没缓存位置就拒使能（一个字节都不发）"、"使能后补**用电机侧实测值**的保持帧（vlim=0.1）"、
+  "故障先失能再抛（ERR=13 提示锁存）"、"同一台电机档位不同就拒构造"。
+- 踩到并修掉的两处**测试自己**的问题（记下来免得下次再犯）：假串口要遵守与真 `SerialPort` 同一契约（**写要计数**）；
+  `sync_states` 会先 `flush()`，所以预注入的帧会被丢掉 —— 得用应答器而不是预填。

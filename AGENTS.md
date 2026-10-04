@@ -38,7 +38,7 @@
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
-| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧协议层**（`dm_frames` 纯函数库）：30B 发送帧（MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 寄存器）+ 16B 收帧切分（`extract_rx` / `RxBuf`）+ 反馈与寄存器回包解码 + `is_reg_response` | **不开发送、不碰串口、不判安全**；与 `dm_frames.py` 是**两份实现**，靠 `test/test_dm_frames.cpp`（直接调 Python 造帧）**逐字节对拍**；串口层与 `SystemInterface` 还没做 |
+| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库）：`dm_frames`（协议帧编解码）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口便于注入假串口）+ `dm_bus`（唯一发送出口 / 收帧分类 / 状态缓存 / `sync_states` / 寄存器 I/O）+ `dm_joint`（换算 / 软限位 / PMAX / 只走 **POS_VEL** 的关节） | **不依赖 rclcpp**（插件那层才依赖 ROS）；`dm_joint` **只做 mode 2**（MIT/力位混控没移植 —— 不用的路径不写）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致；`SystemInterface` 插件还没做 |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -85,10 +85,22 @@ joint_to_motor(v) / motor_to_joint(v) / clamp(pos) / clamp_pmax(motor_pos)
 CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`--save --yes` 才写 flash 且**写前自动 dump 基线**；
 `restore` 默认只打印计划。发送前 `is_reg_response` 把寄存器回包与反馈帧分开。
 
-**未实现（别以为有）**：`ros2_control` 硬件接口插件（C++ 侧**协议层已就位**，串口层与插件还没写）·
+**`motor_driver_hardware`（C++ 侧，`dm_hardware` 库；**不依赖 rclcpp**）**：
+`dm_frames`：30B 发送帧（MIT / 位置速度 / 力位混控 / 使能失能 / 刷新 / 寄存器读·写·存参）·
+16B 收帧切分（`extract_rx` / `RxBuf`，残片保留）· `decode_feedback` · `decode_reg_response` · `is_reg_response`（**带陷阱 #26 的修正判据**）；
+`dm_serial`：`SerialIo` 接口（测试注入假串口用）+ `SerialPort`（termios 8N1、**非阻塞读**、写满、`stats`）；
+`dm_bus`：`open/close` · `add_motor`/`set_limit`/`limit`/`registered_ids` · `send_frame`（唯一出口）+ `send_pos_vel`/`send_enable`/`send_disable`/`send_refresh` ·
+`poll` · `wait_feedback` · `flush` · `get_state` · `unknown_ids` · `sync_states` ·
+`read_register`/`write_register`/`save_params`；
+`dm_joint`：`JointConfig`（name/motor_id/direction/offset/`Limit`/软限位/mode）→ `Joint`：
+`joint_to_motor`/`motor_to_joint`/`clamp`/`clamp_pmax`/`prepare_frame`（NaN→软限位→换算→PMAX）·
+`set_pos_vel`（**仅 mode 2**）· `enable`（**无缓存位置拒使能 + 立刻补保持帧**）· `disable` ·
+`get_state`（无反馈抛）· `assert_healthy`（只查 ERR，故障先失能再抛）。
+
+**未实现（别以为有）**：`ros2_control` 硬件接口插件（C++ 侧协议/串口/总线/关节**都已就位**，只差插件）·
 MoveIt 配置（SRDF / kinematics / ompl）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) · 重力补偿 ·
 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
-C++ 包的 `test/` 是唯一例外，见 §7）。
+C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 
@@ -309,6 +321,10 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   `colcon test --packages-select motor_driver_hardware` —— C++ 造帧，同时用 `popen` 直接调 Python 的
   `dm_frames` 造同样的帧，**逐字节比**（34 个用例：6 类发送帧 + 边界 + 收帧切分 + `RxBuf` 分块 +
   反馈解码 + `is_reg_response` 边界）。**改了任一份 `dm_frames` 都要重跑**，否则两份实现会悄悄漂开。
+- **假串口 / 假总线**（C++ 侧，在 `motor_driver_hardware/test/`）：`SerialIo` 是接口 ⇒ 测试塞一个
+  **内存字节流**当串口，就能不接硬件走通"发帧 → 收反馈 → 进缓存"整条链；`test_dm_bus.cpp` 还带一个
+  **应答器**（收到刷新帧就回一条反馈），所以 `sync_states()` 那种"先丢旧的、再主动问"的流程也能测。
+  `test_dm_joint.cpp` 则直接调 Python 的 `joint.py` 比 `prepare_frame`/发帧结果。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
 
