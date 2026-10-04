@@ -238,3 +238,64 @@ POS_VEL 模式、带负载 —— 都还没测。
 ③ 多圈位置跨断电保持（断电约 8 s 再上电，Δ ≤ 0.00015 rad）。
 
 **待办**：带目标的整臂动作、POS_VEL 下的同样复核、ROS2。
+
+---
+
+## 十三、模型对齐：URDF 坐标系 ↔ 真机电机读数（2026-10-04，M1b）
+
+**要解决的问题**：URDF 的关节零点是**模型几何**定义的姿态，而本项目的零位是**用户在真机上自己摆的**
+（`config/joint.yaml` 的 `offset`，且都靠近机械限位）——两者差一个零点差 δ，正方向也可能反号。
+没有这一步，URDF 的 joint limit 和 ros2_control 的关节↔电机映射都无从谈起。
+
+**定法（不靠盲扫）**：把真机摆成一个**已知姿态**，一次解出全部 6 组 `(sign, zero_shift)`：
+
+    q_urdf = sign · q_ours + zero_shift
+    zero_shift = q_target − sign · q_ours          （用当时的只读读数解）
+
+本次用的已知姿态：**j2~j6 = 参考项目 `initial_positions.yaml`（全 0 = 模型零位）、j1 = 俯视逆时针 90°**
+⇒ `q_target = (1.5708, 0, 0, 0, 0, 0)`。当时的只读读数（`q_ours`）：
+j1 −0.041076 · j2 −0.191649 · j3 −0.049248 · j4 −0.157540 · j5 +0.048372 · j6 −1.782591。
+
+| 关节 | sign | zero_shift |
+|---|---|---|
+| joint1 | −1 | +1.529724 |
+| joint2 | −1 | −0.191649 |
+| joint3 | −1 | −0.049248 |
+| joint4 | −1 | −0.157540 |
+| joint5 | −1 | +0.048372 |
+| joint6 | **+1** | +1.782591 |
+
+**`sign` 的物理含义**：`sign = direction` ⇒ "**模型的正方向 = 电机读数的正方向**"。
+依据：2026-10-04 真机观察 —— `sign=+1` 时 j1~j5 的模型转向与真机相反、j6 相同。
+
+**限位换算**（模型坐标）：`lower/upper = sign · (joint.yaml 的 position_min/max) + zero_shift`（取小/大排序）：
+
+| 关节 | 我们标定（关节侧） | → 模型坐标（已写进 URDF） | 上游参考限位 |
+|---|---|---|---|
+| joint1 | [−0.096419, +0.137522] | [+1.392202, +1.626143] | [−2.8, 2.8] |
+| joint2 | [0, +2.188275] | [−2.379924, −0.191649] | [−3.14, 0] |
+| joint3 | [0, +1.842548] | [−1.891796, −0.049248] | [−3.14, 0] |
+| joint4 | [−1.095672, 0] | [−0.157540, +0.938132] | [−1.87, 1.57] |
+| joint5 | [−0.865009, +1.019013] | [−0.970641, +0.913381] | [−1.57, 1.57] |
+| joint6 | [−π, +π] | [−1.359002, +4.924184] | [−3.14, 3.14] |
+
+**旁证**：j1~j5 换算后**全部落在上游参考限位内部**（同一套机械设计、同一套模型轴定义）。
+
+**工具**：`arm_bringup` 的 `real_joint_states`（**只读**，绝不 `enable()`；参数默认值取自
+`arm_description/config/align.yaml`，所以重启不丢对齐）→ `robot_state_publisher` → RViz 实时镜像真机。
+`roadmap`：先看方向（`sign`）再按住调常量（`zero_shift`），从根关节往梢关节调。
+
+**这一步踩的坑（都已进 AGENTS 陷阱清单）**：
+1. **设备号会变**：`/dev/ttyACM0` → `/dev/ttyACM1`，而 `channel` 写死 ⇒ 只读节点每轮读失败、**又不退出**
+   ⇒ RViz 里模型**冻在最后一帧**，看起来像"调参没生效"（陷阱 #28）。
+2. **`joint_state_publisher*` 会订阅 `/joint_states` 再回发**：M1a 的 `display.launch.py` 没关
+   ⇒ 同一话题两个发布者打架 ⇒ 模型**发抖**（陷阱 #29）。
+3. **`PYTHONPATH` 层级**：裸 import（`from arm_config import ...`）必须指到**模块目录**
+   `src/motor_driver/motor_driver`；指到 `src/motor_driver` 会 `ModuleNotFoundError`。
+   另外**以包方式 `from motor_driver.arm import DmArm` 也会挂**（`arm.py` 的兄弟导入是裸的，
+   只有 `dm_registers.py` 自己插了 `sys.path`）。
+4. **`launch_ros.actions.Node` 用 `parameters=`**，不是 `params=`（陷阱 #27）：写错时 launch 在
+   **加载文件阶段**就抛，一个节点都不会起。⇒ 改完 launch 先跑 `--show-args` 验证。
+
+**遗留**：我们的标定限位偏窄（j1 只有 ±0.1 rad ≈ ±5.5°），且 **j2/j3 的换算范围不含"参考初始位姿"**
+（`q_urdf = 0` 在范围外 0.19 / 0.05 rad）⇒ M5/M6 之前要么把臂停在限位内起步、要么重摆一套更宽的限位。

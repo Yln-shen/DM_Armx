@@ -20,7 +20,10 @@
 | 寄存器工具 | [dm_registers.py](src/motor_driver/motor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
 | 单电机排障脚本 | [dm_bringup.py](src/motor_driver/motor_driver/dm_bringup.py) | ✅ `read`/`monitor`/`jog --mit`/`bandwidth`；**刻意不 import 本包**、只走厂商 SDK（排障时用来分清是封装错还是链路错）。2026-10-01 恢复并真机只读验证 |
 | 整臂层 | [arm.py](src/motor_driver/motor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz）；**力矩路与过温路都做过阈值注入验证**（监控 92ms / 过温 0.7ms 触发 → 自动急停，零误报）；**已做**：6 轴**方向/零位/软限位标定**（2026-10-03，含逐个关节通电停到软限位两端的复核，方向逐个目视确认）；**未做**：带目标的动作、ROS2 |
-| ROS2 集成 | — | ❌ 未做（**当前代码不 import rclpy**） |
+| ROS2 接口包 | [arm_msgs](src/arm_msgs) | ✅ 3 个 msg（`JointMotorCmd` / `JointMotorState` / `ArmStatus`）+ 1 个 action（`MoveToPose`）；夹爪本阶段不做 |
+| 机器人描述 | [arm_description](src/arm_description) | ✅ URDF/xacro（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **[config/align.yaml](src/arm_description/config/align.yaml)（模型对齐，2026-10-04 M1b 实测）**；joint limit 已换算成本项目标定值 |
+| ROS2 胶水层 | [arm_bringup](src/arm_bringup) | ✅ `real_joint_states`：**只读**真机 → `/joint_states`（模型镜像/对齐用）；串口连续失败会 FATAL 退出（不装死） |
+| ROS2 控制 | — | ⚠️ **未接**：`ros2_control` 硬件接口（M5）、MoveIt（M6）还没做；目前只有上面那个只读节点会 import rclpy |
 | 夹爪 | — | ❌ 本阶段不做 |
 
 > ⚠️ **现在还不能真的驱动整臂**：驱动层（协议 / 总线 / 单关节 / 整臂 / 标定）已就绪，但**上层还没接** ——
@@ -133,6 +136,11 @@ DM_Armx/
    │  ├─ DM-J4340P-2EC V1.1 .md / DM-J4310-2EC.md   两份电机手册（**权威**）
    │  └─ motor_driver/          dm_frames · dm_bus · dm_modes · joint · arm_config · arm · dm_registers · dm_bringup
    ├─ arm_msgs/                 本项目接口包（msg: JointMotorCmd / JointMotorState / ArmStatus；action: MoveToPose）
+   ├─ arm_description/          机器人描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）
+   │  ├─ config/align.yaml      模型对齐 sign/zero_shift（**真源**，M1b 实测）
+   │  ├─ urdf/ …                arm.urdf.xacro + inc/{arm_geometry, gripper, arm.ros2_control}
+   │  └─ launch/ rviz/ meshes/(73M) reference/
+   ├─ arm_bringup/              ROS2 胶水层（`real_joint_states`：只读真机 → /joint_states）
    └─ third_party/              厂商 SDK（u2can / u2canfd）
 ```
 
@@ -140,7 +148,8 @@ DM_Armx/
 
 **路线：MoveIt 算 IK / 轨迹 → ros2_control 下发执行**（不自搭运动学 / 轨迹 / 控制循环）。
 
-- 已完成：6 轴**方向 / 零位 / 软限位标定**；接口包 `arm_msgs` 已就绪
-- 下一步：把 `DmArm` 包成 `ros2_control` 硬件接口（`SystemInterface`）→ 配 MoveIt（URDF / SRDF / 限位）→ 带目标动作验收
+- 已完成：6 轴**方向 / 零位 / 软限位标定**（M1b 模型对齐 + 限位换算进 URDF）；`arm_msgs` 接口包；`arm_description`
+- 下一步（M2）：用 `mock_components/GenericSystem` 把 `controller_manager → joint_trajectory_controller → joint_state_broadcaster` 跑通（**不碰真机**）
+- 之后（M3~M6）：C++ 硬件接口（基于达妙官方 `damiao.h` 裁剪，修掉 `data[2]` 误判）→ `SystemInterface` 接真机 → MoveIt（SRDF / kinematics / ompl）
 
 细节看 [AGENTS.md](AGENTS.md)（精确到方法的状态与不变量）与 [docs/DESIGN.md](docs/DESIGN.md)（设计意图）。

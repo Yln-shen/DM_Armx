@@ -2,8 +2,17 @@
 <!-- 本文件改编自 github.com/Yang-Ci/Borot-Arm_Mujoco.git 的 ReBot_Arm_DM.urdf
      （CERN-OHL-W-2.0，见 ../LICENSE-CERN-OHL-W-2.0）。改动：mesh 包路径重写；
      夹爪 link/joint 移到 gripper.urdf.xacro；effort/velocity 换成本项目电机实测值；
-     fixed joint 去掉 axis。⚠️ joint limit 的 lower/upper 仍是**模型坐标**下的参考值，
-     待 M1b 用 src/motor_driver/config/joint.yaml 的标定值换算后替换。 -->
+     fixed joint 去掉 axis；**joint limit 换成本项目标定值**（见下）。
+
+     joint limit 换算（2026-10-04 M1b 真机实测）：
+         q_urdf = sign * q_ours + zero_shift        （sign/zero_shift 见 ../config/align.yaml）
+         lower/upper = sign * (joint.yaml 的 position_min/max) + zero_shift，再按小/大排序
+     真源：src/motor_driver/config/joint.yaml（本项目标定限位） + config/align.yaml（模型对齐）
+     换算结果（模型坐标）：
+         joint1 [+1.392202, +1.626143]    joint2 [-2.379924, -0.191649]
+         joint3 [-1.891796, -0.049248]    joint4 [-0.157540, +0.938132]
+         joint5 [-0.970641, +0.913381]    joint6 [-1.359002, +4.924184]（整圈 ±180°，宽 2π）
+     旁证：j1~j5 换算后全部落在上游参考限位内部。 -->
 <robot name="dm_armx">
   <material name="gripper_finger_black">
     <color rgba="0.066667 0.074510 0.070588 1" />
@@ -329,42 +338,42 @@
     <parent link="base_link" />
     <child link="link1" />
     <axis xyz="0 0 1" />
-    <limit lower="-2.8" upper="2.8" effort="12" velocity="10" />
+    <limit lower="1.392202" upper="1.626143" effort="12" velocity="10" />
   </joint>
   <joint name="joint2" type="revolute">
     <origin xyz="0.020084 0.031625 0.05555" rpy="-1.5708 0 0" />
     <parent link="link1" />
     <child link="link2" />
     <axis xyz="0 0 -1" />
-    <limit lower="-3.14" upper="0" effort="12" velocity="10" />
+    <limit lower="-2.379924" upper="-0.191649" effort="12" velocity="10" />
   </joint>
   <joint name="joint3" type="revolute">
     <origin xyz="-0.264 0 0" rpy="0 0 0" />
     <parent link="link2" />
     <child link="link3" />
     <axis xyz="0 0 1" />
-    <limit lower="-3.14" upper="0" effort="12" velocity="10" />
+    <limit lower="-1.891796" upper="-0.049248" effort="12" velocity="10" />
   </joint>
   <joint name="joint4" type="revolute">
     <origin xyz="0.2426 -0.054 -0.001625" rpy="0 0 0" />
     <parent link="link3" />
     <child link="link4" />
     <axis xyz="0 0 1" />
-    <limit lower="-1.87" upper="1.57" effort="3.5" velocity="30" />
+    <limit lower="-0.157540" upper="0.938132" effort="3.5" velocity="30" />
   </joint>
   <joint name="joint5" type="revolute">
     <origin xyz="0.078308 -0.0375 -0.03" rpy="-1.5708 0 0" />
     <parent link="link4" />
     <child link="link5" />
     <axis xyz="0 0 1" />
-    <limit lower="-1.57" upper="1.57" effort="3.5" velocity="30" />
+    <limit lower="-0.970641" upper="0.913381" effort="3.5" velocity="30" />
   </joint>
   <joint name="joint6" type="revolute">
     <origin xyz="0.028008 0 0.04" rpy="0 1.5708 0" />
     <parent link="link5" />
     <child link="link6" />
     <axis xyz="0 0 1" />
-    <limit lower="-3.14" upper="3.14" effort="3.5" velocity="30" />
+    <limit lower="-1.359002" upper="4.924184" effort="3.5" velocity="30" />
   </joint>
   <joint name="end_joint" type="fixed">
     <origin xyz="0 0 0.15539" rpy="0 -1.5708 3.1415" />

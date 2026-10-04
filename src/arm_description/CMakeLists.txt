@@ -3,8 +3,8 @@ project(arm_description)
 
 find_package(ament_cmake REQUIRED)
 
-# 纯数据包：几何、xacro、launch、rviz 配置、第三方参考与许可
-install(DIRECTORY meshes urdf launch rviz reference
+# 纯数据包：几何、xacro、launch、rviz 配置、模型对齐参数、第三方参考与许可
+install(DIRECTORY meshes urdf launch rviz config reference
         DESTINATION share/${PROJECT_NAME})
 
 ament_package()

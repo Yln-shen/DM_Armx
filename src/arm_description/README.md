@@ -28,23 +28,44 @@ mesh 也在 `meshes/` 里），拷进来只是死重量，故本包不含。以�
 
 | 文件 | 改动 |
 |---|---|
-| `urdf/inc/arm_geometry.urdf.xacro` | ①`<mesh>` 包路径 `package://rebotarm_bringup/description/meshes/` → `package://arm_description/meshes/`；②夹爪 link/joint 移出到 `gripper.urdf.xacro`；③`effort`/`velocity` 换成本项目电机实测值（j1–j3 `12.0`/`10`，j4–j6 `3.5`/`30`，见下）；④fixed joint 去掉无意义的 `<axis>`；⑤补 `<?xml ...?>` 与注释 |
+| `urdf/inc/arm_geometry.urdf.xacro` | ①`<mesh>` 包路径 `package://rebotarm_bringup/description/meshes/` → `package://arm_description/meshes/`；②夹爪 link/joint 移出到 `gripper.urdf.xacro`；③`effort`/`velocity` 换成本项目电机实测值（j1–j3 `12.0`/`10`，j4–j6 `3.5`/`30`，见下）；④fixed joint 去掉无意义的 `<axis>`；⑤**joint limit 换成本项目标定值的模型坐标换算结果**（M1b，见下）；⑥补 `<?xml ...?>` 与注释 |
 | `urdf/inc/gripper.urdf.xacro` | 夹爪（`finger_left`/`finger_right`，prismatic）包成 `<xacro:macro name="gripper_links">`，**默认不调用** |
 | `urdf/arm.urdf.xacro` | 新的主文件：include 上面两个 + `<ros2_control>` 宏 + `gripper_tcp` 固定关节（照上游 `xyz="-0.105 0 0"`） |
 | `urdf/inc/arm.ros2_control.xacro` | 新写：`mock_components/GenericSystem`（6 关节 position 命令 + position/velocity 状态） |
 
-### ⚠️ joint limit 还没换成我们标定的值
+### ✅ joint limit 已换算成本项目标定值（2026-10-04 M1b）
 
-`arm_geometry.urdf.xacro` 里 `joint1..joint6` 的 `lower/upper` 仍是**上游参考值**
-（`[-2.8,2.8]` / `[-3.14,0]` / `[-3.14,0]` / `[-1.87,1.57]` / `[-1.57,1.57]` / `[-3.14,3.14]`）。
+URDF 的关节零点是**模型几何**定义的姿态，而本项目的零位是自己在真机上摆的
+（`src/motor_driver/config/joint.yaml` 的 `offset`），两者差一个零点差 δ；正方向也可能与模型
+`axis` 反号（j1 模型是俯视逆时针，我们定义的是俯视顺时针）。
 
-原因：URDF 的关节零点是**模型几何**定义的姿态，而本项目的零位是**我们自己在真机上摆的**
-（`src/motor_driver/config/joint.yaml` 的 `offset`，且各关节都靠近机械限位），两者差一个
-零点差 δ；正方向也可能与模型 `axis` 反号（j1 模型是俯视逆时针，我们定义的是俯视顺时针）。
-这两个量必须**实测**（计划里的 M1b：把真机摆到模型零位 / 在 RViz 里对照），
-换算后才能把 `joint.yaml` 的 `position_min/max` 写进 URDF。
+M1b 的做法：把真机摆成"**参考项目初始位姿（= 模型全零）+ j1 俯视逆时针 90°**"
+（= 模型 `(1.5708, 0, 0, 0, 0, 0)`），一次解出全部 6 组 `(sign, zero_shift)`，
+记在 [config/align.yaml](config/align.yaml)：
 
-在那之前，模型只能用于**显示与 mock 链路**（M1/M2），不能用来判断"真机现在在模型里的哪个姿态"。
+    q_urdf = sign * q_ours + zero_shift
+    zero_shift = q_target - sign * q_ours        （用当时的实况读数解出）
+
+限位换算：`lower/upper = sign * (joint.yaml 的 position_min/max) + zero_shift`（取小/大排序）：
+
+| 关节 | 我们标定（关节侧） | → 模型坐标（URDF） | 上游参考限位 |
+|---|---|---|---|
+| joint1 | [−0.096419, +0.137522] | [+1.392202, +1.626143] | [−2.8, 2.8] |
+| joint2 | [0, +2.188275] | [−2.379924, −0.191649] | [−3.14, 0] |
+| joint3 | [0, +1.842548] | [−1.891796, −0.049248] | [−3.14, 0] |
+| joint4 | [−1.095672, 0] | [−0.157540, +0.938132] | [−1.87, 1.57] |
+| joint5 | [−0.865009, +1.019013] | [−0.970641, +0.913381] | [−1.57, 1.57] |
+| joint6 | [−π, +π] | [−1.359002, +4.924184] | [−3.14, 3.14] |
+
+**一致性旁证**：j1~j5 换算后**全部落在上游参考限位内部**（说明 δ/s 对齐是对的）。
+
+**⚠️ 两点要注意**：
+
+1. 我们的标定限位**比上游窄很多**（j1 只有 ±0.1 rad ≈ ±5.5°）；真正跑 MoveIt 时可用范围很小，
+   大概率需要重新摆一套更宽的限位。
+2. j2/j3 的换算范围**不含**"参考初始位姿"：当前姿态 `q_urdf = 0` 落在
+   `[−2.379924, −0.191649]` / `[−1.891796, −0.049248]` 之外（分别超 0.19 / 0.05 rad）。
+   所以 **M5/M6 之前要么把臂停在限位内起步，要么重摆限位**。
 
 ### effort / velocity 取值的依据
 
@@ -78,6 +99,7 @@ arm_description/
 ├─ urdf/inc/arm_geometry.urdf.xacro 手臂几何（8 link / 7 joint / 11 material）
 ├─ urdf/inc/gripper.urdf.xacro      夹爪几何（宏，默认不调用）
 ├─ urdf/inc/arm.ros2_control.xacro  硬件接口（现在是 mock；M5 换真插件）
+├─ config/align.yaml                模型对齐 sign/zero_shift（真源，M1b 实测）
 ├─ launch/display.launch.py
 ├─ rviz/display.rviz
 ├─ meshes/                          73M（verbatim，上游）

@@ -35,6 +35,9 @@
 | [dm_bringup.py](src/motor_driver/motor_driver/dm_bringup.py) | 1169 | **单电机排障脚本**（2026-10-01 从 git 历史恢复，见 §8）：`read` / `monitor` / `jog [--mit]` / `bandwidth` 四条子命令，会把每条 CAN 帧摊开讲 | **刻意不 import 本包任何模块** —— 只依赖 vendored SDK + pyserial（价值就在这：排障时能分清"是我们的封装错"还是"链路本身错"）。默认**只读**、永不写寄存器/零位、使能必须 `--yes`、退出（含 Ctrl-C）必失能；**使能时 `--hz` 硬限制 ≥5Hz**（否则会撞 500ms 看门狗） |
 | [config/joint.yaml](src/motor_driver/config/joint.yaml) | — | 6 关节静态参数（**已按本项目标定**：offset / direction / 软限位） | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
 | [setup.py](src/motor_driver/setup.py) | 36 | 装 `share/motor_driver/config/joint.yaml`；**`data_files` 的源路径只能写相对路径**（colcon 的 ament_python task 会 assert 拒绝绝对路径） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` 指向 `motor_driver.*` |
+| [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
+| [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
+| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -94,6 +97,7 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 | 关节限位、方向、零位、模式声明 | `src/motor_driver/config/joint.yaml`（**本项目自己标定**；源头 URDF 已移出工作区） |
 | `limit` 档位数值 | **只能回读** `0x15/0x16/0x17`；实测记录在 `docs/TESTING.md` §2.5/§2.6 |
 | **力位混控 `i_des` ↔ 扭矩的换算** | `arm_config.NM_PER_I_DES`（实测值，**别按峰值比例外推**：4340P 40 / 4310 22，不是 3.2 倍关系） |
+| **模型对齐 `sign` / `zero_shift`**（`q_urdf = sign·q_ours + zero_shift`） | `src/arm_description/config/align.yaml`（2026-10-04 M1b 实测；URDF 限位与 M5 硬件接口都从它推） |
 | 设计意图 | `docs/DESIGN.md`（**部分历史段已过期**） |
 
 ## 5. 关键事实表
@@ -111,6 +115,11 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 **关节表**：j1 4340P id1 · j2 4340P id2 · j3 4340P id3 · j4 4310 id4 · j5 4310 id5 · j6 4310 id6
 （`direction` / `offset` / 软限位**均已按本项目 2026-10-03 标定**：j1~j5 `direction=−1`、**j6 `direction=+1`**；
 数值**以 `src/motor_driver/config/joint.yaml` 为准**，实测依据见 `docs/TESTING.md` §十二。旧的 URDF 参考限位已作废。）
+
+**模型坐标下的限位**（2026-10-04 M1b 换算，已写进 URDF；`sign/zero_shift` 见 `arm_description/config/align.yaml`）：
+j1 `[+1.392202, +1.626143]` · j2 `[-2.379924, -0.191649]` · j3 `[-1.891796, -0.049248]` ·
+j4 `[-0.157540, +0.938132]` · j5 `[-0.970641, +0.913381]` · j6 `[-1.359002, +4.924184]`。
+⚠️ j2/j3 这两段**不含**"参考初始位姿"（`q_urdf = 0` 在范围外 0.19 / 0.05 rad）⇒ M5/M6 之前要么把臂停在限位内起步、要么重摆一套更宽的限位。
 
 **2026-10-01 真机只读实测**（总线上只有一台：id=**6** 的 **4310**）：`Gr=10`、`PMAX/VMAX/TMAX=12.5/30/10` ✓、`CTRL_MODE=1(MIT)`、`ESC_ID=6`、**`MST_ID=0`**、`0x1F Data=4.0`、**`0x09 TIMEOUT=0`（看门狗关闭）**、`VBus=24.15 V`、`Tpcb=28.9 ℃`、`Tmt=26.1 ℃`；
 PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `DESIGN.md §2.1` 的计划值不同**（4310 计划 0.0008/0.002/70/1.0），要跑 POS_VEL 得先写。
@@ -263,6 +272,8 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 25 | **已使能关节的"发帧空档"不能超过 `0x09`（现在 500ms）**：看门狗是在保护你，但它**只认喂狗帧、且一触发就锁存**。所以控制循环里任何 >500ms 的阻塞都会让**全臂掉力并锁存 ERR=13**（`sleep`、慢计算、阻塞式服务调用/日志、串口重连、调试器断点、GC/调度卡顿） | 实测（2026-10-01）：400ms 喂狗 2.4s 不触发；700ms ⇒ 触发 + 锁存 ⇒ 超时窗口 (400, 700]。⇒ **`fn` 里不许有 >100ms 的阻塞**（留 5 倍余量）；要慢操作就搬到别的线程/进程，或先 `disable_all()` 再做。⚠️ **ROS2 集成时头号坑**：回调里一个阻塞调用就能打掉整条臂，而且恢复要断电。`dm_bringup` 的 `jog` / `bandwidth --enable` 已在代码里硬限制 `--hz ≥ 5`（`MIN_HZ_WITH_ENABLE`）|
 | 26 | **`is_reg_response()` 靠 `D[2] ∈ {0x33,0x55,0xAA}` 分辨寄存器回包，可反馈帧的 `D[2]` 是 POS16 低字节** ⇒ 电机停在低字节恰为 `33/55/AA` 的位置时（约占位置范围 1.2%，而且停住就一直中招），它**每一条反馈都被当寄存器回包丢掉** ⇒ 该电机在缓存里**彻底隐身**（`get_state()` 抛、力矩/温度监控全瞎） | 真机实测（2026-10-03）：id2 停在 +1.79 rad（低字节 0x55）⇒ **20/20 条反馈被丢**、`unknown_ids` 为空但缓存里没有 id2。修法：判据补 `D[0]≤0x0F 且 D[1]==0x00`（真寄存器回包实测恒为"目标 ID 小端"）。残留（已写进注释）：失能 + `pos∈[-12.5,-12.40)` 的 3 个 LSB 仍会误判 |
 | 27 | **`launch_ros.actions.Node` 的关键字是 `parameters=`，不是 `params=`**（`params` 是 rclcpp/C++ 的写法） | 2026-10-04 真踩：`arm_description/launch/display.launch.py` 写成 `params=[{"robot_description": ...}]` ⇒ `ros2 launch` 在**加载文件阶段**就抛 `TypeError: Action.__init__() got an unexpected keyword argument 'params'`，**一个节点都不会启动**（报错里还跟着一条误导性的 `InvalidFrontendLaunchFileError: The launch file may have a syntax error`）。⇒ **改完 launch 文件先跑 `ros2 launch <pkg> <file> --show-args`**：它只解析不启动，能立刻暴露这类构造错误 |
+| 28 | **USB-CAN 适配器的设备号会变**（`/dev/ttyACM0` ↔ `/dev/ttyACM1`，随插拔顺序），而 `config/joint.yaml` 的 `channel` 是写死的 | 2026-10-04 真踩：设备从 ttyACM0 变成 ttyACM1 ⇒ 只读节点每轮读串口都失败（当时只打 ERROR、不退出）⇒ **RViz 里模型冻在最后一帧**，看起来像"调参没生效"，白折腾半天。⇒ ①`channel` 要跟着改（已改 ttyACM1）；②节点已加"连续 `max_fail_streak` 轮失败就 FATAL 退出"；③根治是按适配器序列号加 udev 规则固定成 `/dev/dm_can` |
+| 29 | **`joint_state_publisher*` 会订阅 `/joint_states` 再回发** ⇒ 与"真机镜像"节点同时开着，两个发布者打架 | 2026-10-04 真踩：M1a 的 `display.launch.py` 没关，`/joint_states` 有 2 个发布者（一个 RELIABLE、一个 BEST_EFFORT），RViz 里的机械臂**发抖**。⇒ 镜像前先 `ros2 topic info /joint_states` 确认 **Publisher count: 1**；`ros2 node list` 里出现**两个 `/robot_state_publisher`** 是同一问题的征兆 |
 
 ## 7. 怎么验证（没有硬件时）
 

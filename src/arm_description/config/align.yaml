@@ -1,0 +1,23 @@
+# 模型对齐（2026-10-04 M1b 真机实测）
+#
+#   q_urdf = sign * q_ours + zero_shift
+#   q_ours = direction * (p_m - offset)          ← 见 src/motor_driver/config/joint.yaml
+#
+# 定法：把真机摆成"**参考项目初始位姿（= 模型全零）+ j1 俯视逆时针 90°**"，
+#      即 q_target = (1.5708, 0, 0, 0, 0, 0)，再由
+#          zero_shift = q_target - sign * q_ours
+#      一次解出全部 6 个值（当时的实况读数与换算过程见 docs/TESTING.md §十三）。
+#
+# sign 的物理含义：`sign = direction` 表示"**模型的正方向 = 电机读数的正方向**"。
+#      依据：2026-10-04 真机观察 —— sign=+1 时 j1~j5 的模型转向与真机相反、j6 相同。
+#
+# 用途：① 把 joint.yaml 的软限位换算进 URDF（见 urdf/inc/arm_geometry.urdf.xacro）
+#      ② arm_bringup 的 real_joint_states 节点默认值（真机镜像/后续对齐复核）
+#      ③ M5 的 ros2_control 硬件接口做关节 ↔ 电机映射
+joints:
+  joint1: {sign: -1, zero_shift: +1.529724}
+  joint2: {sign: -1, zero_shift: -0.191649}
+  joint3: {sign: -1, zero_shift: -0.049248}
+  joint4: {sign: -1, zero_shift: -0.157540}
+  joint5: {sign: -1, zero_shift: +0.048372}
+  joint6: {sign: +1, zero_shift: +1.782591}

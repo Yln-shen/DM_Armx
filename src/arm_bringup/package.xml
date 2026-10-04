@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_bringup</name>
+  <version>0.0.0</version>
+  <description>
+    DM_Armx 的 ROS2 胶水层。当前只有 real_joint_states：**只读**把真机关节角按
+    q_urdf = sign * q_ours + zero_shift 换算成 /joint_states（模型对齐用），不使能电机。
+  </description>
+  <maintainer email="3432607998@qq.com">ylnn</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>ament_index_python</depend>
+
+  <exec_depend>motor_driver</exec_depend>
+  <exec_depend>arm_description</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
