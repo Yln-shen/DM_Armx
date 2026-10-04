@@ -122,7 +122,6 @@ DM_Armx/
 │  ├─ DESIGN.md                 设计文档（**最全**，但含已过期的历史段）
 │  ├─ TESTING.md                实测数据（映射范围 / 摩擦 / 标定实测）—— 有效真源
 │  ├─ LESSONS.md                踩坑记录（SDK 四个坑 + 方法上的坑）—— 有效真源
-│  ├─ PLAN_joint.md             ⚠️ 已过期的临时计划（内容已被实现取代，未纳入版本库）
 │  └─ reading_guide.md / architecture_notes.md   外部参考（reBot / PyArmX）导读
 ├─ registers/                   寄存器证据快照（按电机 id 分目录）
 ├─ tools/check_env.sh           环境自检
@@ -138,9 +137,6 @@ DM_Armx/
 
 ## 接下来做什么
 
-1. **真机验证寄存器工具**：逐台 `verify` 校对 limit；写 `0x0A=2` 与 PID；确认位置速度模式能跑。
-2. **整臂层**：6 个 `Joint` 组装 + 发/收双循环（发 500Hz、收 100Hz）+ 急停 / 力矩监控 / 看门狗。
-3. **ROS2 集成**：节点 / 话题 / URDF（限位真源）/ `ros2_control`。
-4. **夹爪**（4310，`0x07`）与重力补偿。
+**方向/零位已标定 → 带目标动作 → ROS2 接口对接（arm_msgs 已就绪）**
 
 细节看 [AGENTS.md](AGENTS.md)（精确到方法的状态与不变量）与 [docs/DESIGN.md](docs/DESIGN.md)（设计意图）。

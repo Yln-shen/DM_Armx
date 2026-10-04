@@ -6,4 +6,4 @@ bool success
 string message
 ---
 # Feedback
-geometry_msgs/Pose current_pose   # 当前位姿  为什么需要这个文
+geometry_msgs/Pose current_pose   # 当前位姿 

@@ -105,7 +105,9 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 
 **`limit = (PMAX, VMAX, TMAX)`**：4340P = **12.5 / 10 / 28**；4310 = **12.5 / 30 / 10**（实测回读，与 SDK 表一致）
 
-**关节表**：j1 4340P id1 `[-2.8, 2.8]` · j2 4340P id2 `[-3.14, 0]` · j3 4340P id3 `[-3.14, 0]` · j4 4310 id4 `[-1.87, 1.57]` · j5 4310 id5 `[-1.57, 1.57]` · j6 4310 id6 `[-3.14, 3.14]`
+**关节表**：j1 4340P id1 · j2 4340P id2 · j3 4340P id3 · j4 4310 id4 · j5 4310 id5 · j6 4310 id6
+（`direction` / `offset` / 软限位**均已按本项目 2026-10-03 标定**：j1~j5 `direction=−1`、**j6 `direction=+1`**；
+数值**以 `src/motor_driver/config/joint.yaml` 为准**，实测依据见 `docs/TESTING.md` §十二。旧的 URDF 参考限位已作废。）
 
 **2026-10-01 真机只读实测**（总线上只有一台：id=**6** 的 **4310**）：`Gr=10`、`PMAX/VMAX/TMAX=12.5/30/10` ✓、`CTRL_MODE=1(MIT)`、`ESC_ID=6`、**`MST_ID=0`**、`0x1F Data=4.0`、**`0x09 TIMEOUT=0`（看门狗关闭）**、`VBus=24.15 V`、`Tpcb=28.9 ℃`、`Tmt=26.1 ℃`；
 PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `DESIGN.md §2.1` 的计划值不同**（4310 计划 0.0008/0.002/70/1.0），要跑 POS_VEL 得先写。
@@ -292,7 +294,6 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 | 本文 `AGENTS.md` | ✅ 与代码同步（改代码请回来改它） |
 | `docs/TESTING.md`、`docs/LESSONS.md` | ✅ 有效真源（实测值 / 踩坑） |
 | `docs/DESIGN.md` | ⚠️ 设计意图有效，但 v0.12 与"当日工作区现状"等段落**已过期** |
-| `docs/PLAN_joint.md` | ❌ **过期**（上一轮的临时计划，其"不实现 force_pos"等结论已被推翻） |
 | `docs/reading_guide.md`、`docs/architecture_notes.md` | 外部参考（reBot / PyArmX）导读，与当前代码无关 |
 
 **已移出工作区、但在 git 历史里可取回**（`git show <commit>:<path>`，用 `HEAD~1` 或 `f17aec1`）：
