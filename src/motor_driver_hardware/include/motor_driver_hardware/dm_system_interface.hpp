@@ -94,6 +94,9 @@ private:
   std::vector<double> hw_positions_;
   std::vector<double> hw_velocities_;
   std::vector<double> hw_commands_;
+  // velocity 命令接口（模型坐标 rad/s）：只有 gravity_ff=true 走 MIT 时才用得上（当 dq_des）。
+  // 这两条链都导出它 —— ros2_controllers.yaml 是 mock/真机共用的，少一个接口 JTC 会配置失败。
+  std::vector<double> hw_vel_commands_;
 
   SerialIo * injected_io_ = nullptr;                  // 测试注入（不拥有）
   std::unique_ptr<SerialPort> owned_io_;              // 生产自持

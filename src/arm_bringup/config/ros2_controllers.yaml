@@ -3,6 +3,11 @@
 #
 # 真机版本（M5）会另起一份：把硬件接口换成 motor_driver_hardware/DmSystemInterface，
 # 控制器本身不用改（命令接口仍是 position，背后走 POS_VEL）。
+#
+# ⚠️ 这份是 **POS_VEL 路径**的配置：只声索 position。
+#    需要速度前馈（重力前馈走 MIT）时用 `config/ros2_controllers_mit.yaml`
+#    （多声索 velocity，并显式给了 constraints）—— **别往这份里加 velocity**：
+#    一旦声索 velocity，JTC 的到达判据会额外算速度误差，真机会卡死（那份文件里有详细注释）。
 controller_manager:
   ros__parameters:
     update_rate: 100          # Hz；也是下面两个控制器的 update 频率

@@ -9,6 +9,10 @@
   ③ 可以发轨迹（起轨迹控制器；先给慢速）
      ros2 launch arm_bringup real_control.launch.py enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5
 
+  ④ 需要 velocity 命令接口（MIT 速度前馈）时额外给 `mit_controllers:=true`：
+     它会换成 config/ros2_controllers_mit.yaml（多声索 velocity + 显式 constraints）。
+     ⚠️ 别把 velocity 加到默认那份里 —— 声索它会改变 JTC 的到达判据，真机会卡死。
+
 ⚠️ 真机注意：
   - `enable_on_activate` 默认 **false**：不显式打开就绝不会动电机；
   - 使能后**每圈都要给 6 台发帧**（500ms 看门狗，陷阱 #24/#25）——本插件在 write() 里发，别去改；
@@ -20,7 +24,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -40,13 +44,24 @@ def generate_launch_description():
         "use_rviz", default_value="true", description="是否启动 rviz2")
     use_gripper = DeclareLaunchArgument(
         "use_gripper", default_value="false", description="模型是否带夹爪几何")
+    mit_controllers = DeclareLaunchArgument(
+        "mit_controllers", default_value="false",
+        description="控制器是否声索 velocity 命令接口（MIT 速度前馈要用）。"
+                    "默认 false = 只声索 position（POS_VEL 路径，最稳）")
 
     xacro_file = PathJoinSubstitution(
         [FindPackageShare("arm_description"), "urdf", "arm.urdf.xacro"])
     rviz_config = PathJoinSubstitution(
         [FindPackageShare("arm_description"), "rviz", "display.rviz"])
-    controllers_file = PathJoinSubstitution(
-        [FindPackageShare("arm_bringup"), "config", "ros2_controllers.yaml"])
+    # 两套控制器配置：POS_VEL（只声索 position）与 MIT（多声索 velocity + 显式 constraints）。
+    # ⚠️ 声索 velocity 会改变 JTC 的到达判据（真机曾因此卡死），所以默认不声索 —— 见那份 yaml。
+    controllers_file = PathJoinSubstitution([
+        FindPackageShare("arm_bringup"), "config",
+        PythonExpression([
+            "'ros2_controllers_mit.yaml' if '", LaunchConfiguration("mit_controllers"),
+            "' == 'true' else 'ros2_controllers.yaml'",
+        ]),
+    ])
 
     robot_description = ParameterValue(
         Command([
@@ -105,6 +120,7 @@ def generate_launch_description():
         vlim,
         use_rviz,
         use_gripper,
+        mit_controllers,
         control_node,
         robot_state_publisher,
         jsb_spawner,

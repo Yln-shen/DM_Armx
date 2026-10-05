@@ -27,6 +27,9 @@
   <xacro:macro name="mock_joint" params="name initial">
     <joint name="${name}">
       <command_interface name="position"/>
+      <!-- velocity 命令接口：MIT 前馈用（见 dm_system_interface）；POS_VEL 路径不看它。
+           ⚠️ mock 分支也必须有 —— ros2_controllers.yaml 是两套共用的，少一个接口 JTC 会配置失败。 -->
+      <command_interface name="velocity"/>
       <state_interface name="position"><param name="initial_value">${initial}</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
@@ -38,6 +41,9 @@
     <xacro:property name="acfg" value="${align_cfg['joints'][name]}"/>
     <joint name="${name}">
       <command_interface name="position"/>
+      <!-- velocity 命令接口：重力前馈打开时（gravity_ff:=true）这条链走 MIT，
+           轨迹的 dq 就从这个接口进来当 dq_des；POS_VEL 路径不看它。 -->
+      <command_interface name="velocity"/>
       <state_interface name="position"/>     <!-- 真值从硬件读，不给 initial_value -->
       <state_interface name="velocity"/>
       <param name="motor_id">${jcfg['slave_id']}</param>

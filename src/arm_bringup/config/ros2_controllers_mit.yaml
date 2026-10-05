@@ -1,0 +1,57 @@
+# MIT 版控制器配置：命令接口**多声索一个 velocity**。
+#
+# 为什么单独一份、而不是改 ros2_controllers.yaml：
+#   硬件那边两条链都导出了 velocity 命令接口（导出本身无害，已真机验证），
+#   但**控制器一旦声索它，JTC 的判据就变了** —— 见下面 constraints 的注释。
+#   POS_VEL 路径上硬件根本不用速度命令，声索它只会平白多一条约束
+#   ⇒ 所以只在真正要用速度前馈（重力前馈走 MIT）时选这份配置。
+#
+# 用法（2.4.3 起由 gravity_ff 自动切；现在先手动选）：
+#   ros2 launch arm_bringup real_control.launch.py \
+#       enable_on_activate:=true spawn_arm_controller:=true mit_controllers:=true
+controller_manager:
+  ros__parameters:
+    update_rate: 100          # Hz；也是下面两个控制器的 update 频率
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+arm_controller:
+  ros__parameters:
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+    command_interfaces:
+      - position
+      - velocity
+    state_interfaces:
+      - position
+      - velocity
+    # 末端允许非零速度：轨迹怎么给就怎么走，别在终点硬刹车
+    allow_nonzero_velocity_at_trajectory_end: true
+
+    # ⚠️ 声索 velocity 之后必须显式给这两个约束，否则真机会**卡死**（2026-10-05 实测踩到）：
+    #   JTC 的 check_state_tolerance_per_joint 在 `state_error_.velocities` 非空时
+    #   （compute_error_for_joint 只在**有 velocity 命令接口**时才填速度误差）
+    #   会**额外**要求 |实际速度 − 期望速度| ≤ stopped_velocity_tolerance。
+    #   而 `constraints.goal_time` 默认 **0.0** ⇒ 代码里
+    #   `if (active_tol->goal_time_tolerance != 0.0)` 不成立 ⇒ **超时 ABORT 分支永远走不到**
+    #   ⇒ 轨迹跑完但进不了容差时，JTC 会**无限挂住**，直到 MoveIt 的 waitForExecution 超时
+    #   把轨迹掐掉（表现是 val=-6，机械臂停在半路）。
+    #   没有 velocity 命令接口时速度误差恒按 0 处理 ⇒ 从不触发，所以以前没暴露。
+    constraints:
+      # 实测静止时速度读数 0.0024~0.0073 rad/s（噪声/量化），给 0.05 留 7 倍余量
+      stopped_velocity_tolerance: 0.05
+      # 非 0 ⇒ 进不了容差时**明确 ABORT**并打日志，而不是无限等
+      goal_time: 1.0
+      # ⚠️ 刻意**不给**每关节的 goal / trajectory（位置容差）：
+      #    位置容差默认 0 = 不检查，真机在重力下跟轨迹本来就有滞后，
+      #    一旦给上会很轻易触发 "Aborted due to state tolerance violation"。
+      #    要加的话先测出真实跟随误差（见 docs/TESTING.md §十五）再定。

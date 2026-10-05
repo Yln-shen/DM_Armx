@@ -137,6 +137,7 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     hw_positions_.assign(joints_.size(), nan);      // 还没读到就保持 NaN，别谎报 0
     hw_velocities_.assign(joints_.size(), nan);
     hw_commands_.assign(joints_.size(), nan);       // NaN ⇒ write() 走"保持"
+    hw_vel_commands_.assign(joints_.size(), nan);   // 同理：没人写过就是 NaN（MIT 分支会查）
 
     std::string summary;
     for (const auto & jp : joints_) {
@@ -292,7 +293,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     std::fill(hw_commands_.begin(), hw_commands_.end(), nan);
     hw_positions_.assign(joints_.size(), nan);
     hw_velocities_.assign(joints_.size(), nan);
-
+    hw_vel_commands_.assign(joints_.size(), nan);   // 控制器还没写过速度命令
     if (enable_on_activate_) {
       for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
       // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
@@ -378,6 +379,8 @@ std::vector<hardware_interface::CommandInterface> DmSystemInterface::export_comm
   std::vector<hardware_interface::CommandInterface> out;
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     out.emplace_back(joints_[i].name, hardware_interface::HW_IF_POSITION, &hw_commands_[i]);
+    // velocity：目前只被 MIT 分支（gravity_ff=true）使用；POS_VEL 路径不看它。
+    out.emplace_back(joints_[i].name, hardware_interface::HW_IF_VELOCITY, &hw_vel_commands_[i]);
   }
   return out;
 }
