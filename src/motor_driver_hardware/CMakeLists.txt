@@ -25,6 +25,8 @@ install(TARGETS dm_hardware
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
+# 这份静态库要被插件 .so 链进去 ⇒ 必须编成位置无关代码（否则插件链接时会报重定位错误）
+set_property(TARGET dm_hardware PROPERTY POSITION_INDEPENDENT_CODE ON)
 install(DIRECTORY include/ DESTINATION include)
 
 # ── ros2_control 插件（这一层才依赖 ROS）──
@@ -41,7 +43,11 @@ if(DEFINED ENV{CONDA_PREFIX})
   link_directories($ENV{CONDA_PREFIX}/lib)
 endif()
 
-add_library(dm_system_interface src/dm_system_interface.cpp)
+# ⚠️ 必须是 **SHARED**：pluginlib 只能 dlopen 共享库。写成默认（静态 .a）会编译链接全过、
+#    单元测试也全绿（测试是直接链静态库，从不 dlopen），但真机 controller_manager 加载时报
+#    「Could not find library corresponding to plugin motor_driver_hardware/DmSystemInterface」
+#    —— 2026-10-05 真机踩过（AGENTS 陷阱 #34）。
+add_library(dm_system_interface SHARED src/dm_system_interface.cpp)
 target_link_libraries(dm_system_interface PUBLIC
   dm_hardware
   hardware_interface::hardware_interface
