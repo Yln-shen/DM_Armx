@@ -1,0 +1,30 @@
+# MoveIt 的关节限位覆盖文件。
+# ⚠️ `moveit_configs_utils` 会**无条件**读这个文件（缺了会报 ParameterBuilderFileNotFoundError）。
+# 这里**故意不覆盖位置/速度**（has_*_limits: false ⇒ MoveIt 用 URDF 里的值），
+# 保证"限位单一真源"不破：joint.yaml → xacro → URDF → MoveIt。
+# 只给加速度（URDF 里没有这东西），供 AddTimeOptimalParameterization 算时间参数用。
+joint_limits:
+  joint1:
+    has_velocity_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  joint2:
+    has_velocity_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  joint3:
+    has_velocity_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  joint4:
+    has_velocity_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  joint5:
+    has_velocity_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  joint6:
+    has_velocity_limits: false
+    has_acceleration_limits: true
+    max_acceleration: 5.0
