@@ -434,3 +434,26 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 `planning_time≈0.045s`（一进去就退出）⇒ 大概率**起始状态被判自碰撞**（`arm.srdf` 目前只关了相邻链节，
 是刻意的保守选择）。**下一步**：从日志里抓具体碰撞对（`Found a contact between 'linkX' and 'linkY'`），
 补进 `arm.srdf` 的 `disable_collisions`（或改用 Setup Assistant 生成的列表）。
+
+**M6 诊断结论（2026-10-05 深夜，接手的人从这里继续）**：`plan_only` 返回 ABORTED **不是规划失败**，而是
+**响应适配器失败**：
+
+```
+[WARN]  time_optimal_trajectory_generation: Invalid max_velocity_scaling_factor 0.000000 → defaulting to 1.0
+[ERROR] Response adapter 'AddTimeOptimalParameterization' failed to generate a trajectory.
+[ERROR] PlanningResponseAdapter 'AddTimeOptimalParameterization' failed with error code FAILURE
+```
+
+⇒ OMPL 规划出了路径 ✓，**时间参数化（TOTP）那一步失败** ⇒ 整条 plan 被判失败。头号嫌疑：
+**关节速度限位为 0 或缺失**（TOTP 必须要速度/加速度上限）。排查顺序：
+1. `xacro src/arm_description/urdf/arm.urdf.xacro use_mock:=true | grep -A1 '<limit'` —— 看 `velocity=` 是不是 0/没写；
+2. `config/joint_limits.yaml` 现在是 `has_velocity_limits: false`（本意是"用 URDF 的值"）——
+   若 URDF 里根本没写或写了 0，就得在这里显式给 `has_velocity_limits: true` + `max_velocity`；
+3. goal 里的 `max_velocity_scaling_factor` / `max_acceleration_scaling_factor` 传 0 会退化成 1.0（现在就是这个），
+   想限速就显式传 0.1~0.5。
+
+⚠️ 另一个坑（这次浪费了时间）：**mock 测试必须确认没有真机 CM 在跑**。我用 `grep DM_Armx` 过滤进程时
+漏掉了真机 CM —— 它的 cmdline 是 `.../ros2_control_node --ros-args --params-file /tmp/launch_params_xxx`，
+**不含 `DM_Armx`** ⇒ 真机 CM 一直活着，mock 的 `/joint_states` 因此是**真机姿态**，与 mock 模型不匹配。
+正确做法：`ps -eo pid,args | grep ros2_control_node` 拿到 PID 后 **kill 具体数字**（别按模式杀，见下），
+或直接确认 `ps -eo args | grep -c ros2_control_node` 为 0 再起 mock。
