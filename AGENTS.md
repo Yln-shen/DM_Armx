@@ -377,10 +377,10 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 | `docs/DESIGN.md` | ⚠️ 设计意图有效，但 v0.12 与"当日工作区现状"等段落**已过期** |
 | `docs/reading_guide.md`、`docs/architecture_notes.md` | 外部参考（reBot / PyArmX）导读，与当前代码无关 |
 
-**已移出工作区、但在 git 历史里可取回**（`git show <commit>:<path>`，用 `HEAD~1` 或 `f17aec1`）：
-旧版 `dm_registers.py`（605 行）、旧版 `arm_config.py`（674 行）、`tools/*.py`（`smoke_*.py`/`scan_bus.py`/`bus_probe.py`）、**（`dm_bringup.py` 已于 2026-10-01 恢复回包内）**、
-`src/mujoco_pkg/`、`src/rebotarm_msgs/`、`src/fake_driver_pkg/`、`ARCHITECTURE.md`、`CURRENT_STATE.md`、旧 `config/rebotarm_b601_mixed.yaml`。
-⚠️ 现在这个 `arm_config.py`（200 行）**覆盖**了历史里同名的那份 674 行版本；`dm_registers.py`、`arm.py` 也都是新写的（不是恢复的）。
+**已移出工作区、但 git 历史里可取回**（`git show <commit>:<path>`）：旧版 `dm_registers.py`（605 行）、
+旧版 `arm_config.py`（674 行）、`tools/*.py`、`src/mujoco_pkg/`、`src/rebotarm_msgs/`、`src/fake_driver_pkg/`、
+`ARCHITECTURE.md`、`CURRENT_STATE.md`、旧 `config/rebotarm_b601_mixed.yaml`。
+⚠️ 现在的 `arm_config.py`（200 行）**覆盖**了历史同名那份 674 行的；`dm_registers.py`、`arm.py` 是新写的。
 
 ## 9. 接手后的第一件事
 
