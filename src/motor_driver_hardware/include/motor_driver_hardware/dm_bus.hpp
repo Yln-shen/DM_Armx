@@ -68,6 +68,8 @@ public:
   // ── 发送（唯一出口）──
   void send_frame(const TxFrame & frame);
   void send_pos_vel(uint8_t motor_id, double p_des, double v_des);
+  // MIT：CAN ID 是 slave_id 本身（不是 0x100+id）。需要这台电机的档位来定标 ⇒ 未注册会抛。
+  void send_mit(uint8_t motor_id, double p_des, double v_des, double kp, double kd, double t_ff);
   void send_enable(uint8_t motor_id);
   void send_disable(uint8_t motor_id);
   void send_refresh(uint8_t motor_id);

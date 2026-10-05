@@ -1,6 +1,7 @@
 // test_dm_joint.cpp —— 关节层：与 Python 的 joint.py 对拍（换算、发帧、保持帧语义）。
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -113,13 +114,55 @@ for line in sys.stdin:
     print("%.17g %s" % (motor_pos, hx(F.pos_vel_frame(mid, p_sent, v_sent))))
 )PY";
 
-std::vector<std::string> python_results(const std::vector<std::string> & cases)
+// MIT 侧的 Python 驱动：喂一个**已知的缓存状态**，让 joint.py 走 set_mit（含 torque_max 钳位）。
+// 输入行：name motor_id direction offset pmin pmax p_motor m_pos m_vel kp kd target tau tmax|none
+const char * kPyMitDriver = R"PY(
+import sys
+sys.path.insert(0, sys.argv[1])
+import dm_frames as F
+from joint import Joint
+from dm_bus import MotorState
+
+class FakeBus:
+    def __init__(self, pos, vel):
+        self.calls = []; self._m = {}
+        self.st = MotorState(motor_id=1, err=1, err_text="", pos=pos, vel=vel, tau=0.0,
+                             temp_mos=30, temp_rotor=31, timestamp=0.0)
+    def motors(self): return self._m
+    def add_motor(self, mid, limit): self._m[mid] = tuple(float(x) for x in limit)
+    def get_state(self, mid): return self.st
+    def send_mit(self, mid, kp, kd, p, v, t): self.calls.append(("mit", mid, kp, kd, p, v, t))
+    def send_pos_vel(self, mid, p, v): self.calls.append(("pos_vel", mid, p, v))
+    def send_enable(self, mid): self.calls.append(("enable", mid))
+    def send_disable(self, mid): self.calls.append(("disable", mid))
+
+def hx(b): return " ".join("%02x" % x for x in b)
+
+for line in sys.stdin:
+    a = line.split()
+    if not a: continue
+    name = a[0]; mid = int(a[1]); direction = int(a[2]); offset = float(a[3])
+    pmin, pmax, p_motor, m_pos, m_vel, kp, kd, target, tau = [float(x) for x in a[4:13]]
+    tmax = None if a[13] == "none" else float(a[13])
+    bus = FakeBus(m_pos, m_vel)
+    j = Joint(bus, mid, name, direction, (p_motor, 30.0, 10.0), offset,
+              position_min=pmin, position_max=pmax, mode=1, torque_max=tmax)
+    try:
+        j.set_mit(kp, kd, target, 0.0, tau)
+        _, mid2, kp2, kd2, p, v, t = bus.calls[-1]
+        print("ok " + hx(F.mit_frame(mid2, p, v, kp2, kd2, t, (p_motor, 30.0, 10.0))))
+    except Exception:
+        print("throw")
+)PY";
+
+std::vector<std::string> run_python(const std::string & script_text, const std::string & tag,
+  const std::vector<std::string> & cases)
 {
-  const std::string script = "/tmp/dm_joint_crosscheck.py";
-  const std::string input = "/tmp/dm_joint_crosscheck_in.txt";
+  const std::string script = "/tmp/dm_joint_crosscheck_" + tag + ".py";
+  const std::string input = "/tmp/dm_joint_crosscheck_" + tag + "_in.txt";
   {
     std::ofstream f(script);
-    f << kPyDriver;
+    f << script_text;
   }
   {
     std::ofstream f(input);
@@ -138,6 +181,11 @@ std::vector<std::string> python_results(const std::vector<std::string> & cases)
   }
   pclose(pipe);
   return out;
+}
+
+std::vector<std::string> python_results(const std::vector<std::string> & cases)
+{
+  return run_python(kPyDriver, "posvel", cases);
 }
 
 std::string format_motor_pos(double v)
@@ -305,7 +353,11 @@ TEST(DmJoint, RejectsBadConfigAndUse)
   EXPECT_THROW(md::Joint(bus, bad), std::invalid_argument);
 
   bad = config_j2();
-  bad.mode = 1;                                  // C++ 这层只做 POS_VEL
+  bad.mode = 3;                                  // 只移植了 1(MIT) / 2(POS_VEL)
+  EXPECT_THROW(md::Joint(bus, bad), std::invalid_argument);
+
+  bad = config_j2();
+  bad.torque_max = -1.0;                         // torque_max 要么不设，要么是正数
   EXPECT_THROW(md::Joint(bus, bad), std::invalid_argument);
 
   bad = config_j2();
@@ -329,4 +381,81 @@ TEST(DmJoint, RejectsBadConfigAndUse)
   other.name = "joint2-again";
   other.limit = md::Limit{12.5, 30.0, 10.0};
   EXPECT_THROW(md::Joint(bus, other), std::invalid_argument);
+}
+
+// ⑥ MIT：与 Python 逐字节对拍（含 torque_max 钳位、"PD 自己超 ⇒ 两侧都拒发"）
+TEST(DmJoint, MitMatchesPythonAndClamps)
+{
+  struct Case
+  {
+    double kp, kd, target, tau;
+    bool has_tmax;
+    double tmax;
+    double cached_motor_pos;                    // 注入的缓存位置（电机侧 rad）
+  };
+  const std::vector<Case> cases = {
+    {10.0, 0.5, 0.05, 0.50, true, 12.0, 1.544229},     // 正常：不钳
+    {10.0, 0.5, 0.05, 20.0, true, 12.0, 1.544229},     // tau_ff 被钳到 12−|PD|
+    {100.0, 0.0, 0.05, 0.0, true, 12.0, 0.0},          // PD 自己超 ⇒ 两侧都 throw
+    {10.0, 0.5, 0.05, 20.0, false, 0.0, 1.544229},     // 没给 torque_max ⇒ 不钳
+  };
+  const double p_max = 12.5;
+  auto encode_pos = [p_max](double p_motor) {
+      double u = (p_motor + p_max) / (2.0 * p_max) * 65535.0;
+      u = std::max(0.0, std::min(u, 65535.0));
+      return static_cast<uint16_t>(u);
+    };
+  auto decode_pos = [p_max](uint16_t u) {
+      return (static_cast<double>(u) / 65535.0) * (2.0 * p_max) - p_max;
+    };
+
+  std::vector<std::string> py_lines;
+  std::vector<std::string> cpp_out;
+  for (const auto & c : cases) {
+    FakeSerial io;
+    md::MotorBus bus(io);
+    bus.open();
+    md::JointConfig cfg = config_j2();
+    cfg.mode = 1;
+    cfg.limit = md::Limit{12.5, 30.0, 10.0};     // 与 Python 驱动喂的档位一致（4310）
+    if (c.has_tmax) {cfg.torque_max = c.tmax;}
+    md::Joint joint(bus, cfg);
+
+    const uint16_t code = encode_pos(c.cached_motor_pos);
+    // 速度字节 0x7F 0xF0 ⇒ 12 位原始值 2047 ⇒ 解码后 ≈ 0（0 在 12 位映射里落在 2047 不是 2048）
+    io.push(feedback_frame({0x12, static_cast<uint8_t>(code >> 8),
+        static_cast<uint8_t>(code & 0xFF), 0x7F, 0xF0, 0x00, 0x1E, 0x1F}));
+    ASSERT_EQ(bus.poll(), 1u);
+    const double cached_pos = bus.get_state(2)->pos;      // 解码后的量化值（两边都用它）
+    const double cached_vel = bus.get_state(2)->vel;
+
+    io.tx.clear();
+    std::string res;
+    try {
+      joint.set_mit(c.kp, c.kd, c.target, 0.0, c.tau);
+      res = "ok " + to_hex(io.tx.data(), io.tx.size());
+    } catch (const std::exception &) {
+      res = "throw";
+    }
+    cpp_out.push_back(res);
+    EXPECT_NEAR(cached_pos, decode_pos(code), 1e-9);
+    EXPECT_NEAR(cached_vel, 0.0, 0.01) << "缓存速度应为 ~0（否则 kd 项会把用例带偏）";
+
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+      "joint2 2 -1 1.594229 -0.25 2.188275 12.5 %.17g %.17g %.17g %.17g %.17g %.17g %s",
+      cached_pos, cached_vel, c.kp, c.kd, c.target, c.tau,
+      c.has_tmax ? format_motor_pos(c.tmax).c_str() : "none");
+    py_lines.push_back(buf);
+  }
+
+  const auto got = run_python(kPyMitDriver, "mit", py_lines);
+  ASSERT_EQ(got.size(), py_lines.size()) << "Python 侧没有逐行给结果（脚本/import 出错？）";
+  for (std::size_t i = 0; i < cases.size(); ++i) {
+    EXPECT_EQ(got[i], cpp_out[i]) << "MIT 用例 #" << i << "：" << py_lines[i];
+  }
+
+  // 没给 torque_max 时**不钳**：这一条要能真的发出 20 N·m
+  EXPECT_EQ(cpp_out[3].substr(0, 2), "ok");
+  EXPECT_EQ(cpp_out[2], "throw");
 }

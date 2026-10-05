@@ -1,8 +1,12 @@
 // dm_joint.cpp —— 单关节实现（只走 POS_VEL；语义照 Python 的 joint.py）。
 #include "motor_driver_hardware/dm_joint.hpp"
 
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace motor_driver_hardware
 {
@@ -54,10 +58,15 @@ Joint::Joint(MotorBus & bus, const JointConfig & cfg)
   {
     throw std::invalid_argument("关节 " + cfg_.name + "：position_min 比 position_max 还大");
   }
-  if (cfg_.mode != 2) {
+  if (cfg_.mode != 1 && cfg_.mode != 2) {
     throw std::invalid_argument(
-      "关节 " + cfg_.name + "：C++ 这一层只实现 mode 2（位置速度），收到 " + mode_name(cfg_.mode) +
-      "。ros2_control 这条链的命令接口是 position，背后就是 POS_VEL。");
+      "关节 " + cfg_.name + "：C++ 这一层只实现 mode 1(MIT) 与 mode 2(位置速度)，收到 " +
+      mode_name(cfg_.mode) + "。轨迹执行走 2；需要力矩前馈的场合才走 1。");
+  }
+  if (cfg_.torque_max.has_value() && !(*cfg_.torque_max > 0.0)) {
+    throw std::invalid_argument(
+      "关节 " + cfg_.name + "：torque_max 必须是正数（它是要钳到的那条上限，"
+      "不是档位里的 t_max=电机峰值）");
   }
 
   // 注册到总线：已注册且档位不同 ⇒ 拒（同一台电机两个映射范围 = 力矩静默差数倍）
@@ -123,18 +132,86 @@ void Joint::set_pos_vel(double joint_pos, double vlim)
   bus_.send_pos_vel(cfg_.motor_id, prepare_frame(joint_pos), vlim);
 }
 
+void Joint::set_mit(double kp, double kd, double joint_pos, double dq, double tau)
+{
+  if (cfg_.mode != 1) {
+    throw std::runtime_error(
+      "关节 " + cfg_.name + "：声明模式是 " + mode_name(cfg_.mode) + "，不是 1(MIT)，拒发 —— "
+      "模式不符时帧会被电机**静默丢掉**（陷阱 #8）");
+  }
+  using Named = std::pair<const char *, double>;
+  const Named vals[] = {{"kp", kp}, {"kd", kd}, {"q", joint_pos}, {"dq", dq}, {"tau", tau}};
+  for (const auto & kv : vals) {
+    if (!std::isfinite(kv.second)) {
+      throw std::invalid_argument(
+        std::string("关节 ") + cfg_.name + "：" + kv.first + " 是非有限数（NaN/inf），拒发");
+    }
+  }
+  const double q_motor = prepare_frame(joint_pos);
+  const double dq_motor = static_cast<double>(cfg_.direction) * dq;
+  // 力矩是矢量：只乘 direction，不加 offset（与 Python 一致）
+  double tau_motor = static_cast<double>(cfg_.direction) * tau;
+  if (cfg_.torque_max.has_value()) {
+    tau_motor = clamp_mit_torque(kp, kd, q_motor, dq_motor, tau_motor);
+  }
+  bus_.send_mit(cfg_.motor_id, q_motor, dq_motor, kp, kd, tau_motor);
+}
+
+double Joint::clamp_mit_torque(double kp, double kd, double q_des, double dq_des,
+  double tau_ff) const
+{
+  const auto m = bus_.get_state(cfg_.motor_id);
+  if (!m.has_value()) {
+    // 算不出来就别装作算过了
+    throw std::runtime_error(
+      "关节 " + cfg_.name + "：没有缓存位置/速度，预测不了力矩（torque_max=" +
+      std::to_string(*cfg_.torque_max) + "）—— 先 poll() 拿到反馈再发 MIT 帧");
+  }
+  const double limit = *cfg_.torque_max;
+  const double pd = kp * (q_des - m->pos) + kd * (dq_des - m->vel);
+  if (std::abs(pd) > limit) {
+    std::ostringstream os;
+    os << "关节 " << cfg_.name << "：PD 项 " << pd << " N·m 已超过 torque_max=" << limit
+       << "（kp=" << kp << ", kd=" << kd << ", q_des−q=" << (q_des - m->pos)
+       << " rad, dq_des−dq=" << (dq_des - m->vel) << " rad/s）—— 钳 tau_ff 救不回来，拒发；"
+       << "要么降 kp/kd，要么把目标挪近";
+    throw std::runtime_error(os.str());
+  }
+  const double total = pd + tau_ff;
+  if (std::abs(total) > limit) {
+    // 钳是单调安全的（只会让力矩更小）⇒ 钳 + 限流打日志，不像 PD 超限那样拒发
+    const double clamped = std::copysign(limit - std::abs(pd), total);
+    const double now_s =
+      std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now_s - clamp_warn_at_ >= kClampWarnInterval) {
+      clamp_warn_at_ = now_s;
+      std::fprintf(stderr,
+        "[%s] tau_ff 被钳：%+.3f → %+.3f N·m（PD %+.3f + tau_ff 会到 %+.3f，超 torque_max %g）\n",
+        cfg_.name.c_str(), tau_ff, clamped, pd, total, limit);
+    }
+    return clamped;
+  }
+  return tau_ff;
+}
+
 void Joint::enable()
 {
   const auto st = bus_.get_state(cfg_.motor_id);
-  if (st == std::nullopt) {
+  if (cfg_.mode == 2 && st == std::nullopt) {
     throw std::runtime_error(
       "关节 " + cfg_.name + "：位置类模式(2)下没有缓存位置，拒绝使能 —— "
       "切模式时电机内部指令被清零，使能后会朝零位冲。先让总线 poll 一轮拿到位置。");
   }
   try {
     bus_.send_enable(cfg_.motor_id);
-    // 保持帧用**电机侧实测值**，不经过 clamp/换算：钳了就不是"保持"
-    bus_.send_pos_vel(cfg_.motor_id, st->pos, kHoldVlim);
+    if (cfg_.mode == 1) {
+      // MIT 的保持帧是**零增益零前馈** ⇒ 出力恒为 0，不需要知道当前位置（与 Python 一致）。
+      // 真正托住要由调用方随后发带 tau_ff 的 MIT 帧。
+      bus_.send_mit(cfg_.motor_id, 0.0, 0.0, 0.0, 0.0, 0.0);
+    } else {
+      // 保持帧用**电机侧实测值**，不经过 clamp/换算：钳了就不是"保持"
+      bus_.send_pos_vel(cfg_.motor_id, st->pos, kHoldVlim);
+    }
   } catch (...) {
     try {
       bus_.send_disable(cfg_.motor_id);

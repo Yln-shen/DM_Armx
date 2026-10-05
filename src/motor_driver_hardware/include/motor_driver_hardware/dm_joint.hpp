@@ -1,14 +1,16 @@
-// dm_joint.hpp —— 单个关节（语义对齐 Python 的 joint.py，但**只实现 POS_VEL** 这条链）。
+// dm_joint.hpp —— 单个关节（语义对齐 Python 的 joint.py）。
 //
 // 边界：
 //   - 不拥有控制循环（`set_*` 只发一帧）、不 poll、不写寄存器；
 //   - 不知道 ROS、不读 yaml —— 参数由调用方（M5 的插件）填进 `JointConfig`；
-//   - **只支持 mode 2（位置速度）**：ros2_control 这条链的命令接口是 position，背后就是 POS_VEL。
-//     MIT / 力位混控没移植（不用的路径不写，免得变成没人测的死代码）。
+//   - 支持 **mode 1(MIT) 与 mode 2(位置速度)**；力位混控(4)与速度(3)没移植。
+//     ros2_control 这条链的**轨迹执行仍走 POS_VEL**（固件闭环稳态误差能到 ~0）；
+//     MIT 是唯一能**直接给力矩**的模式，留给重力前馈这类需要 `tau_ff` 的场合。
 //
 // 三条真机教训内建在这里：
 //   - 位置类模式下**没有实测位置就拒绝使能**（切模式时电机内部指令被清零，使能会朝零位冲）；
 //   - 使能后**立刻补"保持帧"**，且保持帧用**电机侧实测值**、不经过软限位/换算（钳了就不是保持）；
+//     （mode 1 的保持帧是"零增益零前馈"，出力恒为 0，与 Python 侧一致）
 //   - `prepare_frame()` 的顺序固定为 NaN 拦 → 软限位 → 换算 → PMAX 钳位。
 #ifndef MOTOR_DRIVER_HARDWARE__DM_JOINT_HPP_
 #define MOTOR_DRIVER_HARDWARE__DM_JOINT_HPP_
@@ -24,6 +26,8 @@ namespace motor_driver_hardware
 {
 
 constexpr double kHoldVlim = 0.1;   // 保持帧的速度幅值（与 Python 侧 HOLD_VLIM 一致）
+// MIT 钳位日志的限流间隔（同 Python 的 CLAMP_WARN_INTERVAL）
+constexpr double kClampWarnInterval = 5.0;
 
 // 模型坐标（URDF / ros2_control 接口用的那一套） ⇄ 我们的关节坐标 q_ours。
 //   q_urdf = sign · q_ours + zero_shift        （sign/zero_shift 来自 arm_description/config/align.yaml）
@@ -48,7 +52,10 @@ struct JointConfig
   Limit limit{12.5, 10.0, 28.0};                // 档位（必须来自 0x15/0x16/0x17 回读）
   std::optional<double> position_min;           // 关节侧软限位（我们的标定）；空 = 不钳
   std::optional<double> position_max;
-  int mode = 2;                                 // 本层只支持 2 = POS_VEL
+  // MIT 的力矩上限（关节侧 N·m，DESIGN §4.3 的额定值：j1~j3 12.0 / j4~j6 3.5）。
+  // 空 = 不钳（单关节直用时）；注意它**不是**档位里的 `limit.t_max`（那是电机峰值 28/10）。
+  std::optional<double> torque_max;
+  int mode = 2;                                 // 1 = MIT / 2 = POS_VEL（别的模式没移植）
 };
 
 struct JointState
@@ -91,6 +98,9 @@ public:
 
   // ── 发送（每条只发一帧）──
   void set_pos_vel(double joint_pos, double vlim);   // 仅 mode 2
+  // 仅 mode 1。`tau` 是**关节侧** N·m（内部只乘 direction，不加 offset）。
+  // `torque_max` 不是空时先按**预测总力矩**钳 `tau_ff`（见 clamp_mit_torque）。
+  void set_mit(double kp, double kd, double joint_pos, double dq = 0.0, double tau = 0.0);
   void enable();     // 命令帧 + 保持帧（用电机侧实测位置，绝不朝零位冲）
   void disable();
 
@@ -100,8 +110,15 @@ public:
   void assert_healthy() const;       // 只查 ERR；故障 ⇒ 先失能再抛
 
 private:
+  // 按 `torque_max` 钳 MIT 的 `tau_ff`。入参与返回都是**电机侧**量（与 Python 的
+  // `_clamp_mit_torque` 逐条对应）：PD 项自己超 ⇒ 抛（钳 tau_ff 救不回来）；
+  // 否则把 tau_ff 钳到"总力矩 = ±torque_max"。
+  double clamp_mit_torque(double kp, double kd, double q_des_motor, double dq_des_motor,
+    double tau_ff_motor) const;
+
   MotorBus & bus_;
   JointConfig cfg_;
+  mutable double clamp_warn_at_ = -kClampWarnInterval;   // 首次钳位一定打日志
 };
 
 }  // namespace motor_driver_hardware

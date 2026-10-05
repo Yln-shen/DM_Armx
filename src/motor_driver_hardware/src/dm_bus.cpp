@@ -93,6 +93,14 @@ void MotorBus::send_pos_vel(uint8_t motor_id, double p_des, double v_des)
   send_frame(pos_vel_frame(motor_id, p_des, v_des));
 }
 
+void MotorBus::send_mit(uint8_t motor_id, double p_des, double v_des, double kp, double kd,
+  double t_ff)
+{
+  // mit_frame 要用这台电机自己的档位（p_max/v_max/t_max）⇒ limit() 顺便强制"必须已注册"：
+  // 用错档位解出来的力矩差数倍且不报错（陷阱 #9）。
+  send_frame(mit_frame(motor_id, p_des, v_des, kp, kd, t_ff, limit(motor_id)));
+}
+
 void MotorBus::send_enable(uint8_t motor_id)
 {
   send_frame(cmd_frame(motor_id, kCmdEnable));
