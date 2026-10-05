@@ -79,6 +79,9 @@ private:
     int missing_streak = 0;
     uint8_t err_warned = 0;                           // 只读模式下"这个故障码已提示过"
     std::optional<double> hold_pos;                   // 使能那一刻锁定的保持目标（电机侧）；空 = 还没锁定
+    // MIT（gravity_ff=true）才用得上。torque_max 存进 cfg.torque_max（关节侧额定值）。
+    double kp_hold = 0.0;
+    double kd_hold = 0.0;
   };
 
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）
@@ -108,6 +111,9 @@ private:
   bool enable_on_activate_ = false;                   // 默认**只读**
   double vlim_ = 1.0;                                 // POS_VEL 速度上限（rad/s）
   int fail_streak_limit_ = 10;                        // 连续多少圈收不到反馈就报错
+  // 重力前馈总开关（默认 false ⇒ 一切照旧走 POS_VEL）。2.4.2 只解析，**尚未使用**。
+  bool gravity_ff_ = false;
+  std::string urdf_path_;                             // 动力学模型路径（gravity_ff 时才要求非空）
 };
 
 }  // namespace motor_driver_hardware

@@ -1,0 +1,20 @@
+# MIT 前馈的保持增益（逐关节）—— 只在 `gravity_ff:=true`（这条链走 MIT）时用得上。
+#
+# ⚠️ **这些是占位值，不是标定结果。** DESIGN §D5b 明确说 4340P(j1~j3) 与 4310(j4~j6) 的 kp
+#    量级差 5 倍以上（前者静摩擦 ~0.62 N·m、后者 ~0.145），7.0 只对 4310 合适。
+#    2.4.4 真机验收时逐关节标定，标完回来改这里。
+#
+# 为什么单独一份、不塞进 motor_driver/config/joint.yaml：
+#   那份是 **Python 驱动层**的真源，`arm_config.py` 用 dataclass **严格**解析
+#   （多写一个键就 TypeError）⇒ 塞进去会连带改 Python 包。而 kp/kd 只是 ros2_control
+#   侧的控制器增益，跟驱动层无关，放这里更干净。
+#
+# 用途：被 urdf/inc/arm.ros2_control.xacro 的**真机分支**读成每关节的 <param>，
+#      再由 DmSystemInterface 解析进 JointConfig（2.4.2 只解析，不使用）。
+joints:
+  joint1: {kp_hold: 7.0, kd_hold: 0.8}   # 4340P，待标定
+  joint2: {kp_hold: 7.0, kd_hold: 0.8}   # 4340P，待标定
+  joint3: {kp_hold: 7.0, kd_hold: 0.8}   # 4340P，待标定
+  joint4: {kp_hold: 7.0, kd_hold: 0.8}   # 4310，与 DESIGN 参考值一致
+  joint5: {kp_hold: 7.0, kd_hold: 0.8}   # 4310
+  joint6: {kp_hold: 7.0, kd_hold: 0.8}   # 4310

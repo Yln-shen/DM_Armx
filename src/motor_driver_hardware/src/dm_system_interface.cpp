@@ -95,8 +95,14 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     enable_on_activate_ = as_bool(hp, "enable_on_activate", false);
     vlim_ = as_double(hp, "vlim", 1.0);
     fail_streak_limit_ = as_int(hp, "fail_streak_limit", 10);
+    // 重力前馈总开关（默认 false = 一切照旧走 POS_VEL）。2.4.2 只解析，**尚未使用**。
+    gravity_ff_ = as_bool(hp, "gravity_ff", false);
+    urdf_path_ = as_str(hp, "urdf_path", "");
     if (!(vlim_ > 0.0)) {throw std::invalid_argument("vlim 必须是正数（rad/s）");}
     if (fail_streak_limit_ <= 0) {throw std::invalid_argument("fail_streak_limit 必须是正整数");}
+    if (gravity_ff_ && urdf_path_.empty()) {
+      throw std::invalid_argument("gravity_ff=true 时必须给 <param name=\"urdf_path\">（动力学模型）");
+    }
 
     joints_.clear();
     for (const auto & j : info.joints) {
@@ -124,6 +130,24 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
         throw std::invalid_argument("关节 " + j.name + " 的 sign 只能是 ±1");
       }
       jp.zero_shift = as_double(p, "zero_shift", 0.0);
+      // MIT（gravity_ff=true）才用得上：力矩上限与保持增益。2.4.2 只解析，**不使用**。
+      if (has(p, "torque_max")) {jp.cfg.torque_max = as_double(p, "torque_max", 0.0);}
+      jp.kp_hold = as_double(p, "kp_hold", 0.0);
+      jp.kd_hold = as_double(p, "kd_hold", 0.0);
+      if (gravity_ff_) {
+        // 打开重力前馈才校验 —— 默认 false 时这些参数不该拦住任何东西
+        if (!jp.cfg.torque_max.has_value() || !(*jp.cfg.torque_max > 0.0)) {
+          throw std::invalid_argument(
+            "关节 " + j.name + "：gravity_ff=true 时 torque_max 必须是正数（关节侧 N·m）");
+        }
+        if (!(jp.kp_hold > 0.0)) {
+          throw std::invalid_argument(
+            "关节 " + j.name + "：gravity_ff=true 时 kp_hold 必须是正数");
+        }
+        if (!(jp.kd_hold >= 0.0)) {
+          throw std::invalid_argument("关节 " + j.name + "：kd_hold 不能是负数");
+        }
+      }
       // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值）
       if (has(p, "kp_asr") && has(p, "ki_asr") && has(p, "kp_apr") && has(p, "ki_apr")) {
         jp.pid = std::array<double, 4>{as_double(p, "kp_asr", 0.0), as_double(p, "ki_asr", 0.0),
@@ -144,12 +168,17 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
       summary += " " + jp.name + "(id" + std::to_string(jp.cfg.motor_id) + ",dir" +
         std::to_string(jp.cfg.direction) + ",off" + std::to_string(jp.cfg.offset) + ",s" +
         std::to_string(jp.sign) + ",δ" + std::to_string(jp.zero_shift) +
+        (jp.cfg.torque_max.has_value() ? ",tm" + std::to_string(*jp.cfg.torque_max) : "") +
+        ",kp" + std::to_string(jp.kp_hold) + ",kd" + std::to_string(jp.kd_hold) +
         (jp.pid.has_value() ? ",pid" : "") + ")";
     }
     RCLCPP_INFO(get_logger(),
-      "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s",
+      "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s"
+      "\n  gravity_ff=%s urdf_path=%s",
       joints_.size(), summary.c_str(), device_.c_str(), baud_, vlim_,
-      enable_on_activate_ ? "true（会动电机）" : "false（只读）");
+      enable_on_activate_ ? "true（会动电机）" : "false（只读）",
+      gravity_ff_ ? "true（2.4.2 只解析，暂不生效）" : "false（走 POS_VEL）",
+      urdf_path_.empty() ? "(未给)" : urdf_path_.c_str());
     return true;
   } catch (const std::exception & e) {
     RCLCPP_FATAL(get_logger(), "参数有问题：%s", e.what());

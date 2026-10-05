@@ -4,8 +4,9 @@
      - `use_mock:=true`（默认）：ros2_control 自带的 mock —— 不接真机就能把
        controller_manager → joint_trajectory_controller → joint_state_broadcaster 跑通（M2 的验收链路）。
      - `use_mock:=false`：真插件 `motor_driver_hardware/DmSystemInterface`。关节参数**由 xacro 直接从**
-       - `motor_driver/config/joint.yaml`（direction / offset / 档位 / 软限位 / 串口设备）
+       - `motor_driver/config/joint.yaml`（direction / offset / 档位 / 软限位 / torque_max / 串口设备）
        - `arm_description/config/align.yaml`（模型对齐 sign / zero_shift）
+       - `arm_description/config/mit_gains.yaml`（MIT 保持增益 kp_hold / kd_hold）
        **读出来**生成 <param> ⇒ 单一真源不破，不用在两处维护同一批数字。
 
      ⚠️ mock 分支的 `initial_value` 是**起始姿态**，必须落在换算后的限位里（见 arm_geometry.urdf.xacro 顶部）：
@@ -17,11 +18,16 @@
   <xacro:arg name="use_mock" default="true"/>
   <xacro:arg name="enable_on_activate" default="false"/>
   <xacro:arg name="vlim" default="1.0"/>
+  <!-- 重力前馈总开关：true ⇒ 这条链的关节进 MIT（每关节 0x0A=1）+ 力矩前馈。
+       默认 false ⇒ 一切照旧走 POS_VEL。2.4.2 只把它传进 <param>，插件还不用。 -->
+  <xacro:arg name="gravity_ff" default="false"/>
   <xacro:arg name="joint_cfg" default="$(find motor_driver)/config/joint.yaml"/>
   <xacro:arg name="align_cfg" default="$(find arm_description)/config/align.yaml"/>
+  <xacro:arg name="mit_gains_cfg" default="$(find arm_description)/config/mit_gains.yaml"/>
 
   <xacro:property name="arm_cfg" value="${xacro.load_yaml('$(arg joint_cfg)')}"/>
   <xacro:property name="align_cfg" value="${xacro.load_yaml('$(arg align_cfg)')}"/>
+  <xacro:property name="mit_cfg" value="${xacro.load_yaml('$(arg mit_gains_cfg)')}"/>
 
   <!-- mock 的一个关节：起始姿态用 initial（模型坐标） -->
   <xacro:macro name="mock_joint" params="name initial">
@@ -35,10 +41,11 @@
     </joint>
   </xacro:macro>
 
-  <!-- 真机的一个关节：参数全部从上面两个 yaml 里取 -->
+  <!-- 真机的一个关节：参数全部从上面三个 yaml 里取 -->
   <xacro:macro name="real_joint" params="name">
     <xacro:property name="jcfg" value="${arm_cfg['joints'][name]}"/>
     <xacro:property name="acfg" value="${align_cfg['joints'][name]}"/>
+    <xacro:property name="mcfg" value="${mit_cfg['joints'][name]}"/>
     <joint name="${name}">
       <command_interface name="position"/>
       <!-- velocity 命令接口：重力前馈打开时（gravity_ff:=true）这条链走 MIT，
@@ -58,6 +65,12 @@
       <!-- 模型对齐：q_urdf = sign · q_ours + zero_shift -->
       <param name="sign">${acfg['sign']}</param>
       <param name="zero_shift">${acfg['zero_shift']}</param>
+      <!-- MIT（gravity_ff:=true）才用得上：力矩上限 + 保持增益。
+           torque_max 是**关节侧额定值**（j1~j3 12.0 / j4~j6 3.5），与上面档位里的
+           t_max（电机峰值 28/10）不是一回事。2.4.2 只解析，不使用。 -->
+      <param name="torque_max">${jcfg['torque_max']}</param>
+      <param name="kp_hold">${mcfg['kp_hold']}</param>
+      <param name="kd_hold">${mcfg['kd_hold']}</param>
     </joint>
   </xacro:macro>
 
@@ -78,6 +91,8 @@
           <!-- 动力学模型（重力前馈）的路径：由 CMake 在构建时从**同一个 xacro** 展开并安装，
                惯性与运动学和运行期那份同源。插件目前**不读**它（2.2/2.4 才接上）。 -->
           <param name="urdf_path">$(find arm_description)/urdf/arm.urdf</param>
+          <!-- 重力前馈总开关。2.4.2 只解析，不使用 ⇒ 现在传 true 也没有任何行为变化。 -->
+          <param name="gravity_ff">$(arg gravity_ff)</param>
         </hardware>
       </xacro:unless>
 
