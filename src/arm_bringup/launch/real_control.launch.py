@@ -62,10 +62,11 @@ def generate_launch_description():
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[{"robot_description": robot_description}, controllers_file],
-        # ⚠️ 把 CM 对 `robot_description` 的**订阅**重映射到私有话题：否则它会从**共享话题**
-        #    订阅到别的节点（比如 mock 那套）发的 URDF，加载错的硬件插件 —— 2026-10-05 真机踩过
-        #    （mock 的 CM 因此开了真机串口、把电机使能，最后 ERR=13 锁存）。重映射后只用自己参数。
-        remappings=[("robot_description", "dm_armx_local_description")],
+        # ⚠️ 这里**不要**把 `robot_description` 重映射走：CM 只从话题取描述、**不会回退到自己参数**
+        #    （试过 ⇒ 它一直打 "Waiting for data on 'robot_description' topic" ⇒ 硬件根本起不来，
+        #      RViz 里就是"残缺的模型"）。防"订阅到别人的 URDF"靠两条纪律与保护：
+        #    ①任何时候只开一套（mock / 真机互斥）；②串口设了 TIOCEXCL，抢不到口的第二套会在
+        #    on_activate 直接 EBUSY 失败（不会偷偷使能电机）。见 AGENTS 陷阱 #35。
         output="both",
     )
     robot_state_publisher = Node(
