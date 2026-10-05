@@ -52,6 +52,10 @@ def generate_launch_description():
         "gravity_ff", default_value="false",
         description="重力前馈总开关。true ⇒ 这条链的关节进 MIT + 每帧发重力前馈，"
                     "并**自动**改用 MIT 版控制器配置（多声索 velocity）。默认 false")
+    gravity_ff_scale = DeclareLaunchArgument(
+        "gravity_ff_scale", default_value="1.0",
+        description="重力前馈缩放 0~1（**分级上电用**）：第一次上真机先从 0.2 开始，"
+                    "确认方向对、位移比纯 PD 更小，再 0.5 → 1.0")
 
     xacro_file = PathJoinSubstitution(
         [FindPackageShare("arm_description"), "urdf", "arm.urdf.xacro"])
@@ -77,6 +81,7 @@ def generate_launch_description():
             " enable_on_activate:=", LaunchConfiguration("enable_on_activate"),
             " vlim:=", LaunchConfiguration("vlim"),
             " gravity_ff:=", LaunchConfiguration("gravity_ff"),
+            " gravity_ff_scale:=", LaunchConfiguration("gravity_ff_scale"),
         ]),
         value_type=str)
 
@@ -129,6 +134,7 @@ def generate_launch_description():
         use_gripper,
         mit_controllers,
         gravity_ff,
+        gravity_ff_scale,
         control_node,
         robot_state_publisher,
         jsb_spawner,

@@ -15,14 +15,15 @@ set(DYN_URDF "${CMAKE_CURRENT_BINARY_DIR}/arm_dynamics.urdf")
 set(_xacro_in "${CMAKE_CURRENT_SOURCE_DIR}/urdf/arm.urdf.xacro")
 set(_joint_yaml "${CMAKE_CURRENT_SOURCE_DIR}/../motor_driver/config/joint.yaml")
 set(_align_yaml "${CMAKE_CURRENT_SOURCE_DIR}/config/align.yaml")
+set(_mit_yaml "${CMAKE_CURRENT_SOURCE_DIR}/config/mit_gains.yaml")
 file(GLOB _xacro_incs "${CMAKE_CURRENT_SOURCE_DIR}/urdf/inc/*.xacro")
 add_custom_command(
   OUTPUT "${DYN_URDF}"
   COMMAND xacro "${_xacro_in}"
           use_gripper:=false use_mock:=true
-          joint_cfg:=${_joint_yaml} align_cfg:=${_align_yaml}
+          joint_cfg:=${_joint_yaml} align_cfg:=${_align_yaml} mit_gains_cfg:=${_mit_yaml}
           -o "${DYN_URDF}"
-  DEPENDS "${_xacro_in}" ${_xacro_incs} "${_joint_yaml}" "${_align_yaml}"
+  DEPENDS "${_xacro_in}" ${_xacro_incs} "${_joint_yaml}" "${_align_yaml}" "${_mit_yaml}"
   COMMENT "生成动力学用 URDF（share/${PROJECT_NAME}/urdf/arm.urdf）"
   VERBATIM)
 add_custom_target(arm_dynamics_urdf ALL DEPENDS "${DYN_URDF}")

@@ -184,7 +184,7 @@ hardware_interface::ComponentInfo make_joint(const std::string & name,
 }
 
 hardware_interface::HardwareInfo make_info(bool enable_on_activate, bool gravity_ff = false,
-  const std::string & urdf_path = "")
+  const std::string & urdf_path = "", double gravity_ff_scale = 1.0)
 {
   hardware_interface::HardwareInfo info;
   info.name = "ArmReal";
@@ -196,6 +196,7 @@ hardware_interface::HardwareInfo make_info(bool enable_on_activate, bool gravity
   if (gravity_ff) {
     info.hardware_parameters["gravity_ff"] = "true";
     info.hardware_parameters["urdf_path"] = urdf_path;
+    info.hardware_parameters["gravity_ff_scale"] = std::to_string(gravity_ff_scale);
   }
   // torque_max / kp_hold / kd_hold 只有 gravity_ff 时才被校验；POS_VEL 路径不看它们。
   info.joints.push_back(make_joint("joint2", {
@@ -573,6 +574,46 @@ TEST(DmSystemInterface, GravityFfReadOnlyStillSendsNothing)
   ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
   EXPECT_EQ(io.tx.size(), before) << "只读模式（即使 gravity_ff=true）一个字节都不该发";
   EXPECT_TRUE(io.mit_frames.empty());
+}
+
+// ⑧ gravity_ff_scale：帧里的 t_ff 按比例减弱（分级上电靠它）
+TEST(DmSystemInterface, GravityFfScaleAttenuatesTorque)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF;
+  probe.close();
+
+  constexpr double kScale = 0.25;
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true, true, ARM_DYN_URDF, kScale)),
+    CallbackReturn::SUCCESS);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  io.mit_frames.clear();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  ASSERT_EQ(io.mit_frames.size(), 2u);
+
+  std::vector<double> q_model = {state_value(iface, "joint2", "position"),
+                                 state_value(iface, "joint6", "position")};
+  md::GravityModel gm(ARM_DYN_URDF, {"joint2", "joint6"}, {-1, 1});
+  std::vector<double> tau_ours(2, 0.0);
+  gm.tau_ours(q_model.data(), tau_ours.data());
+
+  struct Exp {uint8_t id; double direction; double t_max;};
+  const Exp exps[] = {{2, -1.0, 28.0}, {6, 1.0, 10.0}};
+  for (std::size_t k = 0; k < 2; ++k) {
+    const double lsb = 2.0 * exps[k].t_max / 4095.0;
+    EXPECT_NEAR(decode_mit_tau(io.mit_frames[k], exps[k].t_max),
+      kScale * exps[k].direction * tau_ours[k], 1.5 * lsb)
+      << "scale 没有按比例作用";
+  }
+
+  // 缩放范围外必须**当场拒**（只允许减弱，不允许放大）
+  FakeMotorBusIo io2;
+  md::DmSystemInterface bad(&io2);
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = make_info(true, true, ARM_DYN_URDF, 2.0);
+  EXPECT_EQ(bad.on_init(params), CallbackReturn::ERROR) << "scale=2.0 该被拒";
 }
 
 int main(int argc, char ** argv)

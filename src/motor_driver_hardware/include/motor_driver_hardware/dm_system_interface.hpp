@@ -120,6 +120,8 @@ private:
   // 重力前馈总开关（默认 false ⇒ 一切照旧走 POS_VEL）。
   bool gravity_ff_ = false;
   std::string urdf_path_;                             // 动力学模型路径（gravity_ff 时才要求非空）
+  // 重力前馈缩放 0~1：**分级上电用**（第一次给真机发力矩先 0.2，确认方向对再往上加）
+  double gravity_ff_scale_ = 1.0;
   // 重力模型：gravity_ff=true 时在 on_configure 建好（构造即抛 ⇒ FATAL，不静默降级）
   std::unique_ptr<GravityModel> gravity_;
   // 残差守卫（|q−q_hold| 或 |dq| 越界）⇒ 锁存：**把 tau_ff 全部置 0**（仍留 MIT+kp_hold），

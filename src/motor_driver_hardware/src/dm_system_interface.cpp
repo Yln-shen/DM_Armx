@@ -101,8 +101,13 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     // 重力前馈总开关（默认 false = 一切照旧走 POS_VEL）。2.4.2 只解析，**尚未使用**。
     gravity_ff_ = as_bool(hp, "gravity_ff", false);
     urdf_path_ = as_str(hp, "urdf_path", "");
+    gravity_ff_scale_ = as_double(hp, "gravity_ff_scale", 1.0);
     if (!(vlim_ > 0.0)) {throw std::invalid_argument("vlim 必须是正数（rad/s）");}
     if (fail_streak_limit_ <= 0) {throw std::invalid_argument("fail_streak_limit 必须是正整数");}
+    if (!std::isfinite(gravity_ff_scale_) || gravity_ff_scale_ < 0.0 || gravity_ff_scale_ > 1.0) {
+      // 只允许**减弱**：放大前馈没有正当用途，只会把符号错误放大
+      throw std::invalid_argument("gravity_ff_scale 必须落在 [0, 1]（只用来分级上电，不允许放大）");
+    }
     if (gravity_ff_ && urdf_path_.empty()) {
       throw std::invalid_argument("gravity_ff=true 时必须给 <param name=\"urdf_path\">（动力学模型）");
     }
@@ -179,10 +184,10 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     }
     RCLCPP_INFO(get_logger(),
       "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s"
-      "\n  gravity_ff=%s urdf_path=%s",
+      "\n  gravity_ff=%s scale=%.3f urdf_path=%s",
       joints_.size(), summary.c_str(), device_.c_str(), baud_, vlim_,
       enable_on_activate_ ? "true（会动电机）" : "false（只读）",
-      gravity_ff_ ? "true（2.4.2 只解析，暂不生效）" : "false（走 POS_VEL）",
+      gravity_ff_ ? "true（整链 MIT + 重力前馈）" : "false（走 POS_VEL）", gravity_ff_scale_,
       urdf_path_.empty() ? "(未给)" : urdf_path_.c_str());
     return true;
   } catch (const std::exception & e) {
@@ -576,7 +581,7 @@ return_type DmSystemInterface::write_gravity_ff()
   // ── ③ 逐关节发 MIT 帧 ──
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
-    const double tau = gravity_guard_tripped_ ? 0.0 : jp.last_tau_ours;
+    const double tau = gravity_guard_tripped_ ? 0.0 : gravity_ff_scale_ * jp.last_tau_ours;
     double q_cmd = 0.0;
     double dq_cmd = 0.0;
     if (std::isnan(hw_commands_[i])) {

@@ -19,8 +19,11 @@
   <xacro:arg name="enable_on_activate" default="false"/>
   <xacro:arg name="vlim" default="1.0"/>
   <!-- 重力前馈总开关：true ⇒ 这条链的关节进 MIT（每关节 0x0A=1）+ 力矩前馈。
-       默认 false ⇒ 一切照旧走 POS_VEL。2.4.2 只把它传进 <param>，插件还不用。 -->
+       默认 false ⇒ 一切照旧走 POS_VEL。 -->
   <xacro:arg name="gravity_ff" default="false"/>
+  <!-- 重力前馈的缩放（0~1）。**分级上电用**：第一次给真机发力矩先从 0.2 开始，
+       确认方向对、位移比纯 PD 更小，再 0.5 → 1.0。默认 1.0 = 足额。 -->
+  <xacro:arg name="gravity_ff_scale" default="1.0"/>
   <xacro:arg name="joint_cfg" default="$(find motor_driver)/config/joint.yaml"/>
   <xacro:arg name="align_cfg" default="$(find arm_description)/config/align.yaml"/>
   <xacro:arg name="mit_gains_cfg" default="$(find arm_description)/config/mit_gains.yaml"/>
@@ -91,8 +94,9 @@
           <!-- 动力学模型（重力前馈）的路径：由 CMake 在构建时从**同一个 xacro** 展开并安装，
                惯性与运动学和运行期那份同源。插件目前**不读**它（2.2/2.4 才接上）。 -->
           <param name="urdf_path">$(find arm_description)/urdf/arm.urdf</param>
-          <!-- 重力前馈总开关。2.4.2 只解析，不使用 ⇒ 现在传 true 也没有任何行为变化。 -->
+          <!-- 重力前馈总开关 + 缩放（分级上电用）。 -->
           <param name="gravity_ff">$(arg gravity_ff)</param>
+          <param name="gravity_ff_scale">$(arg gravity_ff_scale)</param>
         </hardware>
       </xacro:unless>
 
