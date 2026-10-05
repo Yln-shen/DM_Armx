@@ -40,7 +40,7 @@
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
-| [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
+| [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
 | [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、保持帧、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
 
 ## 3. 已实现 / 未实现（精确到方法）
@@ -109,7 +109,8 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 **未实现（别以为有）**：`arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
 重力补偿 · 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
 C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）·
-真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）**已通过**（2026-10-05，见 docs/TESTING.md 末节）。
+真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）与 **MoveIt 规划 + 执行**都**已通过**
+（2026-10-05，见 `docs/TESTING.md` §十四/§十五）。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 
@@ -318,6 +319,8 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 34 | **插件必须编成 SHARED；默认的静态 `.a` pluginlib 加载不了，而且单元测试看不出来** | 2026-10-05 真机踩：`dm_system_interface` 用了 `add_library()` 默认（**静态**）⇒ 编译链接全过、28 个单测全绿（**测试是直接链静态库，从不 dlopen**），但真机 `controller_manager` 报 `LibraryLoadException … Could not find library corresponding to plugin motor_driver_hardware/DmSystemInterface. Make sure that the library 'dm_system_interface' actually exists.` ⇒ 硬件组件没加载 ⇒ 没有任何状态 ⇒ **RViz 看起来像"模型不对/只有 j1 错"**（真机 j2~j6 本来就 ≈0，只有 j1 是 +90°，所以误判成了对齐问题）。⇒ ①插件 target 用 `SHARED`；②它链的静态核（`dm_hardware`）要 `POSITION_INDEPENDENT_CODE ON`；③**排查入口**：`ls install/<pkg>/lib/` 看是 `.a` 还是 `.so`，以及 **`~/.ros/log/latest/launch.log`（launch 的 stdout/stderr 都在那儿）**。⚠️ 教训：单测覆盖不到"能不能被 dlopen"这一层 |
 | 35 | **`ros2_control_node` 会从**共享话题** `/robot_description` 订阅别人的 URDF** | 2026-10-05 真机踩（很危险）：用户那套真机 `real_control.launch.py` 还开着，我起 `arm_moveit_config` 的 mock 链 ⇒ mock 的 CM 从 `/robot_description` 订阅到**真机版** URDF ⇒ `Loaded hardware 'ArmSystem' from plugin motor_driver_hardware/DmSystemInterface` ⇒ 开了真机串口、**把 6 台电机使能了**（`enable_on_activate=true` 也是从别人的 URDF 里来的）⇒ 随后 `关节 joint1 故障 ERR=13`（**锁存，只能断电清**）并在 error 里失能退出。⇒ ①**别用"重映射订阅"这招**：CM 只从话题取描述、**不回退自己的参数** ⇒ 重映射后它永远卡在 `Waiting for data on 'robot_description' topic to finish initialization`（硬件起不来、RViz 里是"残缺的模型"），2026-10-05 当场回退；②真正兜底是两条：**任何时候只开一套**（mock / 真机互斥）（mock 与真机、以及 `move_group.launch.py use_mock:=true`）；③TIOCEXCL 只能挡住"两个进程同时开串口"，**挡不住"订阅错 URDF"** —— 两件事都要防 |
 | 36 | **激活硬件时"一次采样就要求所有电机就位"会偶发失败** | 2026-10-05 真机踩：`on_activate` 里只做一次 2 秒 `sync_states`，然后要求 6 台全有反馈 ⇒ 冷启动/刚上电时总有一两台回得慢 ⇒ FATAL `电机 2（joint2）一开始就没有反馈` ⇒ 硬件没激活 ⇒ 没有 `/joint_states` ⇒ RViz 里"残缺的模型"（而 Python 侧一问 6 台全部正常、ERR 全 0 ⇒ 是**时序**不是硬件）。⇒ ①激活时**重试**（最多约 5~8 秒：每轮 0.5s `sync_states` + 0.3s 等）直到全部就位；②**只读模式容忍缺席**（告警 + 跳过，能看几台是几台），"6 台必须全在"只在 `enable_on_activate=true` 时严格；③只读模式下某台 ERR 故障也**只报一次、不中断**（否则一台故障把整条只读链拖死，反而看不见其它关节） |
+| 37 | **MoveIt 的 `CheckStartStateBounds` 不会替你"就近钳位"起始状态，越界就**拒绝规划**** | 2026-10-05 真机踩：真机 j1 = `1.371670`，比 URDF 下界 `1.392202` 低 **0.0205** —— 即使这个量**小于** `ompl_planning.yaml` 的 `start_state_max_bounds_error: 0.1`，适配器照样报 `Start state out of bounds. Aborting planning pipeline.` ⇒ `error_code = 99999`、轨迹为空。⚠️ 好在"拒绝"比"静默钳位"安全（只读模式下机械臂一个字节没收到，规划前后 `/joint_states` 逐位相同）。⇒ **真机规划前先比对"实测姿态 vs URDF 限位"**（模型坐标下的限位见 §5）；越界就先把关节弄回限位内（本轮是手动推回去，零电机命令） |
+| 38 | **"使能保持"是 follow-me 式，不是刚性保持** —— 控制器没起时 `write()` 发的保持帧，目标是**每圈重新读到的实测位置**（`dm_system_interface.cpp:440-445`：`send_pos_vel(id, bus_->get_state(id)->pos, kHoldVlim)`） | 2026-10-05 真机实测（`enable_on_activate:=true`、不起轨迹控制器）：j1/j3 在重力下**缓慢蠕动**，20 s 里 j1 −0.00267 rad（0.15°）、j3 −0.00153，j2/j4/j5/j6 为 0。⇒ 它保证的是"**不跳变、不朝零位冲、每圈喂狗**"，**不保证不动**（无回复力 ⇒ 重力能慢慢把关节压走）。⚠️ 轨迹**执行期间与之后**不受影响：`hw_commands_` 不再是 NaN，保持的是最后一条命令。要刚性保持得把目标改成"使能那一刻锁定的值"（**未改，待定**） |
 
 ## 7. 怎么验证（没有硬件时）
 

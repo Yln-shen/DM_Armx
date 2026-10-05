@@ -511,3 +511,72 @@ goal.yaml 骨架：`request.group_name: arm` + `goal_constraints[0].joint_constr
    （杀整个进程组）；②**每轮先断言 `move_group` 实例数 == 1** 再信结果；③**别用 `pgrep -f "move_group"` 清场** ——
    它会匹配到你自己命令行里的 `move_group.launch.py`（这轮把自己 SIGKILL 了一次）；
    用 `ps -eo pid,comm` 匹配 comm 列才安全。
+
+## 十五、M6 真机：MoveIt 规划 + 执行都跑通（2026-10-05）
+
+链路：`real_control.launch.py`（真插件 `DmSystemInterface`，走 POS_VEL）→
+`move_group.launch.py use_mock:=false`（**只起 move_group，不起 mock CM**）→ MoveGroup action。
+
+**① 只读**：6/6 有状态、ERR 全 0。真机起始姿态（模型坐标，`/joint_states`）
+
+    [1.371670, 0.002670, -0.008011, 0.010682, 0.074769, 0.099184]
+
+⚠️ **j1 比 URDF 下界 `1.392202` 低 0.0205 rad** ⇒ 见下条。
+
+**② 起始状态越界时，MoveIt 拒绝规划 —— 不是钳位**（本轮最有价值的一条）：
+
+    [ERROR] Joint 'joint1' from the starting state is outside bounds by: [1.37167]
+            should be in the range [1.3922 ], [1.62614 ].
+    [ERROR] PlanningRequestAdapter 'CheckStartStateBounds' failed, because
+            'Start state out of bounds.'. Aborting planning pipeline.
+
+即使越界量 0.0205 **小于** `ompl_planning.yaml` 的 `start_state_max_bounds_error: 0.1`，它**照样失败**
+（该参数并没有让适配器"容忍并就近钳位"）⇒ `error_code = 99999`、轨迹为空。
+好处是它比"静默钳位"安全：只读模式下**机械臂一个字节没收到**，规划前后 `/joint_states` 逐位相同。
+⇒ 教训：**真机规划前先比对"实测姿态 vs URDF 限位"**；越界就先把关节弄回限位内。
+本轮处置：电机未使能（无保持力矩）⇒ **手动把 j1 推回 `1.498701`**，零电机命令。
+
+**③ 只读 + `plan_only`**：j1 进限位后 `error_code = 1 (SUCCESS)`，
+轨迹首点与真机实测**逐位相同**（没有被钳位），TOTP 正常执行。
+
+**④ 使能但不动**（`enable_on_activate:=true`，不起轨迹控制器）：
+日志 `已使能 6 台（保持帧 = 电机侧实测位置 + vlim 0.10）`、**0 条 ERROR/FATAL**。
+但**漂移不是零** —— j1/j3 在重力下**缓慢蠕动**（2 Hz 采样 20 s）：
+
+    j1: 1.494887 → 1.492216   （Δ = −0.002670 rad = −0.15°）
+    j3: −0.008774 → −0.010300 （Δ = −0.001526）
+    j2/j4/j5/j6: Δ = 0
+
+原因是 `dm_system_interface.cpp:438-445`：控制器没起时 `write()` 的保持帧是
+`send_pos_vel(id, bus_->get_state(id)->pos, kHoldVlim)` —— 目标是**每圈重新读到的实测位置**，
+即 **follow-me 式保持**：没有回复力，重力把关节压走后指令跟着走。
+⇒ 它保证"不跳变、不朝零位冲、每圈喂狗"，**不保证刚性不动**。
+（M5 记的"零漂移"宜读作"短时 ≤0.003 rad"；当时姿态/时长可能不同。）
+⚠️ 待定（要改代码）：把保持帧改成"**使能那一刻锁定的固定目标**"才有回复力。
+
+**⑤ 小轨迹执行**（`enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5`，goal scaling 0.1）：
+
+| | j1 | j2 | j3 | j4 | j5 | j6 |
+|---|---|---|---|---|---|---|
+| 执行前（实测） | +1.491835 | +0.002670 | −0.008774 | +0.011445 | +0.055314 | +0.099184 |
+| 目标 | 1.45 | −0.08 | −0.09 | 0.09 | −0.02 | 0.00 |
+| 规划末点 | +1.468010 | −0.074069 | −0.077233 | +0.105514 | −0.031845 | +0.016218 |
+| 实测末点 | +1.467802 | −0.074006 | −0.077440 | +0.104906 | −0.031663 | +0.015641 |
+
+- `arm_controller: Goal reached, success!`、`error_code.val = 1`、硬件链 **0 条 ERROR/FATAL**、move_group 侧无 ABORTED。
+- **实测末点 vs 规划末点 ≤ 0.0006 rad（0.03°）** ⇒ POS_VEL 的跟踪精度足够。
+- ⚠️ 但"实测末点 ≠ 目标"（j1 差 0.018）：**规划器自己就停在容差球边缘**（goal tolerance 0.02），
+  不是硬件没走到。要精确到位就把 `tolerance_±` 收紧。
+- 速度匹配：`vlim=0.5` + scaling 0.1 ⇒ TOTP 峰值约 0.22 rad/s < 硬件上限 0.5 ⇒ 硬件跟得上。
+  （若让轨迹比 `vlim` 快，硬件会滞后于轨迹，动作会在 action 返回之后才走完。）
+
+**复现（⚠️ 一次只开一套；`move_group.launch.py` 真机时必须是 `use_mock:=false`）**：
+
+    # A：真机链。先只读，逐级放开
+    ros2 launch arm_bringup real_control.launch.py use_rviz:=false
+    ros2 launch arm_bringup real_control.launch.py use_rviz:=false enable_on_activate:=true
+    ros2 launch arm_bringup real_control.launch.py use_rviz:=false enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5
+    # B：move_group（**不起 mock CM**）
+    ros2 launch arm_moveit_config move_group.launch.py use_mock:=false use_rviz:=false
+    # C：发目标（只规划 plan_only: true / 规划并执行 false）
+    ros2 action send_goal /move_action moveit_msgs/action/MoveGroup "$(cat goal.yaml)"
