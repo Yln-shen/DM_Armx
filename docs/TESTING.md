@@ -523,6 +523,12 @@ goal.yaml 骨架：`request.group_name: arm` + `goal_constraints[0].joint_constr
 
 ⚠️ **j1 比 URDF 下界 `1.392202` 低 0.0205 rad** ⇒ 见下条。
 
+**①b 只读复验（锁定保持改动之后，2026-10-05）**：同一条只读链 + `use_mock:=false` 的 move_group ——
+插件日志照旧 `enable_on_activate=false（只读）—— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态`；
+`/joint_states` **Publisher count = 1**（陷阱 #29）；起始姿态 6 个关节**全在 URDF 限位内**；
+`plan_only` **`error_code = 1`**；**规划前后 `/joint_states` 逐位相同**（机械臂一个字节都没收到）；0 条 ERROR/FATAL。
+⇒ 锁定保持只动 `write()` 的 NaN 分支，只读路径不受影响。
+
 **② 起始状态越界时，MoveIt 拒绝规划 —— 不是钳位**（本轮最有价值的一条）：
 
     [ERROR] Joint 'joint1' from the starting state is outside bounds by: [1.37167]
