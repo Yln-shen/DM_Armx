@@ -380,3 +380,31 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 
 **M5 结论**：`MoveIt → ros2_control` 路线上的**执行端（硬件接口）已在真机跑通**：
 只读镜像 ✓ → 使能保持 ✓ → 轨迹小动作 ✓。下一步 M6：MoveIt（SRDF / kinematics / ompl）。
+
+---
+
+## 十四、M6（MoveIt）进行中：配置已写，mock 规划还没跑通（2026-10-05）
+
+**已完成**：新包 `arm_moveit_config`（纯数据）：`config/arm.srdf`（只一个规划组 arm = base_link→gripper_tcp 链；
+**本阶段不做夹爪**；碰撞对只关相邻链节）、`config/kinematics.yaml`（KDL）、`config/ompl_planning.yaml`（RRTConnect）、
+`config/moveit_controllers.yaml`（simple controller manager → `arm_controller` 的 FollowJointTrajectory）、
+`launch/move_group.launch.py`（显式拼 MoveIt 参数；`use_mock:=true` 时自己起 mock 硬件+控制器）、
+`rviz/moveit.rviz`（MotionPlanning 面板）。`pixi.toml/lock` 补了 6 个 MoveIt 包（都已装上）。
+
+**还没跑通**：mock 规划链起不来，两个各自独立的原因：
+1. **`ros2_control_node` 会从共享话题 `/robot_description` 订阅"别人的" URDF** ⇒ 危险！
+   当时用户那套 `real_control.launch.py` 还开着，它的 robot_state_publisher 发的是真机版 URDF，
+   我这个 mock CM 订阅到之后**加载了真机插件、开了真机串口、把 6 台电机使能了**，
+   随后 `关节 joint1 故障 ERR=13`（锁存，只能断电清）并自动失能退出。
+   ⇒ 已在**两个 launch** 里把 CM 对 `robot_description` 的订阅重映射到私有话题
+   （`dm_armx_local_description`），CM 只用自己参数里的 description。教训见 AGENTS 陷阱 #35。
+2. **move_group 起不来**：先是 `request_adapters` 写成了折叠字符串 ⇒
+   `ParameterTypeException: expected [string_array] got [string]`（已改成 YAML 列表）；
+   改完再试又变成 `Planning plugin name is empty or not defined in namespace 'ompl'` ⇒
+   我拼参数的方式（把整份 yaml 塞进 `{"ompl": ...}` 嵌套 dict）没让 `ompl.planning_plugin` 生效，
+   **下一步要对着 move_group 实际收到的参数查**（把 dict 形式改成扁平键 `ompl.planning_plugin` 之类，
+   或改用 `moveit_configs_utils`）。
+
+**另外**：mock 测试当时还撞上"两套 CM 抢同名控制器"（`Failed to activate controller`），
+所以 **mock 与真机这两套任何时候都只能开一套**（含 `move_group.launch.py use_mock:=true` 与
+`real_control.launch.py`）。

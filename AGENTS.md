@@ -40,6 +40,7 @@
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
+| [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机只能开一套**（陷阱 #35、#29） |
 | [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、保持帧、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
 
 ## 3. 已实现 / 未实现（精确到方法）
@@ -105,7 +106,7 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 `read()`（poll + 填 position/velocity + **ERR 非 0/1 报 ERROR**）· `write()`（**命令是 NaN 就发保持帧**；
 只读模式一个字节都不发）。
 
-**未实现（别以为有）**：MoveIt 配置（SRDF / kinematics / ompl）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
+**未实现（别以为有）**：MoveIt **在 mock 上跑通规划**（配置已写、`move_group` 参数还没拼对，见 `docs/TESTING.md` §十四）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
 重力补偿 · 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
 C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）·
 真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）**已通过**（2026-10-05，见 docs/TESTING.md 末节）。
@@ -315,6 +316,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 32 | **在 pixi/robostack 环境里链接 rclcpp 的**可执行文件**会报「找不到 `-lcap` / `-llttng-ust`」** | 2026-10-04 真踩（第一次写 C++ ROS 可执行文件时才暴露）：`libcap.so` / `liblttng-ust*.so` 就在 `$CONDA_PREFIX/lib` 下，但 **pixi 的激活不设置 `LIBRARY_PATH`** ⇒ 链接器不搜那个目录。共享库（我们的插件 `.so`）不受影响 —— 允许未定义符号、运行时由 `LD_LIBRARY_PATH` 解析；只有**可执行文件**（gtest、`ros2_control_node`）会失败。⇒ 在 CMake 里 `link_directories($ENV{CONDA_PREFIX}/lib)`（见 `motor_driver_hardware/CMakeLists.txt`）。根治办法是在 `pixi.toml` 的 `[activation.env]` 里设 `LIBRARY_PATH`，但那要改环境配置（待用户定） |
 | 33 | **`hardware_interface` 的 `on_init(const HardwareInfo&)` 在 jazzy 已 `[[deprecated]]`** | 新签名是 `on_init(const HardwareComponentInterfaceParams&)` ⇒ `params.hardware_info` 就是那份 HardwareInfo（另有个 `executor` 弱指针）。写老签名能编译，但**每个构建都出一条 deprecated 警告**；换新签名后单元测试也更好构造（默认构造 + 填 `hardware_info` 即可，见 `test/test_dm_system_interface.cpp`） |
 | 34 | **插件必须编成 SHARED；默认的静态 `.a` pluginlib 加载不了，而且单元测试看不出来** | 2026-10-05 真机踩：`dm_system_interface` 用了 `add_library()` 默认（**静态**）⇒ 编译链接全过、28 个单测全绿（**测试是直接链静态库，从不 dlopen**），但真机 `controller_manager` 报 `LibraryLoadException … Could not find library corresponding to plugin motor_driver_hardware/DmSystemInterface. Make sure that the library 'dm_system_interface' actually exists.` ⇒ 硬件组件没加载 ⇒ 没有任何状态 ⇒ **RViz 看起来像"模型不对/只有 j1 错"**（真机 j2~j6 本来就 ≈0，只有 j1 是 +90°，所以误判成了对齐问题）。⇒ ①插件 target 用 `SHARED`；②它链的静态核（`dm_hardware`）要 `POSITION_INDEPENDENT_CODE ON`；③**排查入口**：`ls install/<pkg>/lib/` 看是 `.a` 还是 `.so`，以及 **`~/.ros/log/latest/launch.log`（launch 的 stdout/stderr 都在那儿）**。⚠️ 教训：单测覆盖不到"能不能被 dlopen"这一层 |
+| 35 | **`ros2_control_node` 会从**共享话题** `/robot_description` 订阅别人的 URDF** | 2026-10-05 真机踩（很危险）：用户那套真机 `real_control.launch.py` 还开着，我起 `arm_moveit_config` 的 mock 链 ⇒ mock 的 CM 从 `/robot_description` 订阅到**真机版** URDF ⇒ `Loaded hardware 'ArmSystem' from plugin motor_driver_hardware/DmSystemInterface` ⇒ 开了真机串口、**把 6 台电机使能了**（`enable_on_activate=true` 也是从别人的 URDF 里来的）⇒ 随后 `关节 joint1 故障 ERR=13`（**锁存，只能断电清**）并在 error 里失能退出。⇒ ①两个 launch 里都把 CM 对 `robot_description` 的**订阅重映射**到私有话题（`dm_armx_local_description`），CM 只用自己参数里的 description；②**任何时候只开一套**（mock 与真机、以及 `move_group.launch.py use_mock:=true`）；③TIOCEXCL 只能挡住"两个进程同时开串口"，**挡不住"订阅错 URDF"** —— 两件事都要防 |
 
 ## 7. 怎么验证（没有硬件时）
 

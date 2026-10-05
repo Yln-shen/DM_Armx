@@ -62,6 +62,10 @@ def generate_launch_description():
         package="controller_manager",
         executable="ros2_control_node",
         parameters=[{"robot_description": robot_description}, controllers_file],
+        # ⚠️ 把 CM 对 `robot_description` 的**订阅**重映射到私有话题：否则它会从**共享话题**
+        #    订阅到别的节点（比如 mock 那套）发的 URDF，加载错的硬件插件 —— 2026-10-05 真机踩过
+        #    （mock 的 CM 因此开了真机串口、把电机使能，最后 ERR=13 锁存）。重映射后只用自己参数。
+        remappings=[("robot_description", "dm_armx_local_description")],
         output="both",
     )
     robot_state_publisher = Node(

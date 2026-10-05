@@ -3,13 +3,16 @@
 #    加上时间参数（`time_from_start`）—— 没有它，joint_trajectory_controller 收到的是"没有时间"的
 #    轨迹（等于瞬间到位），真机上很危险。
 planning_plugin: ompl_interface/OMPLPlanner
-request_adapters: >-
-  default_planner_request_adapters/AddTimeOptimalParameterization
-  default_planner_request_adapters/ResolveConstraintFrames
-  default_planner_request_adapters/FixWorkspaceBounds
-  default_planner_request_adapters/FixStartStateBounds
-  default_planner_request_adapters/FixStartStateCollision
-  default_planner_request_adapters/FixStartStatePathConstraints
+# ⚠️ 必须是 **YAML 列表**（不是折叠字符串）：MoveIt 的 ParamListener 把 request_adapters
+#    声明成 `string_array`，写成字符串会在 move_group 启动时抛
+#    `rclcpp::ParameterTypeException: expected [string_array] got [string]` 并 abort。
+request_adapters:
+  - default_planner_request_adapters/AddTimeOptimalParameterization
+  - default_planner_request_adapters/ResolveConstraintFrames
+  - default_planner_request_adapters/FixWorkspaceBounds
+  - default_planner_request_adapters/FixStartStateBounds
+  - default_planner_request_adapters/FixStartStateCollision
+  - default_planner_request_adapters/FixStartStatePathConstraints
 start_state_max_bounds_error: 0.1
 
 arm:

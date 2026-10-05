@@ -91,8 +91,13 @@ def generate_launch_description():
     use_mock_if = IfCondition(LaunchConfiguration("use_mock"))
     controllers_file = os.path.join(bringup, "config", "ros2_controllers.yaml")
     mock_nodes = [
+        # ⚠️ 把 controller_manager 对 `robot_description` 的**订阅**重映射到私有话题：
+        #    真机那套的 robot_state_publisher 也在发 `/robot_description`，CM 会从**共享话题**
+        #    订阅到别人的 URDF（2026-10-05 真机踩过：mock 的 CM 因此加载了真机插件、开了真机串口、
+        #    把电机使能了 ⇒ ERR=13 锁存）。重映射之后 CM 只用自己参数里的 description，互不干扰。
         Node(package="controller_manager", executable="ros2_control_node",
              parameters=[{"robot_description": robot_description}, controllers_file],
+             remappings=[("robot_description", "dm_armx_local_description")],
              condition=use_mock_if, output="both"),
         Node(package="robot_state_publisher", executable="robot_state_publisher",
              parameters=[{"robot_description": robot_description}],
