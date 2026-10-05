@@ -24,6 +24,9 @@ constexpr uint8_t kRegCtrlMode = 0x0A;   // CTRL_MODE（RAM；uint32）
 // 重力前馈的残差守卫阈值：偏离保持点这么多就**撤掉全部 tau_ff**（仍留在 MIT + kp_hold 下）
 constexpr double kGravityGuardRad = 0.1;        // 位置偏差（rad）
 constexpr double kGravityGuardRadPerS = 0.5;    // 速度（rad/s）
+// 有命令（跑轨迹）时按"跟踪误差"判，阈值放宽：正常滞后要放过，只抓跑飞
+constexpr double kGravityGuardTrackRad = 0.3;
+//   结论：**保持**时查 位置(0.1) + 速度(0.5)；**跑轨迹**时只查 跟踪误差(0.3)。
 // 速度那一路的宽限期与防抖（见 gravity_guard_since_ 的注释：使能瞬间机械臂真的在掉）
 constexpr double kGravityGraceSec = 0.5;
 constexpr double kGravityVelDebounceSec = 0.2;
@@ -604,17 +607,26 @@ return_type DmSystemInterface::write_gravity_ff(const rclcpp::Time & time)
     for (std::size_t i = 0; i < joints_.size(); ++i) {
       const JointParams & jp = joints_[i];
       if (!jp.hold_ours.has_value() || !std::isfinite(hw_positions_[i])) {continue;}
-      // 位置：即时判 —— 越界是**持续**的，而且它才是"真的跑偏了"的证据
-      const double dev_pos = std::fabs(hw_positions_[i] - ours_to_model(i, *jp.hold_ours));
-      if (dev_pos > kGravityGuardRad) {
+      // 位置：即时判 —— 越界是**持续**的，而且它才是"真的跑偏了"的证据。
+      // ⚠️ 参照点要分两种语义，否则**一跑轨迹就误触发**（机械臂本来就要离开激活姿态）：
+      //    没命令（保持）⇒ 比"偏离激活时的保持点"，阈值 0.1 rad；
+      //    有命令        ⇒ 比"跟踪误差"（命令 − 实测），阈值放宽到 0.3 rad。
+      //                    它只负责抓"前馈方向错了导致跑飞"，正常滞后要放过。
+      const bool holding = std::isnan(hw_commands_[i]);
+      const double ref = holding ? ours_to_model(i, *jp.hold_ours) : hw_commands_[i];
+      const double lim = holding ? kGravityGuardRad : kGravityGuardTrackRad;
+      const double dev_pos = std::fabs(hw_positions_[i] - ref);
+      if (dev_pos > lim) {
         gravity_guard_tripped_ = true;
         RCLCPP_ERROR(get_logger(),
-          "‼ 残差守卫触发（位置）：关节 %s 偏离保持点 %.3f rad（阈值 %.2f）"
+          "‼ 残差守卫触发（%s）：关节 %s 偏差 %.3f rad（阈值 %.2f）"
           " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
-          jp.name.c_str(), dev_pos, kGravityGuardRad);
+          holding ? "偏离保持点" : "跟踪误差", jp.name.c_str(), dev_pos, lim);
         break;
       }
-      if (vel_checked) {
+      // 速度只在**保持**时查：跑轨迹时机械臂本来就以 ~1 rad/s 在动（阈值 0.5 会误触发，
+      //  真机实测过 —— 前馈被零掉、机械臂跟不上、只走到一半）。跑轨迹时由"跟踪误差"那一路兜底。
+      if (vel_checked && std::isnan(hw_commands_[i])) {
         const double vel = std::isfinite(hw_velocities_[i]) ? hw_velocities_[i] : 0.0;
         if (std::fabs(vel) > kGravityGuardRadPerS) {vel_over = true;}
       }
