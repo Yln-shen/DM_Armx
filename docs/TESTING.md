@@ -350,3 +350,20 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 `on_init(const HardwareInfo&)` 在 jazzy 已 deprecated，换 `on_init(const HardwareComponentInterfaceParams&)`。
 测试自己又犯了两次：期望值用了**未量化**的位置（真机反馈是 16 位定点，差 6e-5 rad）；
 以及想验"min>max"却把 min 设成 2.0（j2 的 max 是 2.188，本来就合法）。
+
+**M5 真机验收 ①（只读）2026-10-05 通过**：`ros2 launch arm_bringup real_control.launch.py`
+（默认 `enable_on_activate=false` + 只起状态广播器）⇒ **RViz 里的机械臂与真机的方向、位置完全一致**
+（j1 ≈ +1.5708、j2~j6 ≈ 0，模型坐标）。这条链整条通了：
+`joint.yaml`/`align.yaml` → xacro 生成 `<param>` → C++ 插件 → 真机串口 → `/joint_states` → RViz。
+
+为走到这一步排掉的三件事（都已进 AGENTS 陷阱表）：
+1. **串口设备号又变**（#28）：适配器从 ACM1 变回 **ACM0** ⇒ 打不开串口 ⇒ 硬件没激活 ⇒ RViz 停在零位姿，
+   看起来像"模型不对 / 只有 j1 差 90°"（真机 j2~j6 本来就 ≈0、只有 j1 是 +90°，所以特别容易误判）。
+2. **插件被编成了静态库**（#34）：`add_library()` 默认产出 `.a`，而 pluginlib 只能 `dlopen` `.so` ⇒
+   CM 报 `LibraryLoadException … Could not find library … 'dm_system_interface'`。
+   **单元测试全绿也照样漏**（测试直接链静态库、从不 dlopen）⇒ 排查入口：`ls install/<pkg>/lib/`
+   （看是 `.a` 还是 `.so`）与 `~/.ros/log/latest/launch.log`（launch 的 stdout/stderr 都在那儿）。
+3. ROS 守护进程的**幽灵节点**（daemon 缓存）让 `ros2 node list` 显示出多套 mock，误导过一次判断 ⇒
+   看进程用 `ps -eo pid,etime,args | grep ros2_control_node` 更可靠。
+
+**待做**：② 使能保持（要求零位移）、③ 小动作。
