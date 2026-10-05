@@ -97,11 +97,13 @@ private:
   double ours_to_model(std::size_t i, double q_ours) const;
 
   // gravity_ff=true 时 write() 走这条：实测姿态 → 重力项 → 每关节 MIT 帧（含残差守卫）
-  hardware_interface::return_type write_gravity_ff();
+  hardware_interface::return_type write_gravity_ff(const rclcpp::Time & time);
 
   std::vector<JointParams> joints_;
   std::vector<double> hw_positions_;
   std::vector<double> hw_velocities_;
+  // effort（模型坐标 N·m）：来自电机反馈的**电流估计**，不是力矩传感器。只当量级参考。
+  std::vector<double> hw_efforts_;
   std::vector<double> hw_commands_;
   // velocity 命令接口（模型坐标 rad/s）：只有 gravity_ff=true 走 MIT 时才用得上（当 dq_des）。
   // 这两条链都导出它 —— ros2_controllers.yaml 是 mock/真机共用的，少一个接口 JTC 会配置失败。
@@ -127,6 +129,12 @@ private:
   // 残差守卫（|q−q_hold| 或 |dq| 越界）⇒ 锁存：**把 tau_ff 全部置 0**（仍留 MIT+kp_hold），
   // 并只报一次 ERROR。比"运行期写寄存器切回 POS_VEL"简单也安全得多（切模式要走陷阱 #2 的流程）。
   bool gravity_guard_tripped_ = false;
+  // ⚠️ 速度那一路必须**宽限 + 防抖**：使能到第一次 write 之间 MIT 是零增益的，机械臂真的会掉，
+  //    速度能到 0.7~1.5 rad/s。2026-10-05 真机就因为这个把前馈**永久锁死**了。
+  rclcpp::Time gravity_guard_since_;                  // 第一次判守卫的时刻（宽限从这里算）
+  bool gravity_guard_since_set_ = false;
+  rclcpp::Time gravity_vel_over_since_;               // 速度首次越限的时刻
+  bool gravity_vel_over_ = false;                     // 当前是否处于"速度越限"状态
   // q 缓冲：tau_ours() 要按关节顺序读，不每帧分配
   std::vector<double> q_urdf_buf_;
   std::vector<double> tau_ours_buf_;

@@ -24,6 +24,9 @@ constexpr uint8_t kRegCtrlMode = 0x0A;   // CTRL_MODE（RAM；uint32）
 // 重力前馈的残差守卫阈值：偏离保持点这么多就**撤掉全部 tau_ff**（仍留在 MIT + kp_hold 下）
 constexpr double kGravityGuardRad = 0.1;        // 位置偏差（rad）
 constexpr double kGravityGuardRadPerS = 0.5;    // 速度（rad/s）
+// 速度那一路的宽限期与防抖（见 gravity_guard_since_ 的注释：使能瞬间机械臂真的在掉）
+constexpr double kGravityGraceSec = 0.5;
+constexpr double kGravityVelDebounceSec = 0.2;
 constexpr uint8_t kRegKpAsr = 0x19;
 constexpr uint8_t kRegKiAsr = 0x1A;
 constexpr uint8_t kRegKpApr = 0x1B;
@@ -170,6 +173,7 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     const double nan = std::numeric_limits<double>::quiet_NaN();
     hw_positions_.assign(joints_.size(), nan);      // 还没读到就保持 NaN，别谎报 0
     hw_velocities_.assign(joints_.size(), nan);
+    hw_efforts_.assign(joints_.size(), nan);
     hw_commands_.assign(joints_.size(), nan);       // NaN ⇒ write() 走"保持"
     hw_vel_commands_.assign(joints_.size(), nan);   // 同理：没人写过就是 NaN（MIT 分支会查）
 
@@ -358,6 +362,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     std::fill(hw_commands_.begin(), hw_commands_.end(), nan);
     hw_positions_.assign(joints_.size(), nan);
     hw_velocities_.assign(joints_.size(), nan);
+    hw_efforts_.assign(joints_.size(), nan);
     hw_vel_commands_.assign(joints_.size(), nan);   // 控制器还没写过速度命令
     if (enable_on_activate_) {
       for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
@@ -438,6 +443,9 @@ std::vector<hardware_interface::StateInterface> DmSystemInterface::export_state_
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     out.emplace_back(joints_[i].name, hardware_interface::HW_IF_POSITION, &hw_positions_[i]);
     out.emplace_back(joints_[i].name, hardware_interface::HW_IF_VELOCITY, &hw_velocities_[i]);
+    // effort：电机反馈里的**电流估计**力矩（模型坐标，矢量只乘 sign）。
+    // 用途：POS_VEL 托住机械臂时读真实保持力矩（用来校核重力模型量级）、ROS 侧监控。
+    out.emplace_back(joints_[i].name, hardware_interface::HW_IF_EFFORT, &hw_efforts_[i]);
   }
   return out;
 }
@@ -481,6 +489,9 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
     const JointState st = jp.joint->get_state();      // q_ours
     hw_positions_[i] = ours_to_model(i, st.position);
     hw_velocities_[i] = static_cast<double>(jp.sign) * st.velocity;   // 矢量只乘 sign
+    // 力矩同样只乘 sign（矢量）。它来自电机的**电流估计**（12 位定点）⇒ 只当量级参考，
+    // 别当力矩传感器用；用途是"POS_VEL 托住时读真实保持力矩"和 ROS 侧监控。
+    hw_efforts_[i] = static_cast<double>(jp.sign) * st.torque;
     if (st.err != 0x0 && st.err != 0x1) {
       const char * text = err_text(st.err);
       if (enable_on_activate_) {
@@ -508,12 +519,12 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
   return return_type::OK;
 }
 
-return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duration &)
+return_type DmSystemInterface::write(const rclcpp::Time & time, const rclcpp::Duration &)
 {
   if (bus_ == nullptr) {return return_type::ERROR;}
   // ⚠️ 只读模式下 write() **什么都不发**：这是"不接真机也能先只看"的前提
   if (!enable_on_activate_) {return return_type::OK;}
-  if (gravity_ff_) {return write_gravity_ff();}
+  if (gravity_ff_) {return write_gravity_ff(time);}
 
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
@@ -537,7 +548,7 @@ return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duratio
   return return_type::OK;
 }
 
-return_type DmSystemInterface::write_gravity_ff()
+return_type DmSystemInterface::write_gravity_ff(const rclcpp::Time & time)
 {
   // ── ① 用**实测姿态**算这一帧的重力项（hw_positions_ 就是模型坐标 q_urdf）──
   bool have_q = true;
@@ -562,18 +573,47 @@ return_type DmSystemInterface::write_gravity_ff()
 
   // ── ② 残差守卫：越界就**锁存**并把 tau_ff 全部置 0（仍在 MIT + kp_hold 下，不失阻尼）──
   if (!gravity_guard_tripped_) {
+    if (!gravity_guard_since_set_) {
+      gravity_guard_since_ = time;
+      gravity_guard_since_set_ = true;
+    }
+    const bool vel_checked = (time - gravity_guard_since_).seconds() >= kGravityGraceSec;
+
+    bool vel_over = false;
     for (std::size_t i = 0; i < joints_.size(); ++i) {
       const JointParams & jp = joints_[i];
       if (!jp.hold_ours.has_value() || !std::isfinite(hw_positions_[i])) {continue;}
+      // 位置：即时判 —— 越界是**持续**的，而且它才是"真的跑偏了"的证据
       const double dev_pos = std::fabs(hw_positions_[i] - ours_to_model(i, *jp.hold_ours));
-      const double vel = std::isfinite(hw_velocities_[i]) ? hw_velocities_[i] : 0.0;
-      if (dev_pos > kGravityGuardRad || std::fabs(vel) > kGravityGuardRadPerS) {
+      if (dev_pos > kGravityGuardRad) {
         gravity_guard_tripped_ = true;
         RCLCPP_ERROR(get_logger(),
-          "‼ 残差守卫触发：关节 %s 偏离保持点 %.3f rad、速度 %.3f rad/s（阈值 %.2f / %.2f）"
+          "‼ 残差守卫触发（位置）：关节 %s 偏离保持点 %.3f rad（阈值 %.2f）"
           " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
-          jp.name.c_str(), dev_pos, vel, kGravityGuardRad, kGravityGuardRadPerS);
+          jp.name.c_str(), dev_pos, kGravityGuardRad);
         break;
+      }
+      if (vel_checked) {
+        const double vel = std::isfinite(hw_velocities_[i]) ? hw_velocities_[i] : 0.0;
+        if (std::fabs(vel) > kGravityGuardRadPerS) {vel_over = true;}
+      }
+    }
+    // 速度：要**持续**越限才算 —— 使能到第一次 write 之间 MIT 是零增益的，那一瞬机械臂真的在掉
+    //（2026-10-05 实测 0.7~1.5 rad/s），一个采样就锁死会把整轮前馈白废掉。
+    if (!gravity_guard_tripped_) {
+      if (vel_over) {
+        if (!gravity_vel_over_) {
+          gravity_vel_over_ = true;
+          gravity_vel_over_since_ = time;
+        } else if ((time - gravity_vel_over_since_).seconds() >= kGravityVelDebounceSec) {
+          gravity_guard_tripped_ = true;
+          RCLCPP_ERROR(get_logger(),
+            "‼ 残差守卫触发（速度）：连续 %.2f s 有连接续超过 %.2f rad/s（位置偏差仍在阈值内）"
+            " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
+            kGravityVelDebounceSec, kGravityGuardRadPerS);
+        }
+      } else {
+        gravity_vel_over_ = false;
       }
     }
   }

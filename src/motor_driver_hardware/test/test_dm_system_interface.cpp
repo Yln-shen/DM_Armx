@@ -82,6 +82,8 @@ public:
 
   // 模拟电机状态：电机侧位置（rad）/ ERR。初值取自真机停放姿态（id2 实测 +1.79 rad 那一带）
   std::map<uint8_t, double> pos{{2, 1.7909}, {6, 1.7909}};
+  std::map<uint8_t, double> vel{{2, 0.0}, {6, 0.0}};      // 电机侧 rad/s（用来造速度尖峰）
+  std::map<uint8_t, double> vmax{{2, 10.0}, {6, 30.0}};   // 各自的 VMAX（12 位映射范围）
   std::map<uint8_t, uint8_t> err{{2, 0x0}, {6, 0x0}};
   std::vector<uint8_t> tx;
   std::vector<uint8_t> rx;
@@ -95,10 +97,13 @@ public:
   {
     const uint16_t pos_u = encode_pos(pos[id]);
     const uint8_t d0 = static_cast<uint8_t>((id & 0x0F) | ((err[id] & 0x0F) << 4));
-    // 速度字段：12 位映射里 0 落在**中点 2047**（不是 2048）⇒ D[3]=0x7F, D[4]=0xF0。
+    // 速度字段：12 位映射里 0 落在**中点 2047**（不是 2048）⇒ 默认就是 D[3]=0x7F, D[4]=0xF0。
     // ⚠️ 写 0x00,0x00 会被解成 −VMAX（第一版就这么写的，MIT 用例里 kd 项直接爆掉）。
+    const uint32_t v_u = md::float_to_uint(vel[id], -vmax[id], vmax[id], 12);
+    const uint8_t d3 = static_cast<uint8_t>((v_u >> 4) & 0xFF);
+    const uint8_t d4 = static_cast<uint8_t>((v_u & 0x0F) << 4);   // 低 4 位是 tau 的高 4 位，这里给 0
     push(feedback_frame({d0, static_cast<uint8_t>(pos_u >> 8), static_cast<uint8_t>(pos_u & 0xFF),
-      0x7F, 0xF0, 0x00, 0x1E, 0x1F}));
+      d3, d4, 0x00, 0x1E, 0x1F}));
   }
 
   // "电机实际报出来的"位置（经过 16 位量化）—— 测试算期望时要用这个，不能用未量化的 pos[id]
@@ -614,6 +619,73 @@ TEST(DmSystemInterface, GravityFfScaleAttenuatesTorque)
   hardware_interface::HardwareComponentInterfaceParams params;
   params.hardware_info = make_info(true, true, ARM_DYN_URDF, 2.0);
   EXPECT_EQ(bad.on_init(params), CallbackReturn::ERROR) << "scale=2.0 该被拒";
+}
+
+// ⑨ 残差守卫的**宽限 + 防抖**：使能瞬间的速度尖峰不该锁死前馈，持续越限才该锁死。
+//   （2026-10-05 真机踩过：位置只偏 0.003 rad，却因为激活瞬间一个速度采样把前馈永久锁死，
+//     整轮数据作废。使能到第一次 write 之间 MIT 是零增益的，那时机械臂真的在掉。）
+TEST(DmSystemInterface, GravityGuardGracePeriodAndDebounce)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF;
+  probe.close();
+
+  FakeMotorBusIo io;
+  // 1.5 rad/s：超守卫阈值 0.5，但 kd×1.5 = 1.2 N·m 仍在 torque_max=3.5 内
+  //（给 5.0 会让 kd 项到 4.0 N·m，被 clamp_mit_torque 正确地拒发 —— 那是另一条路径）
+  io.vel[6] = 1.5;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true, true, ARM_DYN_URDF)),
+    CallbackReturn::SUCCESS);
+
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  std::vector<double> q_model = {state_value(iface, "joint2", "position"),
+                                 state_value(iface, "joint6", "position")};
+  md::GravityModel gm(ARM_DYN_URDF, {"joint2", "joint6"}, {-1, 1});
+  std::vector<double> tau_ours(2, 0.0);
+  gm.tau_ours(q_model.data(), tau_ours.data());
+  const double expect_j2 = -1.0 * tau_ours[0];          // direction × 重力项
+  const double lsb_j2 = 2.0 * 28.0 / 4095.0;
+
+  auto write_at = [&](double t) {
+      return iface.write(rclcpp::Time(static_cast<int64_t>(t * 1e9), RCL_ROS_TIME), kDt);
+    };
+  auto last_j2_tau = [&]() {
+      // 每周期按 joints_ 顺序写两帧（joint2 在前、joint6 在后）⇒ 最后两帧里的**前一帧**是 j2
+      EXPECT_GE(io.mit_frames.size(), 2u);
+      return decode_mit_tau(io.mit_frames[io.mit_frames.size() - 2], 28.0);
+    };
+
+  // ① 宽限期内（<0.5s）持续报 5 rad/s：**不该**触发 ⇒ j2 的前馈照发
+  for (int k = 0; k < 30; ++k) {                       // 0.01~0.30 s（都在宽限期 0.5s 内）
+    ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+    ASSERT_EQ(write_at(0.01 * (k + 1)), return_type::OK);
+  }
+  EXPECT_NEAR(last_j2_tau(), expect_j2, 1.5 * lsb_j2)
+    << "宽限期内就被速度锁死了（真机就是这么废掉一整轮的）";
+
+  // ② 过了宽限期仍持续越限 ≥ 0.2 s ⇒ **该**锁死 ⇒ 之后 t_ff 变 0
+  for (int k = 0; k < 80; ++k) {                       // 0.31~1.10 s
+    ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+    ASSERT_EQ(write_at(0.31 + 0.01 * k), return_type::OK);
+  }
+  EXPECT_NEAR(last_j2_tau(), 0.0, 1.5 * lsb_j2) << "持续越限后没锁死";
+
+  // ③ 位置越界是**即时**判的（不给宽限）
+  FakeMotorBusIo io2;
+  md::DmSystemInterface iface2(&io2);
+  ASSERT_EQ(init_and_activate(iface2, make_info(true, true, ARM_DYN_URDF)),
+    CallbackReturn::SUCCESS);
+  ASSERT_EQ(iface2.read(kT0, kDt), return_type::OK);
+  io2.pos[2] += 0.5;                                   // 电机侧挪 0.5 rad ⇒ 远超 0.1 阈值
+  io2.push_feedback(2);                                // read() 只 poll 不发刷新 ⇒ 得主动喂一帧
+  ASSERT_EQ(iface2.read(kT0, kDt), return_type::OK);
+  io2.mit_frames.clear();
+  ASSERT_EQ(iface2.write(rclcpp::Time(static_cast<int64_t>(1e9), RCL_ROS_TIME), kDt),
+    return_type::OK);
+  ASSERT_FALSE(io2.mit_frames.empty());
+  EXPECT_NEAR(decode_mit_tau(io2.mit_frames[0], 28.0), 0.0, 1.5 * lsb_j2)
+    << "位置越界该在第一帧就锁死";
 }
 
 int main(int argc, char ** argv)
