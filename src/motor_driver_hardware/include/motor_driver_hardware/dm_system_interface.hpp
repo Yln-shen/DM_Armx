@@ -76,6 +76,7 @@ private:
     std::optional<std::array<double, 4>> pid;         // KP_ASR/KI_ASR/KP_APR/KI_APR；空 = 不写 PID
     std::unique_ptr<Joint> joint;
     int missing_streak = 0;
+    uint8_t err_warned = 0;                           // 只读模式下"这个故障码已提示过"
   };
 
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）

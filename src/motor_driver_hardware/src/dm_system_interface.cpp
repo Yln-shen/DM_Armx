@@ -230,16 +230,41 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     bus_->open();
     RCLCPP_INFO(get_logger(), "串口已打开：%s @%d", device_.c_str(), baud_);
 
-    if (!bus_->sync_states(2.0, 0.05)) {
-      RCLCPP_WARN(get_logger(),
-        "sync_states 没在 2 秒内安静下来 —— 继续，但首轮位置可能不新（总线很吵？设备号对吗？）");
-    }
-    for (const auto & jp : joints_) {
-      if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
-        throw std::runtime_error(
-          "电机 " + std::to_string(jp.cfg.motor_id) + "（" + jp.name +
-          "）一开始就没有反馈 —— 查串口设备号/接线/电机供电");
+    // 冷启动/刚上电时电机回得慢 ⇒ **重试**到全部就位（最多 ~5 秒），别"一次采样就判死刑"。
+    // 2026-10-05 真机踩过：只做一次 2 秒 sync_states 就要求 6 台全在 ⇒ 偶发一台慢（Python 侧一问
+    // 全部正常）⇒ on_activate 直接 FATAL ⇒ 硬件没激活 ⇒ 没有 /joint_states ⇒ RViz 里"残缺的模型"。
+    constexpr int kWaitRounds = 10;                 // 10 × (0.5s sync + 0.3s 等) ≈ 8s 上限
+    constexpr double kRoundTimeout = 0.5;
+    std::vector<std::string> missing;
+    for (int round = 1; round <= kWaitRounds; ++round) {
+      bus_->sync_states(kRoundTimeout, 0.05);
+      missing.clear();
+      for (const auto & jp : joints_) {
+        if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
+          missing.push_back(jp.name + "(id" + std::to_string(jp.cfg.motor_id) + ")");
+        }
       }
+      if (missing.empty()) {break;}
+      if (round == 1 || round % 4 == 0) {
+        std::string names;
+        for (const auto & m : missing) {names += " " + m;}
+        RCLCPP_WARN(get_logger(), "还有 %zu 台没反馈（%s）—— 继续等（第 %d/%d 轮）",
+          missing.size(), names.c_str(), round, kWaitRounds);
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
+    if (!missing.empty()) {
+      std::string names;
+      for (const auto & m : missing) {names += " " + m;}
+      if (enable_on_activate_) {
+        // 要动电机：缺一台都不许（否则会使能一半的臂，很危险）
+        throw std::runtime_error(
+          "要动电机，但 " + std::to_string(missing.size()) + " 台始终没有反馈：" + names +
+          " —— 查接线/供电/设备号（Python 侧 dm_bus 一问就知道是不是硬件）");
+      }
+      // 只读：**不致命** —— 能看几台是几台，read() 会按关节处理
+      RCLCPP_WARN(get_logger(),
+        "只读模式：%zu 台没有反馈（%s）—— 继续跑（不影响其它关节）", missing.size(), names.c_str());
     }
 
     // 逐台：切 POS_VEL（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
@@ -357,10 +382,17 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
     JointParams & jp = joints_[i];
     if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
       if (++jp.missing_streak >= fail_streak_limit_) {
-        RCLCPP_ERROR(get_logger(),
-          "关节 %s（电机 %u）连续 %d 圈没有反馈 —— 报 ERROR（串口掉了 / 电机断电？）",
-          jp.name.c_str(), jp.cfg.motor_id, jp.missing_streak);
-        return return_type::ERROR;
+        if (enable_on_activate_) {
+          RCLCPP_ERROR(get_logger(),
+            "关节 %s（电机 %u）连续 %d 圈没有反馈 —— 报 ERROR（串口掉了 / 电机断电？）",
+            jp.name.c_str(), jp.cfg.motor_id, jp.missing_streak);
+          return return_type::ERROR;
+        }
+        // 只读模式：不致命，只提示一次（能看几台是几台）
+        if (jp.missing_streak == fail_streak_limit_) {
+          RCLCPP_WARN(get_logger(), "只读模式：关节 %s（电机 %u）一直没有反馈 —— 跳过它",
+            jp.name.c_str(), jp.cfg.motor_id);
+        }
       }
       continue;
     }
@@ -370,11 +402,22 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
     hw_velocities_[i] = static_cast<double>(jp.sign) * st.velocity;   // 矢量只乘 sign
     if (st.err != 0x0 && st.err != 0x1) {
       const char * text = err_text(st.err);
-      RCLCPP_ERROR(get_logger(),
-        "关节 %s 故障 ERR=%u（%s）—— 报 ERROR。注意 ERR=13(通讯丢失) 是锁存的，只能断电再上电清；"
-        "失能只是让电机松掉，重力负载下会掉", jp.name.c_str(), st.err,
-        text != nullptr ? text : "未知错误码");
-      return return_type::ERROR;
+      if (enable_on_activate_) {
+        RCLCPP_ERROR(get_logger(),
+          "关节 %s 故障 ERR=%u（%s）—— 报 ERROR。注意 ERR=13(通讯丢失) 是锁存的，只能断电再上电清；"
+          "失能只是让电机松掉，重力负载下会掉", jp.name.c_str(), st.err,
+          text != nullptr ? text : "未知错误码");
+        return return_type::ERROR;
+      }
+      // 只读模式：报错但不中断（否则整条只读链被一台故障拖死，反而看不见其它关节）
+      if (jp.err_warned != st.err) {
+        jp.err_warned = st.err;
+        RCLCPP_ERROR(get_logger(),
+          "只读模式：关节 %s 故障 ERR=%u（%s）—— 继续显示其它关节。ERR=13 锁存，需断电重上电",
+          jp.name.c_str(), st.err, text != nullptr ? text : "未知错误码");
+      }
+    } else {
+      jp.err_warned = 0;
     }
   }
   // 只读模式要主动问状态（电机不主动报）；使能后命令帧本身就带回包，不必再刷
@@ -415,4 +458,6 @@ return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duratio
 }  // namespace motor_driver_hardware
 
 #include <pluginlib/class_list_macros.hpp>   // NOLINT
+#include <chrono>
+#include <thread>
 PLUGINLIB_EXPORT_CLASS(motor_driver_hardware::DmSystemInterface, hardware_interface::SystemInterface)
