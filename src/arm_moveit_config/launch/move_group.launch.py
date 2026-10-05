@@ -1,6 +1,6 @@
 """M6：起 MoveIt 的 move_group（**只做规划**；执行仍由 ros2_control 的 arm_controller 承担）。
 
-  # ① 先对 mock 跑（不接真机）：规划能出来、能在 RViz 里看到"影子"动
+  # ① 先对 mock 跑（不接真机）
   ros2 launch arm_moveit_config move_group.launch.py
 
   # ② 再对真机跑：另开终端先把真机那套起起来，再加 use_mock:=false
@@ -8,13 +8,15 @@
   ros2 launch arm_moveit_config move_group.launch.py use_mock:=false
 
 ⚠️ 一次只起一套：`use_mock:=true` 会自己起 controller_manager + 控制器，
-   与 `real_control.launch.py` **不能同时开**（两个 controller_manager 抢同一个控制器名）。
-⚠️ 真机上的执行速度由 arm_controller 的 `vlim` 决定（real_control.launch.py 的参数）；
-   MoveIt 算出的时间参数是"期望速度"，实际跟不上就会被拉长（慢，但不会错）。
+   与 `real_control.launch.py` **不能同时开**（两个 CM 抢同名控制器；而且 CM 会从共享话题
+   `/robot_description` 订阅到对方的 URDF —— 见 AGENTS 陷阱 #35）。
+
+📌 参数为什么用 moveit_configs_utils：手拼 `{"ompl": {...}}`（嵌套）与扁平 `ompl.planning_plugin`
+   **两种都试过**，move_group 都报 `Planning plugin name is empty or not defined in namespace 'ompl'`。
+   官方 builder 会把 `planning_pipelines` / `ompl.*` / 运动学 / 控制器映射按 MoveIt 期望的结构摆好。
 """
 import os
 
-import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -23,11 +25,7 @@ from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitut
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
-
-
-def load_yaml(*parts):
-    with open(os.path.join(*parts), "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
@@ -42,8 +40,6 @@ def generate_launch_description():
         "enable_on_activate", default_value="false",
         description="只有 use_mock:=false 时才被 xacro 用上：真机是否在激活时使能")
 
-    # 配置文件路径用**纯 Python**取（不要在 launch 里 eval substitution：那个要 LaunchContext，
-    # 写不对就是 TypeError，而这条路径跟 ROS 图无关，直接读文件最简单）
     arm_desc = get_package_share_directory("arm_description")
     cfg = get_package_share_directory("arm_moveit_config")
     bringup = get_package_share_directory("arm_bringup")
@@ -51,6 +47,8 @@ def generate_launch_description():
     xacro_file = PathJoinSubstitution([FindPackageShare("arm_description"), "urdf", "arm.urdf.xacro"])
     rviz_config = PathJoinSubstitution([FindPackageShare("arm_moveit_config"), "rviz", "moveit.rviz"])
 
+    # 带 launch 参数的那份 robot_description（use_mock 决定用 mock 还是真机插件 —— 这是关键，
+    # 不能用 builder 自己读的那份：它只会用 xacro 的默认值）
     robot_description = ParameterValue(
         Command(["xacro ", xacro_file,
                  " use_gripper:=", LaunchConfiguration("use_gripper"),
@@ -58,50 +56,34 @@ def generate_launch_description():
                  " enable_on_activate:=", LaunchConfiguration("enable_on_activate")]),
         value_type=str)
 
-    with open(os.path.join(cfg, "config", "arm.srdf"), "r", encoding="utf-8") as f:
-        srdf_text = f.read()
-
-    # ompl_planning.yaml → 扁平参数（ompl.xxx）
-    _ompl_raw = load_yaml(cfg, "config", "ompl_planning.yaml")
-    _ompl_flat = {"ompl." + k: v for k, v in _ompl_raw.items() if k != "arm"}
-    for _k, _v in _ompl_raw.get("arm", {}).items():
-        _ompl_flat["ompl.arm." + _k] = _v
-
-    # MoveIt 的参数按"经典结构"显式拼：SRDF → robot_description_semantic、IK →
-    # robot_description_kinematics、OMPL → ompl.*、控制器映射 → 顶层键。
-    # 这样不依赖 moveit_configs_utils 的 API 细节，出问题一眼能看出是哪个文件。
-    move_group_params = [
-        {"robot_description": robot_description},
-        {"robot_description_semantic": srdf_text},
-        {"robot_description_kinematics": load_yaml(cfg, "config", "kinematics.yaml")},
-        {"planning_pipelines": ["ompl"], "default_planning_pipeline": "ompl"},
-        # ⚠️ 曾经写成 {"ompl": {...}}（嵌套 dict）⇒ MoveIt 的 ParamListener 读不到，报
-        #    "Planning plugin name is empty or not defined in namespace 'ompl'"。
-        #    改成**扁平键** ompl.xxx；planner_configs 这类嵌套值 ROS 会自动摊平。
-        _ompl_flat,
-        load_yaml(cfg, "config", "moveit_controllers.yaml"),
-        {"allow_trajectory_execution": True,
-         "publish_planning_scene": True,
-         "publish_geometry_updates": True,
-         "publish_state_updates": True,
-         "publish_transforms_updates": True},
-    ]
+    # builder 负责 SRDF / kinematics.yaml / ompl_planning.yaml / moveit_controllers.yaml 这些
+    # 约定文件名的参数（都在本包的 config/ 下，名字与 MoveIt 约定一致）
+    moveit_config = (
+        MoveItConfigsBuilder("dm_armx", package_name="arm_moveit_config")
+        .robot_description(file_path=os.path.join(arm_desc, "urdf", "arm.urdf.xacro"))
+        .robot_description_semantic(file_path=os.path.join(cfg, "config", "arm.srdf"))
+        .robot_description_kinematics(file_path=os.path.join(cfg, "config", "kinematics.yaml"))
+        .planning_pipelines(pipelines=["ompl"], default_planning_pipeline="ompl")
+        .trajectory_execution(file_path=os.path.join(cfg, "config", "moveit_controllers.yaml"))
+        .to_moveit_configs()
+    )
+    move_group_params = moveit_config.to_dict()
+    move_group_params["robot_description"] = robot_description      # 覆写成带参数的那份
 
     move_group = Node(
         package="moveit_ros_move_group", executable="move_group",
-        parameters=move_group_params, output="both")
+        parameters=[move_group_params], output="both")
 
     rviz_node = Node(
         package="rviz2", executable="rviz2", arguments=["-d", rviz_config],
-        parameters=[{"robot_description": robot_description}],
+        parameters=[moveit_config.robot_description, moveit_config.robot_description_semantic,
+                    moveit_config.robot_description_kinematics],
         condition=IfCondition(LaunchConfiguration("use_rviz")), output="both")
 
     # mock 那套（与 arm_bringup 的 mock_control.launch.py 等价）：只在 use_mock 为真时起
     use_mock_if = IfCondition(LaunchConfiguration("use_mock"))
     controllers_file = os.path.join(bringup, "config", "ros2_controllers.yaml")
     mock_nodes = [
-        # ⚠️ 不要重映射 `robot_description`（见 real_control.launch.py 里的说明）：
-        #    CM 只等话题、不回退参数 ⇒ 重映射后它会永远卡在 "Waiting for data ..."。
         Node(package="controller_manager", executable="ros2_control_node",
              parameters=[{"robot_description": robot_description}, controllers_file],
              condition=use_mock_if, output="both"),
