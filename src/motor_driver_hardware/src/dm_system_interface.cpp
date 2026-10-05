@@ -155,6 +155,8 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
       jp.kp_hold = as_double(p, "kp_hold", 0.0);
       jp.kd_hold = as_double(p, "kd_hold", 0.0);
       jp.ki_hold = as_double(p, "ki_hold", 0.0);   // 默认 0 = 宿主侧积分不生效
+      jp.friction_c = as_double(p, "friction_c", 0.0);            // 默认 0 = 摩擦前馈不生效
+      jp.friction_v_eps = as_double(p, "friction_v_eps", 0.0);
       if (gravity_ff_) {
         // 打开重力前馈才校验 —— 默认 false 时这些参数不该拦住任何东西
         if (!jp.cfg.torque_max.has_value() || !(*jp.cfg.torque_max > 0.0)) {
@@ -170,6 +172,14 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
         }
         if (!(jp.ki_hold >= 0.0)) {
           throw std::invalid_argument("关节 " + j.name + "：ki_hold 不能是负数");
+        }
+        if (!(jp.friction_c >= 0.0)) {
+          throw std::invalid_argument("关节 " + j.name + "：friction_c 不能是负数");
+        }
+        if (jp.friction_c > 0.0 && !(jp.friction_v_eps > 0.0)) {
+          throw std::invalid_argument(
+            "关节 " + j.name + "：开了 friction_c 就必须给正的 friction_v_eps"
+            "（它是 tanh 的速度尺度，给 0 会除零）");
         }
       }
       // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值）
@@ -196,6 +206,7 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
         (jp.cfg.torque_max.has_value() ? ",tm" + std::to_string(*jp.cfg.torque_max) : "") +
         ",kp" + std::to_string(jp.kp_hold) + ",kd" + std::to_string(jp.kd_hold) +
         ",ki" + std::to_string(jp.ki_hold) +
+        ",fc" + std::to_string(jp.friction_c) +
         (jp.pid.has_value() ? ",pid" : "") + ")";
     }
     RCLCPP_INFO(get_logger(),
@@ -720,8 +731,6 @@ return_type DmSystemInterface::write_gravity_ff(
   // ── ④ 逐关节发 MIT 帧 ──
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
-    const double tau = gravity_guard_tripped_ ? 0.0
-      : gravity_ff_scale_ * jp.last_tau_ours + jp.tau_i;
     double q_cmd = 0.0;
     double dq_cmd = 0.0;
     // 保持帧要**绕过软限位钳位**（见 prepare_frame_raw）：它的语义是"待在你现在的位置"，
@@ -742,6 +751,18 @@ return_type DmSystemInterface::write_gravity_ff(
         dq_cmd = static_cast<double>(jp.sign) * hw_vel_commands_[i];
       }
     }
+    // 摩擦前馈：**只在有命令（跑轨迹）时给** —— 保持时摩擦方向不确定（见 mit_gains.yaml 顶部），
+    // 给了反而可能把关节推走 ⇒ 命令是 NaN 时一律 0。符号取自**命令速度**（实测速度低速下会抖）。
+    // ⚠️ **正号**：摩擦力矩**反对**速度（v>0 时是 −F_c）⇒ 要抵消就必须给 +F_c·sign(v)。
+    //    第一版写成 −friction_c·tanh(...) ⇒ 同号 ⇒ 等于把摩擦**加倍**。
+    //    单测也一起断言错了（编码了同一个错误假设），是真机测出来"残余摩擦增加了整整一个
+    //    friction_c"才发现的（远端关节重复性 ±0.003，增加量 0.112/0.082/0.089 对 0.112/0.082/0.092）。
+    double tau_fric = 0.0;
+    if (!std::isnan(hw_commands_[i]) && jp.friction_c > 0.0 && jp.friction_v_eps > 0.0) {
+      tau_fric = jp.friction_c * std::tanh(dq_cmd / jp.friction_v_eps);
+    }
+    const double tau = gravity_guard_tripped_ ? 0.0
+      : gravity_ff_scale_ * jp.last_tau_ours + jp.tau_i + tau_fric;
     try {
       jp.joint->set_mit(jp.kp_hold, jp.kd_hold, q_cmd, dq_cmd, tau, bypass_limits);
     } catch (const std::exception & e) {

@@ -87,6 +87,11 @@ private:
     // "不可重复扰动/kp" 卡住（真机 j3 在 kp=7 下差 0.134 rad，而 POS_VEL 是 0.0016 rad）
     // ⇒ τ_i 加进 MIT 帧的 t_ff，就变成"宿主侧 PI + 重力前馈"。
     double ki_hold = 0.0;
+    // 库仑摩擦前馈（**只在有命令/跑轨迹时生效**）：τ_ff += −friction_c·tanh(v_cmd/friction_v_eps)。
+    // 保持（命令 NaN）时给 0 —— 静止时摩擦方向不确定，猜错等于主动把关节推走。
+    // 符号取自**命令速度**（实测速度 12 位编码，低速下只有几个 LSB、符号会抖）。
+    double friction_c = 0.0;
+    double friction_v_eps = 0.0;
     double tau_i = 0.0;                               // 积分器输出（**关节侧** N·m）
     std::optional<double> prev_q_ref_ours;            // 上一周期的参考（判断命令是否跳变 ⇒ 复位积分）
     std::optional<double> hold_ours;                  // 同一个保持目标的**关节侧**值（MIT 的保持帧要它）

@@ -270,6 +270,19 @@ void set_command(md::DmSystemInterface & iface, const std::string & joint, doubl
   ADD_FAILURE() << "找不到命令接口 " << joint;
 }
 
+void set_vel_command(md::DmSystemInterface & iface, const std::string & joint, double value)
+{
+  for (auto & itf : iface.export_command_interfaces()) {
+    if (itf.get_prefix_name() == joint &&
+      itf.get_interface_name() == hardware_interface::HW_IF_VELOCITY)
+    {
+      ASSERT_TRUE(itf.set_value(value));
+      return;
+    }
+  }
+  ADD_FAILURE() << "找不到速度命令接口 " << joint;
+}
+
 const rclcpp::Time kT0(0, 0, RCL_ROS_TIME);
 const rclcpp::Duration kDt = rclcpp::Duration::from_seconds(0.01);
 
@@ -780,6 +793,61 @@ TEST(DmSystemInterface, ActivationHoldFrameBypassesSoftLimits)
   const double q_des = decode_mit_pos(io.mit_frames.back());
   EXPECT_NEAR(q_des, 5.4, 2.0 * 25.0 / 65535.0)
     << "保持帧的目标被钳到 " << q_des << " 了；应该等于实测位置 5.4（保持帧不钳位）";
+}
+
+// ⑫ 库仑摩擦前馈：τ_ff += −friction_c·tanh(v_cmd/eps)，**只在有命令（跑轨迹）时给**，
+//    符号取自**命令速度**（实测速度低速下会抖）；保持（命令 NaN）时一律 0。
+TEST(DmSystemInterface, GravityFfAddsCoulombFriction)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF;
+  probe.close();
+
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  auto info = make_info(true, true, ARM_DYN_URDF, 1.0);
+  for (auto & j : info.joints) {
+    if (j.name == "joint2") {
+      j.parameters["friction_c"] = "1.0";        // 故意给个整数，好看清比例
+      j.parameters["friction_v_eps"] = "0.02";
+    }
+  }
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+
+  auto tau_j2 = [&](double t) {
+      io.mit_frames.clear();
+      EXPECT_EQ(iface.read(kT0, kDt), return_type::OK);
+      EXPECT_EQ(iface.write(rclcpp::Time(static_cast<int64_t>(t * 1e9), RCL_ROS_TIME), kDt),
+        return_type::OK);
+      EXPECT_GE(io.mit_frames.size(), 2u);
+      return decode_mit_tau(io.mit_frames[io.mit_frames.size() - 2], 28.0);
+    };
+  const double lsb = 2.0 * 28.0 / 4095.0;
+  const double q_hold = state_value(iface, "joint2", "position");
+
+  // (a) 保持（位置命令是 NaN）⇒ **不给摩擦项**（哪怕速度命令非零）
+  set_vel_command(iface, "joint2", 0.05);
+  const double tau_hold = tau_j2(0.01);
+
+  // (b) 给位置命令 + 正速度：j2 的 sign=−1 ⇒ 关节侧速度 = −0.05
+  //     ⇒ 摩擦项 = **+**1.0·tanh(−0.05/0.02) = −0.98661（关节侧，正号：抵消反对速度的摩擦）
+  //     ⇒ 帧里再乘 direction(−1) = +0.98661
+  set_command(iface, "joint2", q_hold);
+  const double tau_pos = tau_j2(0.02);
+  EXPECT_NEAR(tau_pos - tau_hold, +1.0 * std::tanh(-0.05 / 0.02) * -1.0, 3 * lsb)
+    << "摩擦前馈没按 +F·tanh(v_cmd/eps) 加上去（正号！注意 sign/direction 两层）";
+
+  // (c) 速度反向 ⇒ 摩擦项反号
+  set_vel_command(iface, "joint2", -0.05);
+  const double tau_neg = tau_j2(0.03);
+  EXPECT_NEAR(tau_neg - tau_hold, -1.0 * std::tanh(-0.05 / 0.02) * -1.0, 3 * lsb)
+    << "速度反向时摩擦项没反号";
+
+  // (d) 速度设回 0 ⇒ 摩擦项为 0 ⇒ t_ff 回到与"保持"那一轮相同的重力项
+  set_vel_command(iface, "joint2", 0.0);
+  const double tau_zero = tau_j2(0.04);
+  EXPECT_NEAR(tau_zero, tau_hold, 3 * lsb) << "速度 0 时不该有摩擦项";
 }
 
 int main(int argc, char ** argv)

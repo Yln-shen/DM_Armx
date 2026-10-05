@@ -24,6 +24,19 @@
 # 用途：被 urdf/inc/arm.ros2_control.xacro 的**真机分支**读成每关节的 <param>，
 #      再由 DmSystemInterface 解析进 JointConfig。
 #
+# ── friction_c / friction_v_eps：库仑摩擦前馈（2026-10-05 加）──
+# 运动时摩擦方向是**确定**的（永远反对速度）⇒ 可以前馈：τ_ff += −friction_c·tanh(v_cmd/friction_v_eps)
+# ⚠️ **它治的是运动质量（跟踪误差/换向误差），不是静态精度**。静止时摩擦在 ±F_s 内**任意取值**，
+#   方向不确定 ⇒ 猜错反而把关节推走。所以**保持（命令是 NaN）时一律给 0** —— 这是物理，不是保守。
+# ⚠️ 符号取自**命令速度**而不是实测速度：实测速度是 12 位编码，低速下只有几个 LSB，符号会抖。
+# ⚠️ **没有黏性项**：恒速扫描证明 F 与速度无关（那个"斜率"是时间漂移，倒序一跑就没了）。
+#
+# 数值来源：恒速三角波扫描（2026-10-05，张开位，同一区间正反各走一遍 ⇒ 位置相关项自动抵消）
+#   j1 0.54(±0.12)  j2 0.58(±0.01)  j3 0.75(±0.15)  j4 0.160(±0.001)  j5 0.117  j6 0.131  N·m
+#   与独立的静摩擦测量（4340P 0.62 / 4310 0.145）吻合 ⇒ 数据可信。
+#   ⚠️ **初值取测量值的 0.7 倍**：欠补偿只留残差；**过补偿**会让误差反号、甚至变成"负摩擦"
+#     把关节推着走。分级往上加，别一步到位。（近端 ±0.15 不可重复 ⇒ 别调到 0.7 以上太多）
+#
 # ── ki_hold：宿主侧积分增益（2026-10-05 加）──
 # **MIT 模式下固件没有积分**（τ = kp·Δp + kd·Δv + t_ff），所以 MIT 的稳态误差被
 #   不可重复扰动/kp 卡住：真机实测 j3 在 kp=7 下差 0.134 rad，而 POS_VEL（固件积分）是 0.0016 rad。
@@ -35,9 +48,9 @@
 #   ⇒ 插件里配了抗饱和（钳 ±0.3·torque_max 且饱和时停积）、误差门控（>0.15 rad 不积）、
 #     以及四个复位条件（激活 / 命令跳变 / 残差守卫触发 / 失能）。
 joints:
-  joint1: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint2: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint3: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint4: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310，与 DESIGN 参考值一致
-  joint5: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
-  joint6: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
+  joint1: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3, friction_c: 0.378, friction_v_eps: 0.02}   # 4340P，待标定
+  joint2: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3, friction_c: 0.406, friction_v_eps: 0.02}   # 4340P，待标定
+  joint3: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3, friction_c: 0.525, friction_v_eps: 0.02}   # 4340P，待标定
+  joint4: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3, friction_c: 0.112, friction_v_eps: 0.02}   # 4310，与 DESIGN 参考值一致
+  joint5: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3, friction_c: 0.082, friction_v_eps: 0.02}   # 4310
+  joint6: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3, friction_c: 0.092, friction_v_eps: 0.02}   # 4310
