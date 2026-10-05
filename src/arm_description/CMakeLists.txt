@@ -29,4 +29,19 @@ add_custom_command(
 add_custom_target(arm_dynamics_urdf ALL DEPENDS "${DYN_URDF}")
 install(FILES "${DYN_URDF}" DESTINATION share/${PROJECT_NAME}/urdf RENAME arm.urdf)
 
+# ── 同一份 URDF 的"辨识版"：把重力辨识出来的质量/质心替换进去 ──
+# 上游 CAD 的惯量与这台实机不符（实测 j2/j3/j4 的重力项差 7.8× / 0.76× / 0.32×）
+# ⇒ 重力前馈用这份。只改质量与质心；转动惯量对重力无贡献，原样保留。
+set(_ident_yaml "${CMAKE_CURRENT_SOURCE_DIR}/config/gravity_identified.yaml")
+set(_apply_script "${CMAKE_CURRENT_SOURCE_DIR}/scripts/apply_identified_inertia.py")
+set(IDENT_URDF "${CMAKE_CURRENT_BINARY_DIR}/arm_identified.urdf")
+add_custom_command(
+  OUTPUT "${IDENT_URDF}"
+  COMMAND python3 "${_apply_script}" "${DYN_URDF}" "${_ident_yaml}" "${IDENT_URDF}"
+  DEPENDS "${DYN_URDF}" "${_ident_yaml}" "${_apply_script}"
+  COMMENT "生成辨识版动力学 URDF（share/${PROJECT_NAME}/urdf/arm_identified.urdf）"
+  VERBATIM)
+add_custom_target(arm_identified_urdf ALL DEPENDS "${IDENT_URDF}")
+install(FILES "${IDENT_URDF}" DESTINATION share/${PROJECT_NAME}/urdf)
+
 ament_package()

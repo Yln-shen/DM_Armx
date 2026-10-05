@@ -27,6 +27,9 @@
   <xacro:arg name="joint_cfg" default="$(find motor_driver)/config/joint.yaml"/>
   <xacro:arg name="align_cfg" default="$(find arm_description)/config/align.yaml"/>
   <xacro:arg name="mit_gains_cfg" default="$(find arm_description)/config/mit_gains.yaml"/>
+  <!-- 动力学模型文件（在 share/arm_description/urdf/ 下）：
+       arm_identified.urdf = 辨识过惯量的（默认，重力前馈用）；arm.urdf = 上游 CAD 名义值。 -->
+  <xacro:arg name="dyn_model" default="arm_identified.urdf"/>
 
   <xacro:property name="arm_cfg" value="${xacro.load_yaml('$(arg joint_cfg)')}"/>
   <xacro:property name="align_cfg" value="${xacro.load_yaml('$(arg align_cfg)')}"/>
@@ -91,9 +94,11 @@
           <param name="baud">${arm_cfg['baud']}</param>
           <param name="enable_on_activate">$(arg enable_on_activate)</param>
           <param name="vlim">$(arg vlim)</param>
-          <!-- 动力学模型（重力前馈）的路径：由 CMake 在构建时从**同一个 xacro** 展开并安装，
-               惯性与运动学和运行期那份同源。插件目前**不读**它（2.2/2.4 才接上）。 -->
-          <param name="urdf_path">$(find arm_description)/urdf/arm.urdf</param>
+          <!-- 动力学模型（重力前馈）的路径：由 CMake 在构建时从**同一个 xacro** 展开并安装。
+               默认用 **辨识版**（arm_identified.urdf）—— 上游 CAD 的惯量与这台实机不符，
+               实测重力项差 7.8× / 0.76× / 0.32×（见 config/gravity_identified.yaml 顶部）。
+               想对比名义模型就传 dyn_model:=arm.urdf。 -->
+          <param name="urdf_path">$(find arm_description)/urdf/$(arg dyn_model)</param>
           <!-- 重力前馈总开关 + 缩放（分级上电用）。 -->
           <param name="gravity_ff">$(arg gravity_ff)</param>
           <param name="gravity_ff_scale">$(arg gravity_ff_scale)</param>
