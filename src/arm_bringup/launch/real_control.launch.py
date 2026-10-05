@@ -48,6 +48,10 @@ def generate_launch_description():
         "mit_controllers", default_value="false",
         description="控制器是否声索 velocity 命令接口（MIT 速度前馈要用）。"
                     "默认 false = 只声索 position（POS_VEL 路径，最稳）")
+    gravity_ff = DeclareLaunchArgument(
+        "gravity_ff", default_value="false",
+        description="重力前馈总开关。true ⇒ 这条链的关节进 MIT + 每帧发重力前馈，"
+                    "并**自动**改用 MIT 版控制器配置（多声索 velocity）。默认 false")
 
     xacro_file = PathJoinSubstitution(
         [FindPackageShare("arm_description"), "urdf", "arm.urdf.xacro"])
@@ -55,11 +59,13 @@ def generate_launch_description():
         [FindPackageShare("arm_description"), "rviz", "display.rviz"])
     # 两套控制器配置：POS_VEL（只声索 position）与 MIT（多声索 velocity + 显式 constraints）。
     # ⚠️ 声索 velocity 会改变 JTC 的到达判据（真机曾因此卡死），所以默认不声索 —— 见那份 yaml。
+    # gravity_ff=true 时必须用 MIT 那份：要用速度前馈就得声索它。
     controllers_file = PathJoinSubstitution([
         FindPackageShare("arm_bringup"), "config",
         PythonExpression([
-            "'ros2_controllers_mit.yaml' if '", LaunchConfiguration("mit_controllers"),
-            "' == 'true' else 'ros2_controllers.yaml'",
+            "'ros2_controllers_mit.yaml' if ('", LaunchConfiguration("mit_controllers"),
+            "' == 'true' or '", LaunchConfiguration("gravity_ff"), "' == 'true')",
+            " else 'ros2_controllers.yaml'",
         ]),
     ])
 
@@ -70,6 +76,7 @@ def generate_launch_description():
             " use_gripper:=", LaunchConfiguration("use_gripper"),
             " enable_on_activate:=", LaunchConfiguration("enable_on_activate"),
             " vlim:=", LaunchConfiguration("vlim"),
+            " gravity_ff:=", LaunchConfiguration("gravity_ff"),
         ]),
         value_type=str)
 
@@ -121,6 +128,7 @@ def generate_launch_description():
         use_rviz,
         use_gripper,
         mit_controllers,
+        gravity_ff,
         control_node,
         robot_state_publisher,
         jsb_spawner,
