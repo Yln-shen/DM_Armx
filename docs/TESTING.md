@@ -408,3 +408,15 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 **另外**：mock 测试当时还撞上"两套 CM 抢同名控制器"（`Failed to activate controller`），
 所以 **mock 与真机这两套任何时候都只能开一套**（含 `move_group.launch.py use_mock:=true` 与
 `real_control.launch.py`）。
+
+**M6 续：mock 规划仍未跑通（2026-10-05 晚）**。参数拼法的两次尝试：
+1. `{"ompl": {...}}`（嵌套 dict）⇒ `move_group` 抛
+   `Planning plugin name is empty or not defined in namespace 'ompl'`；
+2. 改成**扁平键** `ompl.planning_plugin` / `ompl.request_adapters` / `ompl.arm.*` 之后，
+   `move_group` **仍然没能进入 node list**（起来即退），原因见 `/tmp/m6.log`（已归档到本条下面）。
+⇒ 下一步建议（给下一个 AI）：**直接用官方 `moveit_configs_utils.MoveItConfigsBuilder`** 生成参数
+（它会把 `planning_pipelines` / `ompl.*` / `robot_description_kinematics` / 控制器映射按 MoveIt 期望的
+结构摆好），别自己手拼；起的时候先只看 `ros2 node list | grep move_group`（`--show-args` 只能验语法）。
+
+⚠️ 另记一条操作教训：`pkill -f "ros2 launch"` / `grep "[m]ove_group"` 这类**模式会匹配到"正在执行这条命令的 shell 自己"**
+（命令行里就含那个字面量）⇒ 自杀了两次。要杀就用**带方括号的写法**（`move[_]group`）且别在命令行里出现裸字面量。
