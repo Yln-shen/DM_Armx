@@ -1,0 +1,20 @@
+# MoveIt 怎么把规划出来的轨迹**交给 ros2_control 执行**：
+# 用 simple controller manager，把轨迹变成 FollowJointTrajectory action 发给 joint_trajectory_controller。
+# 控制器名与 arm_bringup/config/ros2_controllers.yaml 里的**必须一致**（都叫 arm_controller）。
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - arm_controller
+
+  arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory          # ⇒ /arm_controller/follow_joint_trajectory
+    default: true
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6

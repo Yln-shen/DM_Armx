@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- DM_Armx 的 MoveIt 语义描述（**手写的最小集**）。
+
+     规划组只有一个 `arm`（6 关节，从 base_link 到 gripper_tcp 的链）；
+     本阶段**不做夹爪**，所以没有 gripper 组、也没有夹爪相关的碰撞对。
+
+     碰撞对只关掉"物理上不可能不接触"的**相邻链节**：关节处本来就是贴着的，不关掉的话
+     起始状态就会报自碰撞。**故意不抄 Setup Assistant 生成的那一长串**——宁可多查一点碰撞
+     （6 轴这点量无所谓），也不要误关掉真实可能碰撞的对（比如 link1-link3 折叠时会碰）。 -->
+<robot name="dm_armx">
+  <!-- 规划组：base_link → gripper_tcp 的链（含 j1~j6 与 end_link/gripper_tcp 两个固定关节） -->
+  <group name="arm">
+    <chain base_link="base_link" tip_link="gripper_tcp"/>
+  </group>
+
+  <!-- 相邻链节：关节处必然接触，关掉 -->
+  <disable_collisions link1="base_link" link2="link1" reason="Adjacent"/>
+  <disable_collisions link1="link1" link2="link2" reason="Adjacent"/>
+  <disable_collisions link1="link2" link2="link3" reason="Adjacent"/>
+  <disable_collisions link1="link3" link2="link4" reason="Adjacent"/>
+  <disable_collisions link1="link4" link2="link5" reason="Adjacent"/>
+  <disable_collisions link1="link5" link2="link6" reason="Adjacent"/>
+  <disable_collisions link1="link6" link2="end_link" reason="Adjacent"/>
+  <disable_collisions link1="end_link" link2="gripper_tcp" reason="Adjacent"/>
+  <!-- 同一个刚体上的两个 link（link6 与 TCP 之间只差 end_link），永远不碰 -->
+  <disable_collisions link1="link6" link2="gripper_tcp" reason="Never"/>
+</robot>

@@ -1,0 +1,48 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Name: RobotModel
+      Description Topic:
+        Value: /robot_description
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Enabled: true
+      Name: MotionPlanning
+      Move Group Namespace: ""
+      Planning Group: arm
+      Planning Scene Topic: /monitored_planning_scene
+      Planned Path:
+        Loop Animation: false
+      Planning Request:
+        Colliding Link Color: 255; 0; 0
+        Goal State Alpha: 1
+        Goal State Color: 250; 128; 0
+      Scene Geometry:
+        Scene Alpha: 0.9
+      Scene Robot:
+        Robot Alpha: 0.5
+  Global Options:
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 1.5
+      Pitch: 0.4
+      Yaw: 2.4
+Window Geometry:
+  Height: 900
+  Width: 1500

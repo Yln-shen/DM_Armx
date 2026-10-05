@@ -1,0 +1,27 @@
+# OMPL 规划器参数。
+# ⚠️ `request_adapters` 里的 **AddTimeOptimalParameterization 不能少**：它负责把几何路径
+#    加上时间参数（`time_from_start`）—— 没有它，joint_trajectory_controller 收到的是"没有时间"的
+#    轨迹（等于瞬间到位），真机上很危险。
+planning_plugin: ompl_interface/OMPLPlanner
+request_adapters: >-
+  default_planner_request_adapters/AddTimeOptimalParameterization
+  default_planner_request_adapters/ResolveConstraintFrames
+  default_planner_request_adapters/FixWorkspaceBounds
+  default_planner_request_adapters/FixStartStateBounds
+  default_planner_request_adapters/FixStartStateCollision
+  default_planner_request_adapters/FixStartStatePathConstraints
+start_state_max_bounds_error: 0.1
+
+arm:
+  default_planner_config: RRTConnect
+  longest_valid_segment_fraction: 0.005
+  planner_configs:
+    RRTConnect:
+      type: geometric::RRTConnect
+      range: 0.0
+    RRT:
+      type: geometric::RRT
+      range: 0.0
+      goal_bias: 0.05
+    PRM:
+      type: geometric::PRM

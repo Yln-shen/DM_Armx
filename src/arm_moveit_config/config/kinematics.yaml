@@ -1,0 +1,13 @@
+# MoveIt 的 IK 求解器（按规划组名分段）。
+# 用 KDL：MoveIt 自带、无额外依赖、6 轴串联臂够用。
+# ⚠️ 两个已知点：
+#   1. KDL **不支持根链带惯性** —— URDF 根 link（base_link）上的 <inertial> 会让
+#      robot_state_publisher 打一条 WARN（`kdl_parser: The root link base_link has an inertia...`）。
+#      它**只是告警、不影响 IK 求解**；真要消掉就在 URDF 加一个无惯性的 dummy 根 link（待办）。
+#   2. KDL 是**数值解**：接近奇异位形时会解不出来（`kinematics_solver_timeout` 内试够即可，
+#      真解不出来 MoveIt 会返回失败，不会硬来）—— 失败就换个目标点，或先规划到中间位形。
+arm:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 0.05
+  kinematics_solver_attempts: 3

@@ -26,6 +26,12 @@ ros-jazzy-joint-state-publisher = ">=2.4.3,<3"
 ros-jazzy-joint-state-publisher-gui = ">=2.4.3,<3"
 ros-jazzy-rviz2 = ">=14.1.23,<15"
 ros-jazzy-tf2-ros = ">=0.36.22,<0.37"
+ros-jazzy-moveit-ros-move-group = ">=2.12.4,<3"
+ros-jazzy-moveit-kinematics = ">=2.12.4,<3"
+ros-jazzy-moveit-planners-ompl = ">=2.12.4,<3"
+ros-jazzy-moveit-simple-controller-manager = ">=2.12.4,<3"
+ros-jazzy-moveit-configs-utils = ">=2.12.4,<3"
+ros-jazzy-moveit-ros-visualization = ">=2.12.4,<3"
 
 [activation.env]
 # 让**链接器**找得到 $CONDA_PREFIX/lib：rclcpp 的传递依赖（-lcap / -llttng-ust）在那里，
