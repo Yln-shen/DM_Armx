@@ -379,8 +379,29 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
         // MIT 的保持帧要关节侧（set_mit 会自己换算回来）。两者是同一点，别混用。
         jp.hold_ours = jp.joint->motor_to_joint(st->pos);
       }
-      RCLCPP_WARN(get_logger(), "已使能 %zu 台（保持目标 = **使能那一刻锁定**的电机侧位置 + vlim %.2f）",
-        joints_.size(), kHoldVlim);
+      if (gravity_ff_) {
+        // ⚠️ MIT 下 `enable()` 发的是**零增益零前馈**保持帧（出力恒为 0）⇒ 到第一次 write()
+        //    之间机械臂是**自由下落**的。真机实测（2026-10-05）：j4 在这段窗口里掉了 0.104 rad，
+        //    直接把"位置残差守卫"顶爆 ⇒ tau_ff 被锁成 0，整轮前馈白废。
+        //    这里立刻补一帧**真实**的 MIT 保持帧，把窗口关掉。
+        for (std::size_t i = 0; i < joints_.size(); ++i) {
+          q_urdf_buf_[i] = ours_to_model(i, *joints_[i].hold_ours);
+        }
+        gravity_->tau_ours(q_urdf_buf_.data(), tau_ours_buf_.data());
+        for (std::size_t i = 0; i < joints_.size(); ++i) {
+          JointParams & jp = joints_[i];
+          jp.last_tau_ours = tau_ours_buf_[i];
+          jp.joint->set_mit(jp.kp_hold, jp.kd_hold, *jp.hold_ours, 0.0,
+            gravity_ff_scale_ * jp.last_tau_ours);
+        }
+        RCLCPP_WARN(get_logger(),
+          "已使能 %zu 台（MIT + 重力前馈 scale=%.3f；保持目标 = 使能那一刻锁定的关节侧位置，"
+          "并已立刻补发真实保持帧关闭零增益窗口）", joints_.size(), gravity_ff_scale_);
+      } else {
+        RCLCPP_WARN(get_logger(),
+          "已使能 %zu 台（保持目标 = **使能那一刻锁定**的电机侧位置 + vlim %.2f）",
+          joints_.size(), kHoldVlim);
+      }
     } else {
       RCLCPP_WARN(get_logger(),
         "enable_on_activate=false：**只读** —— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态");
