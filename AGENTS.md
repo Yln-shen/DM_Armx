@@ -38,8 +38,8 @@
 | [config/joint.yaml](src/motor_driver/config/joint.yaml) | — | 6 关节静态参数（**已按本项目标定**：offset / direction / 软限位） | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
 | [setup.py](src/motor_driver/setup.py) | 36 | 装 `share/motor_driver/config/joint.yaml`；**`data_files` 的源路径只能写相对路径**（colcon 的 ament_python task 会 assert 拒绝绝对路径） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` 指向 `motor_driver.*` |
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
-| [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
-| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
+| [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + **`config/mit_gains.yaml`（MIT 保持增益）** + **`config/gravity_identified.yaml`（辨识出的质量/质心）** + `scripts/apply_identified_inertia.py` + 显示 launch。构建时生成两份动力学 URDF：`arm.urdf`（上游名义）与 **`arm_identified.urdf`（辨识版，前馈默认用）** | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
+| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **`real_control.launch.py`**（真机 ros2_control，参数 `enable_on_activate` / `spawn_arm_controller` / `vlim` / **`gravity_ff`** / **`gravity_ff_scale`** / `mit_controllers`）+ **两份控制器配置** `config/ros2_controllers.yaml`（只 position）与 `ros2_controllers_mit.yaml`（position+velocity+constraints，见陷阱 #40） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
 | [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
 | [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、锁定保持目标、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
 
@@ -99,18 +99,26 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 `joint_to_motor`/`motor_to_joint`/`clamp`/`clamp_pmax`/`prepare_frame`（NaN→软限位→换算→PMAX）·
 `set_pos_vel`（**仅 mode 2**）· `enable`（**无缓存位置拒使能 + 立刻补保持帧**）· `disable` ·
 `get_state`（无反馈抛）· `assert_healthy`（只查 ERR，故障先失能再抛）；
+`dm_joint` 的 MIT 侧：**`set_mit`**（仅 mode 1；`torque_max` 不是空时先按**预测总力矩**钳 `tau_ff`，
+PD 项自己超则拒发）· `enable` 在 mode 1 下发的是**零增益零前馈**（出力恒 0，见陷阱 #41）；
+`dm_gravity`：**`GravityModel`**（pinocchio 的 `computeGeneralizedGravity`）—— 构造时按**名字**映射到
+pinocchio 关节、预分配 `Data` 与缓冲（`tau_ours()` **零堆分配**，在 100 Hz 的 `write()` 里调）；
 `DmSystemInterface`（插件，`SystemInterface`）：参数**全部来自 <param>**（device/baud/enable_on_activate/vlim +
-每关节 motor_id/motor_type/direction/offset/p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/可选 PID）·
-生命周期 `on_init`（解析校验）→ `on_configure`（建串口/总线/关节）→ `on_activate`（开串口 + `sync_states` +
-写 `0x0A=2` + 可选写 PID + 可选使能 + **锁定保持目标**）→ `on_deactivate`（**全部失能**）；
-`read()`（poll + 填 position/velocity + **ERR 非 0/1 报 ERROR**）· `write()`（**命令是 NaN 就发"锁定的保持目标"**
-= 使能那一刻的电机侧位置，见陷阱 #38；只读模式一个字节都不发）。
+**gravity_ff** / **gravity_ff_scale** / **urdf_path** + 每关节 motor_id/motor_type/direction/offset/p_max/v_max/t_max/
+position_min/position_max/**sign/zero_shift**/**torque_max**/**kp_hold**/**kd_hold**/可选 PID）·
+生命周期 `on_init`（解析校验）→ `on_configure`（建串口/总线/关节；`gravity_ff` 时建 `GravityModel`，失败即 FATAL）→
+`on_activate`（开串口 + `sync_states` + 写 `0x0A=1/2` + 可选写 PID + 可选使能 + **锁定保持目标** +
+`gravity_ff` 时**立刻补发真实 MIT 保持帧**）→ `on_deactivate`（**全部失能**）；
+`read()`（poll + 填 position/velocity/**effort** + **ERR 非 0/1 报 ERROR**）·
+`write()`（只读模式**一个字节都不发**；`gravity_ff=false` ⇒ 走 `set_pos_vel`，命令是 NaN 就发陷阱 #38 的锁定保持帧；
+`gravity_ff=true` ⇒ 走 `write_gravity_ff()`：实测姿态算重力项 → 每关节 `set_mit(kp_hold, kd_hold, 命令, sign·速度命令, tau)`，
+带**残差守卫**，见陷阱 #42）。
 
-**未实现（别以为有）**：`arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
-重力补偿 · 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
-C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）·
-真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）与 **MoveIt 规划 + 执行**都**已通过**
-（2026-10-05，见 `docs/TESTING.md` §十四/§十五）。
+**未实现（别以为有）**：`arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
+**C++ 侧的力位混控路径**（POS_VEL 与 MIT 两条都做了，够重力前馈用）·
+**摩擦前馈 / 宿主侧积分 / 逐关节 kp 标定**（见 §5 "重力补偿"那段末尾的"还差什么"）·
+**`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；C++ 包的 `test/` 是唯一例外，见 §7）。
+真机上的 **ros2_control 三步验收**、**MoveIt 规划 + 执行**、**MIT + 重力前馈整链**都**已通过**（2026-10-05）。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 
@@ -123,6 +131,8 @@ C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混�
 | `limit` 档位数值 | **只能回读** `0x15/0x16/0x17`；实测记录在 `docs/TESTING.md` §2.5/§2.6 |
 | **力位混控 `i_des` ↔ 扭矩的换算** | `arm_config.NM_PER_I_DES`（实测值，**别按峰值比例外推**：4340P 40 / 4310 22，不是 3.2 倍关系） |
 | **模型对齐 `sign` / `zero_shift`**（`q_urdf = sign·q_ours + zero_shift`） | `src/arm_description/config/align.yaml`（2026-10-04 M1b 实测；URDF 限位与 M5 硬件接口都从它推） |
+| **MIT 保持增益 `kp_hold` / `kd_hold`** | `src/arm_description/config/mit_gains.yaml`（**目前是占位值 7.0/0.8，还没逐关节标定**；不塞进 `joint.yaml` 是因为 `arm_config.py` 严格解析、多一个键就 TypeError） |
+| **这台实机的质量 / 质心（重力模型）** | `src/arm_description/config/gravity_identified.yaml`（2026-10-05 辨识，RMS 1.323→0.418；**上游 CAD 的惯量不可信**，见陷阱 #43） |
 | 设计意图 | `docs/DESIGN.md`（**部分历史段已过期**） |
 
 ## 5. 关键事实表
@@ -160,52 +170,25 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 - 收尾把 `0x0A` 写回 **1**，与 `config/joint.yaml` 的冷启动声明一致（`0x0A` 本来就是 RAM）。
 - 证据快照：`registers/06/20261001-170644_baseline.json`、`..._170902_before_pid.json`、`..._171147_before_posvel.json`
 
-**2026-10-01 真机力位混控（mode 4）实测**（单台 id=6 / 4310，裸机平放、无负载；全程只使能这一台）：
-- 做法：`dm_registers` 写 `0x0A=4`（RAM）→ **进程内**把 `joint.mode` 改成 4（`switch_mode()` 指引的那一步，
-  **不改仓库 yaml**）→ 手写 100 Hz 发/收节拍循环（含 ERR 与"位移 >0.5 rad"守卫）；收尾 `0x0A` 写回 1、PID 还原工厂值
+**2026-10-01 真机力位混控（mode 4）实测**（单台 id=6 / 4310，裸机平放、无负载）：
 - `enable()` 的保持帧（`i_des=1.0` + 实测位置）⇒ 漂移 **0.00000 rad** ⇒ **使能本身不动** ✓
-- **`i_des` 语义实测（陷阱 #3 结案）**：目标 +0.08 rad、vel=0.5
-  - `i_des=0.0` ⇒ 150 圈/1.5 s **完全不动**（末位 +1.7977、残差 +0.0800、|tau| **0.0073**）
-  - `i_des=0.2` ⇒ 到位 **+1.8774**、残差 **+0.0003**、|tau| 0.169
-  - `i_des=1.0` ⇒ 到位 +1.8774、残差 **+0.0003**、|tau| 0.173 ⇒ **与 0.2 完全一致**
-    ⇒ 电流上限只在环路"想要更多电流"时（负载/加速）才起作用：**空载自由轴上 0.2 与 1.0 无差别**
-- **PID 对比**：工厂值（0.00372/0.002/54/0）与 DESIGN 计划值（0.0008/0.002/70/1.0）在这台空载上几乎无差别
-  （残差 +0.0003 / −0.0005，回位残差稳定在 −0.0004，|tau| 峰值 0.15~0.19）
-- 全程 **100.0 Hz、0 超时、ERR 恒 1、温度 34/31 ℃**；收尾 6 台 ERR 全 0
-- ⚠️ 结束时 j6 比开始时偏 **+0.0008 rad**（0.046°：稳态残差 −0.0004 + 最后一帧后的自然停靠）
-- 证据：`registers/06/20261001-233044_before_mode4.json`、`..._233104_after_mode4.json`
-  （另有 `..._233028_before_mode4.json` 是首次尝试崩溃前的快照，当时 `0x0A` 还是 1）
-- **`i_des` 封顶的带载验证：摩擦阈值扫描**（同日 深夜，无负载、无手扶；用**电机自身静摩擦**当已知负载）：
-  | `i_des` | 0.0 | 0.005 | **0.006** | **0.007** | 0.008 | 0.01 | ≥0.02 |
-  |---|---|---|---|---|---|---|---|
-  | 位移（目标 ±0.3 rad，方向交替） | 0.0000 | 0.0004 | **0.0023 没动** | **0.5638 动了** | 0.5615 动了 | 0.3002 动了 | 动了 |
-  | 中位 /\|tau\|/ | 0.0024 | 0.1050 | 0.1099 | 0.1441 | 0.1441 | 0.1099 | 0.11~0.12 |
-  ⇒ **阈值尖锐落在 `i_des ∈ (0.006, 0.007]`**：以下**一点都推不动**，以上立刻走完。
-  阈值处的可用扭矩 = 静摩擦 **0.145 N·m**（与独立测得的摩擦值吻合）⇒ **可用扭矩确实被 `i_des` 线性缩放**。
-  两条独立路径给出 **k ≈ 18~22 N·m / 每单位 `i_des`**（阈值法 0.145/0.0065≈22；封顶读数法 0.105/0.005≈21、0.110/0.006≈18）。
-  ⚠️ 推论：`i_des ≥ ~0.5` 时封顶扭矩已超过 4310 峰值 **12.5 N·m** ⇒ 再往上"限制因素"变成电机/TMAX，不是 `i_des`。
-  ⚠️ **方法学教训**：前两轮"用手扭住轴"想测上限**测不出来** —— 手在 ~0.5 N·m 就打滑（每次 0.6 s 滑掉 0.12 rad、误差停在 0.18 rad），
-  而 `i_des=0.05` 封顶就有 ~1 N·m ⇒ **手永远先滑**。带载验证要用"摩擦阈值法"或机械硬限位，别用手。
-  → 这就是下面 `NM_PER_I_DES` 的来源（取上界：4340P 40、4310 22 N·m/单位）
+- **`i_des` 语义结案**：`i_des=0.0` ⇒ 完全不动（\|tau\| 0.007）；空载自由轴上 0.2 与 1.0 结果**完全一致**
+  ⇒ 它是**电流上限**、只在环路真要更多电流（负载/加速）时才起作用。
+- **带载验证用"摩擦阈值扫描"**（拿电机自身静摩擦当已知负载）：阈值尖锐落在 `i_des ∈ (0.006, 0.007]`，
+  以下一点都推不动、以上立刻走完 ⇒ `k ≈ 18~22 N·m / 每单位 i_des`（**这就是 `NM_PER_I_DES` 的来源**，取上界 40/22）。
+  ⚠️ **别用手测上限**：手在 ~0.5 N·m 就打滑，而 `i_des=0.05` 封顶就有 ~1 N·m ⇒ 手永远先滑（试过两轮，测出来的只是手）。
+- 完整数据（PID 对比、逐步位移表、证据快照路径）见 `docs/TESTING.md`。
 
-**2026-10-01 真机整臂实测**（6 台**裸电机平放桌面、无负载、未组装**；`/dev/ttyACM0`；⚠️ 各 ID 与物理位置的对应关系**未确认**，用户说"地址顺序可能不对"）：
-- **电机侧看门狗 `0x09`：6 台已统一为 `10000` 计数 = 500 ms，并已存 flash**（2026-10-01）。
-  过程：先只动 id1（`set --force --save --yes`：写前自动 dump 基线 → 写 10000 → 读回一致 → 存 flash 收到回包）
-  → **断电重上电后 id1 仍是 10000 ⇒ flash 写入路径 + 手册的 `0xAA`/`0x01` 字节都验证通过** → 再把 id2~id6 同样写入
-  → **第二次断电重上电复核：6 台（含 4310 的 id4~id6）全部仍是 10000（500 ms）⇒ 持久性彻底闭环**。
-  同两次复核里 `0x0A` 都回到 **1（MIT）**（RAM，掉电复位，与 yaml 声明一致）。
-  历史值：改动前 id1=15000（750ms）、id2~id6=0 —— 那个不一致触发过 ERR=13 锁存（见陷阱 #24）。
-- **看门狗实测（2026-10-01，只使能 id6，零增益、无负载）**：每 **400 ms** 发一帧 × 6 轮（2.4 s）
-  ⇒ ERR 始终 1（**正常喂狗不误触发**）；改成每 **700 ms** 一帧 ⇒ **第 2 轮 ERR=13、使能=False**
-  ⇒ **电机自己把输出关了**（fail-safe）；再静默 1 s 仍为 13 ⇒ **锁存，只能断电清**。
-  实测超时窗口 **(400 ms, 700 ms]**，与 `0x09=10000`（500 ms）一致。
-- **只读**：6/6 应答、ERR 全 0、`check_health()` 通过、`unknown_ids=[]`（总线上无陌生设备）
-- **使能/失能**：`enable_all()` 1.8 ms → 6/6 ERR=1；`disable_all()` → 6/6 ERR=0
-- **100Hz 发(6 帧/圈) + 100Hz 收，20 秒**：发 2001 圈 / 收 2002 圈，**都是 100.0 Hz、0 次超时**，ratio 1.00，**位置漂移 0.00000 rad（6 台全部）**，温度 28~32 ℃
-- **500Hz 发单跑 3 秒**：**499.7 Hz**、1 次超时（write_avg 0.107 ms / p99 0.236 ms）⇒ DESIGN 的 500 Hz 目标本身可达
-- **500Hz 发 + 100Hz 收同跑 3 秒**：**482.3 Hz、35 次超时（2.4%）**；收侧排空 **8681/8682** 帧、`pending_bytes` 全程 0 ⇒ **收侧吃得下 6 倍回包**，代价是两个 Python 线程的 GIL 争用
-- 零增益使能全程**零位移**；收尾 `disable_all()` + 排空后 ERR=0 且位置与开始时逐位一致
-- ⚠️ 未做：方向/零位标定（`offset` 全 0.0）、任何带目标的动作测试
+**2026-10-01 真机整臂实测**（6 台**裸电机平放桌面、无负载、未组装**；`/dev/ttyACM0`）：
+- **电机侧看门狗 `0x09`：6 台已统一为 `10000` 计数 = 500 ms 并已存 flash**（**断电重上电复核仍是 10000** ⇒
+  flash 路径 + 手册的 `0xAA`/`0x01` 字节都验证过）。⚠️ 改动前 id1=15000、id2~id6=0，那个不一致触发过 ERR=13 锁存。
+- **看门狗实测**：400 ms 喂狗 2.4 s **不触发**；700 ms 一帧 ⇒ 第 2 轮 **ERR=13 且电机自己关输出**（fail-safe）、
+  **锁存只能断电清** ⇒ 实测超时窗口 **(400, 700] ms**，与 `0x09=10000` 一致。
+- **只读** 6/6 应答 ERR 全 0、`unknown_ids=[]`；**使能/失能** 1.8 ms → 6/6。
+- **100 Hz 发+收 20 s**：都是 **100.0 Hz、0 超时**、**位置漂移 0.00000 rad**、28~32 ℃；
+  **500 Hz 单跑 3 s → 499.7 Hz**（write p99 0.236 ms）；**500 Hz 发 + 100 Hz 收同跑 → 482.3 Hz、2.4% 超时**
+  （两个 Python 线程 GIL 争用）⇒ 要干净 500 Hz 就降到 ~400 Hz 或把收侧分进程。
+- 完整证据（逐项命令与输出、快照路径）见 `docs/TESTING.md`。
 
 **力矩 / 温度监控（`DmArm._monitor_step()`，挂在**收循环**上 ⇒ 采样率 = `feedback_hz`）**：
 - **力矩只查 POS_VEL**：阈值来自 yaml 的 `torque_monitor_threshold`（j1~j3=**15.0**、j4~j6=**5.0**），
@@ -277,7 +260,26 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 - **位置真源 = 寄存器 `0x50 p_m`（float32）== 反馈帧的 `pos`**；**≠ `0x51 xout`**（真机实测每台差一个常数：+0.072 / −0.016 / −0.031 / +0.058 / +0.170 / +0.259 rad；交替读数证明它不随时间漂）⇒ 标定与换算一律按 `p_m`（或反馈帧）。
 - **多圈绝对位置跨断电保持**：6 台断电约 8 s 再上电，位置 Δ ≤ **0.00015 rad** ⇒ `offset` 标一次长期有效，不必每次上电回零。
 - **本项目的零位/方向/软限位已标定**（`config/joint.yaml`）：offset 逐关节目视零位读数；direction 手推**加通电复核**（j1~j5 = −1、**j6 = +1**）；软限位由用户摆姿态端点换算（j1/j2/j3/j4 只在零位一侧，j5/j6 两侧）。⚠️ 这是**本项目自定义**的零位与方向，与 DESIGN.md 引用的参考项目不同。
-- **`kp` 只能把关节推到离目标"负载/kp"的地方**：真机 j1 `kp=15` 差 0.042 rad（≈ 4340P 静摩擦 0.62 ÷ kp）、j3 `kp=30` 差 0.06 rad（重力 1.76 ÷ kp）。**把残差积进 `tau_ff` 前馈**后能贴到 **0.03°~0.6°**（j3/j4/j5/j6 实测），总力矩仍受 `torque_max` 钳位。
+- **`kp` 只能把关节推到离目标"负载/kp"的地方**：真机 j1 `kp=15` 差 0.042 rad（≈ 4340P 静摩擦 0.62 ÷ kp）、**j2** `kp=30` 差 0.06 rad（重力 1.76 ÷ kp）。**把残差积进 `tau_ff` 前馈**后能贴到 **0.03°~0.6°**（j3/j4/j5/j6 实测），总力矩仍受 `torque_max` 钳位。
+  ⚠️ 归属更正（2026-10-05）：那条 `1.76 ÷ kp` 一直是 **joint2**（`docs/TESTING.md` §十二 的表里就是这么写的），
+  本文早先误记成 j3。**今天独立佐证**：张开位用 POS_VEL 托住、读电机反馈的保持力矩 ⇒ **j2 = −1.771 N·m**，
+  与 1.76 吻合；而同一姿态下 j3 是 **−5.27 N·m**。
+
+**重力补偿（MIT + 前馈，2026-10-05 整链真机跑通）**：
+- **开关**：`gravity_ff:=true` ⇒ 整条链的关节进 MIT（写 `0x0A=1`）+ 每帧按**实测姿态**算重力项当前馈；
+  `false`（默认）⇒ 一个字节都不变（仍走 POS_VEL）。`gravity_ff_scale`（0~1）用于分级上电。
+- **只有 MIT 能给力矩**：POS_VEL 帧里没有力矩字段，力位混控的 `i_des` 是电流**上限**也不是前馈
+  ⇒ ros2_control 链上做重力前馈**必然**要整链换模式，不是"只换保持帧"。
+- **模型来源**：默认用**辨识版** `urdf_path=.../arm_identified.urdf`（`dyn_model:=arm.urdf` 可切回名义版）。
+  辨识精度：整体 RMS **1.323 → 0.418 N·m**；张开位实测保持力矩 vs 模型 RMS **0.317（辨识版）vs 1.096（名义版）**。
+- **符号链已验证**（三条独立路径）：与 MuJoCo 逐位一致（≤8.9e-15）；真机带载关节 j2/j3/j4 模型与实测**符号全同**；
+  已知 `tau_ff` 标定 effort 往返 ≈1:1。
+- **`effort` 状态接口**（模型坐标 N·m）：来自电机反馈的**电流估计**，不是力矩传感器。
+  用途是"POS_VEL 托住时读真实保持力矩"与 ROS 侧监控；**它的存在让重力模型能被数据校核**。
+- ⚠️ **还差什么**：①**静态精度** —— MIT+前馈做到 j3 差 **0.134 rad**，而 POS_VEL 是 **0.0016 rad**
+  （物理下限：扰动/kp；要追平必须加**宿主侧积分项**）；②`kp_hold`/`kd_hold` 还是占位值；
+  ③**摩擦前馈**（j3 还有 ~0.8 N·m 不可重复扰动）；④安全：MIT 路径目前靠"残差守卫 + `torque_max` 钳位"，
+  **没有**安全认证层、没有碰撞检测。
 
 ## 6. 陷阱清单（都是这个工程真踩过的）
 
@@ -322,6 +324,16 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 37 | **MoveIt 的 `CheckStartStateBounds` 不会替你"就近钳位"起始状态，越界就**拒绝规划**** | 2026-10-05 真机踩：真机 j1 = `1.371670`，比 URDF 下界 `1.392202` 低 **0.0205** —— 即使这个量**小于** `ompl_planning.yaml` 的 `start_state_max_bounds_error: 0.1`，适配器照样报 `Start state out of bounds. Aborting planning pipeline.` ⇒ `error_code = 99999`、轨迹为空。⚠️ 好在"拒绝"比"静默钳位"安全（只读模式下机械臂一个字节没收到，规划前后 `/joint_states` 逐位相同）。⇒ **真机规划前先比对"实测姿态 vs URDF 限位"**（模型坐标下的限位见 §5）；越界就先把关节弄回限位内（本轮是手动推回去，零电机命令） |
 | 38 | **"使能保持"曾是 follow-me 式（每圈重读实测位置）⇒ 没有回复力，重力能把关节慢慢压走**；**已改成"锁定使能那一刻的位置"** | 2026-10-05 真机实测（`enable_on_activate:=true`、不起轨迹控制器）：j1/j3 在重力下**缓慢蠕动**，20 s 里 j1 −0.00267 rad（0.15°）、j3 −0.00153，j2/j4/j5/j6 为 0。⇒ 它保证的是"**不跳变、不朝零位冲、每圈喂狗**"，**不保证不动**。⚠️ 轨迹**执行期间与之后**不受影响（`hw_commands_` 不再是 NaN，保持的是最后一条命令）。**当天已修**：`on_activate` 把"使能那一刻的电机侧位置"锁进 `JointParams::hold_pos`，`write()` 一直发它 ⇒ 变成**有回复力**的保持。真机复测同一 20 s 场景：j1/j3 各只走 **1 LSB（0.000381 rad）就钉住**（之后 12 s 不动），改前 j1 是 −0.002670 且持续下滑。⚠️ 代价：使能状态下**用手推关节会被顶回来**（follow-me 时是"推哪算哪"）；重力负载下会持续通一点电流。回归用例 `test_dm_system_interface.cpp::HoldTargetIsLatchedNotReread`（**旧实现下必失败**，已实测） |
 | 39 | **失能状态下机械臂会自由塌回"折叠位"** —— 张开姿态**不是自由状态的稳定点**；"跑完退出、下次接着来"的流程**不成立** | 2026-10-05 真机实测：把手臂张开到末端 z=0.325 m（j2 −0.55 / j3 −0.70 / j4 +0.30）之后**失能**，几十秒到一两分钟就自己塌回折叠位 —— j2 掉 **0.55**、j3 掉 **0.76**、j4 掉 **0.63** rad，全程**没有任何命令**（下一次只读链起来时姿态已经是 `[1.4724, +0.0008, -0.0233, +0.0027, ...]`）。⇒ ①**要停在工作姿态必须保持使能**（靠陷阱 #38 的锁定保持撑着）；②**每一轮动手前先读实测姿态**（本工程一直这么做，现在知道为什么非做不可）；③张开姿态只在**同一次运行内**有效，跨运行做笛卡尔试验必须"重新张开 → 立刻探/算 → 执行"一条龙；④别把"失能"当支撑用 |
+| 40 | **JTC 的 `constraints.goal_time` 默认 0 ⇒ 永远不 ABORT，只会"无限挂住"**（表现 `val=-6`、机械臂停在半路）；声索 velocity 命令接口还会**多一条速度容差判据** | 声索 velocity ⇒ `state_error_.velocities` 非空 ⇒ 到达判据里多一条"末速度 ≤ `stopped_velocity_tolerance`（默认 0.01）"，而 `goal_time=0` ⇒ 超时 ABORT 分支**走不到**。真机 A/B/C：`[position velocity]` 无 constraints ⇒ **val=-6**；`[position]` ⇒ val=1（0.84 s）；`[position velocity]`+constraints ⇒ val=1（**0.808 s**）。⇒ **POS_VEL 路径只声索 position**；MIT 路径声索时必须显式给 `stopped_velocity_tolerance: 0.05` + `goal_time: 1.0`。本工程两份配置 `ros2_controllers.yaml` / `ros2_controllers_mit.yaml`。**详见 `docs/LESSONS.md` §七** |
+| 41 | **MIT 下 `enable()` 发的是零增益保持帧（出力恒 0）⇒ 使能到第一次 `write()` 之间机械臂真的在自由下落** | 真机实测 j4 在这段窗口掉了 **0.104 rad**，直接把位置守卫顶爆。⇒ `on_activate` 里锁完保持目标后**立刻补一帧真实 MIT 保持帧**；**别用放宽阈值糊过去**。**详见 §八** |
+| 42 | **重力前馈的残差守卫必须按"保持 / 跑轨迹"分开判**（我在这踩了两次），上电瞬间还要宽限+防抖 | 保持（命令 NaN）⇒ 位置偏离保持点 > 0.1 rad 或 速度 > 0.5 rad/s（且连续 0.2 s、宽限 0.5 s）；跑轨迹 ⇒ **只查跟踪误差** > 0.3 rad。⚠️ 误触发的表现是"前馈被关掉、机械臂只走一半"，**看起来像模型不对**。**详见 §九** |
+| 43 | **上游 CAD 的惯量与这台实机不符**，而且**非均匀地错** ⇒ 直接做前馈有害 | 张开位实测：j2 模型 −0.23 vs 实测 **−1.77**（7.8×）、j3 −6.94 vs **−5.27**（0.76×）、j4 −1.99 vs **−0.65**（0.32×）。**符号全对、量级全错** ⇒ 必须做惯性辨识。结果 **RMS 1.323 → 0.418 N·m**。落地：`arm_description/config/gravity_identified.yaml` + `scripts/apply_identified_inertia.py`。**详见 §十** |
+| 44 | **固定关节的子连杆会被 pinocchio 合并进父连杆** ⇒ 辨识出的是"合并体"的参数 | `end_link`/`gripper_tcp` 并进 `link6`；只改 `link6` 会让 pinocchio **再加一遍** ⇒ 生成物反而更差（RMS 1.03），误差还传到 j2/j3/j4。⇒ 写回时**把固定关节子连杆惯量清零**。排查手法：**把参数手动设进模型再比**。**详见 §十** |
+| 45 | **辨识/静态测量必须等固件积分收敛，并多次采样取中位数** | 第一版"停 2 s + 采一次"混进瞬态（同姿态重复采时 j2/j3 **同时**掉 1.3/2.5 N·m —— 摩擦只该作用在单个关节、量级 0.62 ⇒ 判据就是"两个关节同时掉=瞬态"）。改成"停 4 s + 3 次取中位数"后 RMS 0.515→**0.418**。**详见 §十** |
+| 46 | **`effort` 是电机的电流估计、不是力矩传感器**，尺度必须标定 | 标定法：`gravity_ff=true` 时发的 `tau_ff` 是已知量，读回 effort 比它 ⇒ j2 1.01~1.06 / j3 0.97~0.98 / j4 0.85~0.88 ⇒ **往返 ≈1:1**（排除"差 2 倍"）。价值：POS_VEL 托住时固态积分把误差积到 ~0，**电机报的就是真实保持力矩**。**详见 §十一** |
+| 47 | **"失能后塌回去的那个姿态"往往靠在机械硬限位上** ⇒ 在那里测重力毫无意义 | 停放姿态 j3=+0.068（上限 **+0.0508**）、j2=+0.0008（上限 +0.0584）—— 就在限位上，重力由结构承担。当时四轮分级上电全部"纹丝不动"，**误以为前馈算对了**；其实模型说 j3 需要 −7.27 N·m，kp=7 时本该偏 1.04 rad。⇒ 测重力必须换到真正带载的姿态（张开位）。**详见 §十二** |
+| 48 | **构建期用 xacro 生成 URDF 时，不能用 `$(find <本包>)` 引用本包配置** | 构建期本包还没安装 ⇒ `PackageNotFoundError: package 'arm_description' not found` ⇒ 整个包构建失败。⇒ CMake 里**用源码路径覆盖** `joint_cfg`/`align_cfg`/`mit_gains_cfg` 并加进 `DEPENDS`。**详见 §十三** |
+| 49 | **加了 pinocchio 之后，构建必须走 `pixi run colcon ...`** | pinocchio 进了 `dm_hardware` 的 PUBLIC 链接后 `.so` 链接线变了 ⇒ 没有 `CONDA_PREFIX` 的普通 shell 会报 `找不到 -lcap / -llttng-ust`（陷阱 #32 的兜底只在 `CONDA_PREFIX` 存在时生效）。**详见 §十三** |
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -354,10 +366,15 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   **内存字节流**当串口，就能不接硬件走通"发帧 → 收反馈 → 进缓存"整条链；`test_dm_bus.cpp` 还带一个
   **应答器**（收到刷新帧就回一条反馈），所以 `sync_states()` 那种"先丢旧的、再主动问"的流程也能测。
   `test_dm_joint.cpp` 则直接调 Python 的 `joint.py` 比 `prepare_frame`/发帧结果。
-- **插件级测试**（`test/test_dm_system_interface.cpp`）：假串口里再塞一台**模拟电机** —— 收到 POS_VEL 就把位置
-  跟过去、收到刷新就回状态、收到使能帧就置 ERR=1、寄存器帧回显 RID。于是"只读模式一个控制帧都不发"、
-  "激活时写 `0x0A=2` + 使能 + **锁定保持目标**"、"命令 NaN 继续保持"、
-  "模型坐标 0 ⇒ 电机侧 1.785878"（M1b 实测解出来的那个数）"故障报 ERROR" 全都能不接硬件验。
+- **插件级测试**（`test/test_dm_system_interface.cpp`，11 个用例）：假串口里再塞一台**模拟电机** —— 收到 POS_VEL 就把
+  位置跟过去、收到刷新就回状态、收到使能帧就置 ERR=1、寄存器帧回显 RID、**收到 MIT 帧只在 `kp>0` 时才跟位置**
+  （零增益帧真机出力恒 0，假电机无脑跟随会把保持目标带偏）。覆盖："只读模式一个控制帧都不发"（含 `gravity_ff=true`）、
+  "激活时写 `0x0A=2` + 使能 + **锁定保持目标**"、"命令 NaN 继续保持"、"模型坐标 0 ⇒ 电机侧 1.785878"、
+  "故障报 ERROR"、**`gravity_ff=true` ⇒ 写 `0x0A=1`、无 POS_VEL 帧、MIT 帧的 `t_ff == direction × 重力项`**、
+  **scale 按比例作用且 >1 被拒**、**守卫的宽限/防抖/位置即时判**。
+- **重力模型对拍**（`test/test_dm_gravity.cpp`，3 个用例）：C++ 的 `GravityModel` 与**已跑通的 MuJoCo**
+  逐点对拍（4 位姿 × 6 关节，≤1e-9）+ sign 逐关节生效 + 参数/用法错误。
+  ⚠️ 它读的是**构建时生成**的 `arm_description/arm_dynamics.urdf`，所以要先构建 `arm_description`。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
 
