@@ -599,3 +599,80 @@ goal.yaml 骨架：`request.group_name: arm` + `goal_constraints[0].joint_constr
     ros2 launch arm_moveit_config move_group.launch.py use_mock:=false use_rviz:=false
     # C：发目标（只规划 plan_only: true / 规划并执行 false）
     ros2 action send_goal /move_action moveit_msgs/action/MoveGroup "$(cat goal.yaml)"
+
+## 十六、M6 真机：IK / 笛卡尔位姿目标（2026-10-05）
+
+第一次让**末端位姿目标**上真机（§十五 走的都是关节空间目标）。做法两步：**先只读探 IK，再执行**。
+
+**怎么探**（只读阶段 `enable_on_activate` 默认 false ⇒ 不使能、不发控制帧）：
+
+1. 读末端当前位姿：`ros2 run tf2_ros tf2_echo base_link gripper_tcp`
+2. 对"当前位姿 + 六个方向各 3 cm"逐个问 `/compute_ik`（`moveit_msgs/srv/GetPositionIK`：
+   `group_name=arm`、`ik_link_name=gripper_tcp`、`avoid_collisions=true`、timeout 0.5 s），
+   取第一个 `error_code.val == 1` 的当真机目标。
+
+**① IK 探测：六个方向只有 1 个可解**
+
+    当前末端 x=0.016255 y=0.149039 z=0.189758  q=(-0.034469, 0.046930, 0.666842, 0.742921)
+    IK  +1x / -1x / +1y / -1y / -1z 各 3cm  ->  no (val = -31 = NO_IK_SOLUTION)
+    IK  +1z 3cm                          ->  OK (val = 1)
+
+⚠️ 避碰是打开的，所以这 5 个 `-31` 是 **KDL 解不出来**，不是撞了。⇒ 机械臂现在这个构型**很受限**
+（和 §5 里 j1 只有 0.234 rad 行程是同一件事）—— 想让它"干点活"，得先把它摆到一个手臂伸得开的姿态。
+
+**② 只读 `plan_only`（位姿目标）**：`error_code = 1`、10 个路点，各关节位移
+`+0.0412 / -0.0272 / -0.0900 / +0.0178 / +0.0518 / -0.0116`（max **0.0900 rad = 5.2°**）；
+轨迹首点与真机实测**逐位相同**（没被钳位）；规划前后 `/joint_states` 逐位相同 ⇒ 只读确实没碰电机。
+
+**③ 执行**（`enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5`，goal `scaling 0.1`）：
+
+| | x | y | z |
+|---|---|---|---|
+| 执行前实测（`tf2_echo`） | 0.016 | 0.149 | 0.190 |
+| 目标 | 0.016255 | 0.149039 | **0.219758** |
+| 执行后实测 | 0.016 | 0.148 | **0.221** |
+| 误差 | −0.3 mm | −1.0 mm | **+1.2 mm** |
+
+⇒ 末端实际上抬 **3.1 cm**（目标 3.00 cm）。`tf2_echo` 只显示到 mm，1.2 mm 基本就是显示分辨率。
+
+同一轮的关节（`Goal reached, success!`、`error_code.val = 1`、硬件链 **0 条 ERROR/FATAL**）：
+
+    规划首点: +1.4590 -0.0008 -0.0675 +0.1823 -0.0042 +0.0111   ← = 规划时的实测姿态，无钳位
+    规划末点: +1.4583 -0.0699 -0.1641 +0.1681 -0.0064 +0.0216
+    实测末点: +1.4579 -0.0694 -0.1644 +0.1678 -0.0057 +0.0217
+    跟踪差  : -0.0005 +0.0005 -0.0003 -0.0002 +0.0007 +0.0001   max|Δ| = 0.0007 rad（0.04°）
+
+**④ 两条发现**
+
+- **姿态容差会被"用满"**：命令 RPY `[0.011, 0.116, 1.463]` → 实测 `[0.023, 0.073, 1.466]`，
+  **pitch 差 0.043 rad（2.5°）**，紧贴 `absolute_*_axis_tolerance: 0.05`（2.9°）。
+  ⇒ 想要姿态准就收紧这个容差（代价：IK 更容易解不出来）。
+- 位置误差（1.2 mm）远小于"关节容差 0.02 rad 折到末端"的量级 —— 因为**位置约束是个 5 mm 的球**，
+  规划器只要落进球里就停。要更准就缩小球半径。
+
+**⑤ 位姿目标的 goal 结构**（本轮探针脚本是临时件，在 `log/real/ik_probe.py`，**未入库**）：
+
+    request:
+      group_name: arm
+      num_planning_attempts: 10
+      allowed_planning_time: 5.0
+      max_velocity_scaling_factor: 0.1
+      max_acceleration_scaling_factor: 0.1
+      goal_constraints:
+        - position_constraints:
+            - header: {frame_id: base_link}
+              link_name: gripper_tcp
+              constraint_region:
+                primitives: [{type: 2, dimensions: [0.005]}]          # type 2 = SPHERE, r = 5 mm
+                primitive_poses: [{position: {x: 0.016255, y: 0.149039, z: 0.219758}}]
+              weight: 1.0
+          orientation_constraints:
+            - header: {frame_id: base_link}
+              link_name: gripper_tcp
+              orientation: {x: -0.034469, y: 0.046930, z: 0.666842, w: 0.742921}
+              absolute_x_axis_tolerance: 0.05
+              absolute_y_axis_tolerance: 0.05
+              absolute_z_axis_tolerance: 0.05
+              weight: 1.0
+    planning_options:
+      plan_only: true          # 执行时改 false
