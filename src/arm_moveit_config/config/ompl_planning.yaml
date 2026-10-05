@@ -1,18 +1,18 @@
-# OMPL 规划器参数。
-# ⚠️ `request_adapters` 里的 **AddTimeOptimalParameterization 不能少**：它负责把几何路径
-#    加上时间参数（`time_from_start`）—— 没有它，joint_trajectory_controller 收到的是"没有时间"的
-#    轨迹（等于瞬间到位），真机上很危险。
-planning_plugin: ompl_interface/OMPLPlanner
-# ⚠️ 必须是 **YAML 列表**（不是折叠字符串）：MoveIt 的 ParamListener 把 request_adapters
-#    声明成 `string_array`，写成字符串会在 move_group 启动时抛
-#    `rclcpp::ParameterTypeException: expected [string_array] got [string]` 并 abort。
+# OMPL 规划器参数（Jazzy / MoveIt 2.12 的写法 —— 三处与老教程不同，都是实测撞出来的）：
+#  ① 插件名是**复数数组** `planning_plugins`（单数 `planning_plugin` 不报错但读出为空 ⇒ move_group abort）；
+#  ② 请求适配器前缀是 `default_planning_request_adapters/`（不是 `..._planner_...`）；
+#  ③ **AddTimeOptimalParameterization 在 Jazzy 属于 `response_adapters`**（加到 request 里会报
+#     "class ... does not exist"）。它负责给几何路径补 time_from_start，**不能少**（否则真机上等于瞬间到位）。
+planning_plugins:
+  - ompl_interface/OMPLPlanner
 request_adapters:
-  - default_planner_request_adapters/AddTimeOptimalParameterization
-  - default_planner_request_adapters/ResolveConstraintFrames
-  - default_planner_request_adapters/FixWorkspaceBounds
-  - default_planner_request_adapters/FixStartStateBounds
-  - default_planner_request_adapters/FixStartStateCollision
-  - default_planner_request_adapters/FixStartStatePathConstraints
+  - default_planning_request_adapters/CheckForStackedConstraints
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
 start_state_max_bounds_error: 0.1
 
 arm:

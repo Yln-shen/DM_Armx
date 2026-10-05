@@ -420,3 +420,17 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 
 ⚠️ 另记一条操作教训：`pkill -f "ros2 launch"` / `grep "[m]ove_group"` 这类**模式会匹配到"正在执行这条命令的 shell 自己"**
 （命令行里就含那个字面量）⇒ 自杀了两次。要杀就用**带方括号的写法**（`move[_]group`）且别在命令行里出现裸字面量。
+
+**M6 里程碑：move_group 跑起来了（2026-10-05 深夜）**，三个坑依次排掉（都是 Jazzy/MoveIt 2.12 与老教程不同处）：
+1. 规划插件参数必须是**复数数组** `planning_plugins: [ompl_interface/OMPLPlanner]`
+   —— 单数 `planning_plugin` 不报错但读出为空 ⇒ `move_group` abort "Planning plugin name is empty"；
+2. 请求适配器前缀是 `default_planning_request_adapters/`（不是 `..._planner_...`），
+   且可用名字以错误信息里列出的为准：CheckForStackedConstraints / CheckStartStateBounds /
+   CheckStartStateCollision / ResolveConstraintFrames / ValidateWorkspaceBounds；
+3. **`AddTimeOptimalParameterization` 在 Jazzy 属于 `response_adapters`**（放进 request 会报 class 不存在）。
+   另外 `moveit_configs_utils` 会**无条件**读 `config/joint_limits.yaml` ⇒ 该文件必须存在。
+
+现状：`ros2 node list` 里 move_group ×3 ✓；`plan_only` 的 MoveGroup goal 能应答 ✓，但结果 **ABORTED、轨迹为空**，
+`planning_time≈0.045s`（一进去就退出）⇒ 大概率**起始状态被判自碰撞**（`arm.srdf` 目前只关了相邻链节，
+是刻意的保守选择）。**下一步**：从日志里抓具体碰撞对（`Found a contact between 'linkX' and 'linkY'`），
+补进 `arm.srdf` 的 `disable_collisions`（或改用 Setup Assistant 生成的列表）。
