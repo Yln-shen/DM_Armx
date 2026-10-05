@@ -405,8 +405,23 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
         for (std::size_t i = 0; i < joints_.size(); ++i) {
           JointParams & jp = joints_[i];
           jp.last_tau_ours = tau_ours_buf_[i];
+          // ⚠️ 保持帧**必须绕过软限位钳位**（prepare_frame_raw）：语义是"待在你现在的位置"，
+          //    钳了就会凭空造出一个 PD 项 —— 真机 2026-10-05 实测：激活时 j4 被软限位钳掉
+          //    0.176 rad ⇒ kp=25 下 PD=4.39 > torque_max 3.5 ⇒ **拒发 ⇒ FATAL ⇒ 整条链起不来**。
+          //    kp=7 时 7×0.176=1.23 < 3.5，所以这个问题一直被掩盖着。
+          //    POS_VEL 的保持帧早就故意绕过钳位（陷阱 #21），MIT 的保持帧现在对齐这个语义。
+          const double q_raw = jp.joint->prepare_frame_raw(*jp.hold_ours);
+          const double q_clamped = jp.joint->prepare_frame(*jp.hold_ours);
+          if (std::fabs(q_clamped - q_raw) > 1e-9) {
+            RCLCPP_WARN(get_logger(),
+              "关节 %s 使能时的位置落在**软限位之外**：保持目标（电机侧）钳位前 %.6f、"
+              "钳位后 %.6f，差 %.6f rad。本帧按**钳位前**发 —— 保持帧不该钳位"
+              "（钳了就等于命令它往限位里转，kp 大时还会拒发导致起不来）。"
+              "若这个差值经常很大，说明标定的软限位与实际停放姿态不符，该重新标定。",
+              jp.name.c_str(), q_raw, q_clamped, q_clamped - q_raw);
+          }
           jp.joint->set_mit(jp.kp_hold, jp.kd_hold, *jp.hold_ours, 0.0,
-            gravity_ff_scale_ * jp.last_tau_ours);
+            gravity_ff_scale_ * jp.last_tau_ours, /*bypass_soft_limits=*/true);
         }
         RCLCPP_WARN(get_logger(),
           "已使能 %zu 台（MIT + 重力前馈 scale=%.3f；保持目标 = 使能那一刻锁定的关节侧位置，"
@@ -709,6 +724,10 @@ return_type DmSystemInterface::write_gravity_ff(
       : gravity_ff_scale_ * jp.last_tau_ours + jp.tau_i;
     double q_cmd = 0.0;
     double dq_cmd = 0.0;
+    // 保持帧要**绕过软限位钳位**（见 prepare_frame_raw）：它的语义是"待在你现在的位置"，
+    // 钳了就会凭空造出 PD 项。真机踩过：激活时 j4 被钳 0.176 rad ⇒ kp=25 下 PD=4.4 > 3.5
+    // ⇒ 拒发 ⇒ write() 返回 ERROR ⇒ CM 失能（= 掉臂）。轨迹命令则照常钳位。
+    const bool bypass_limits = std::isnan(hw_commands_[i]);
     if (std::isnan(hw_commands_[i])) {
       // 控制器没起 / 刚激活 ⇒ 保持帧：目标是**使能那一刻锁定**的关节侧位置（陷阱 #38 的教训）
       if (!jp.hold_ours.has_value()) {
@@ -724,7 +743,7 @@ return_type DmSystemInterface::write_gravity_ff(
       }
     }
     try {
-      jp.joint->set_mit(jp.kp_hold, jp.kd_hold, q_cmd, dq_cmd, tau);
+      jp.joint->set_mit(jp.kp_hold, jp.kd_hold, q_cmd, dq_cmd, tau, bypass_limits);
     } catch (const std::exception & e) {
       RCLCPP_ERROR(get_logger(), "关节 %s 拒发 MIT 帧：%s", jp.name.c_str(), e.what());
       return return_type::ERROR;

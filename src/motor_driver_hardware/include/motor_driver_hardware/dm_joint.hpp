@@ -95,12 +95,21 @@ public:
 
   // 发送前的统一处理：NaN 拦 → 软限位 → 换算 → PMAX。返回**电机侧**位置。
   double prepare_frame(double joint_pos) const;
+  // 同 prepare_frame，但**跳过软限位钳位**（NaN 拦与 PMAX 钳位保留）。
+  // 给"保持当前位置"这类帧用：它的语义是"待在你现在的位置"，**任何钳位都会凭空造出一个
+  // PD 项**。真机踩过（2026-10-05）：激活时 j4 被软限位钳掉 0.176 rad ⇒ kp=25 下
+  // PD=4.4 > torque_max=3.5 ⇒ **拒发 ⇒ FATAL ⇒ 整条链起不来**。POS_VEL 的保持帧
+  // 早就故意绕过钳位（陷阱 #21），MIT 的保持帧也要同样处理。
+  double prepare_frame_raw(double joint_pos) const;
 
   // ── 发送（每条只发一帧）──
   void set_pos_vel(double joint_pos, double vlim);   // 仅 mode 2
   // 仅 mode 1。`tau` 是**关节侧** N·m（内部只乘 direction，不加 offset）。
   // `torque_max` 不是空时先按**预测总力矩**钳 `tau_ff`（见 clamp_mit_torque）。
-  void set_mit(double kp, double kd, double joint_pos, double dq = 0.0, double tau = 0.0);
+  // bypass_soft_limits=true ⇒ 目标**不做软限位钳位**（见 prepare_frame_raw）。
+  // 只给"保持当前位置"这种帧用；轨迹/点动一律保持默认 false。
+  void set_mit(double kp, double kd, double joint_pos, double dq = 0.0, double tau = 0.0,
+    bool bypass_soft_limits = false);
   void enable();     // 命令帧 + 保持帧（用电机侧实测位置，绝不朝零位冲）
   void disable();
 

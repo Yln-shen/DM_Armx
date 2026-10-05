@@ -114,6 +114,15 @@ double Joint::prepare_frame(double joint_pos) const
   return clamp_pmax(joint_to_motor(clamp(joint_pos)));
 }
 
+double Joint::prepare_frame_raw(double joint_pos) const
+{
+  if (!std::isfinite(joint_pos)) {
+    throw std::invalid_argument("关节 " + cfg_.name + "：目标是 NaN/inf，拒发");
+  }
+  // 不做 clamp()，但仍要 clamp_pmax()：MIT 帧的位置字段只有 16 位、只覆盖 ±PMAX
+  return clamp_pmax(joint_to_motor(joint_pos));
+}
+
 // ── 发送 ──
 void Joint::set_pos_vel(double joint_pos, double vlim)
 {
@@ -132,7 +141,8 @@ void Joint::set_pos_vel(double joint_pos, double vlim)
   bus_.send_pos_vel(cfg_.motor_id, prepare_frame(joint_pos), vlim);
 }
 
-void Joint::set_mit(double kp, double kd, double joint_pos, double dq, double tau)
+void Joint::set_mit(double kp, double kd, double joint_pos, double dq, double tau,
+  bool bypass_soft_limits)
 {
   if (cfg_.mode != 1) {
     throw std::runtime_error(
@@ -147,7 +157,7 @@ void Joint::set_mit(double kp, double kd, double joint_pos, double dq, double ta
         std::string("关节 ") + cfg_.name + "：" + kv.first + " 是非有限数（NaN/inf），拒发");
     }
   }
-  const double q_motor = prepare_frame(joint_pos);
+  const double q_motor = bypass_soft_limits ? prepare_frame_raw(joint_pos) : prepare_frame(joint_pos);
   const double dq_motor = static_cast<double>(cfg_.direction) * dq;
   // 力矩是矢量：只乘 direction，不加 offset（与 Python 一致）
   double tau_motor = static_cast<double>(cfg_.direction) * tau;

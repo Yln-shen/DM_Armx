@@ -38,6 +38,6 @@ joints:
   joint1: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
   joint2: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
   joint3: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint4: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310，与 DESIGN 参考值一致
-  joint5: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
-  joint6: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
+  joint4: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310，与 DESIGN 参考值一致
+  joint5: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
+  joint6: {kp_hold: 15.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310

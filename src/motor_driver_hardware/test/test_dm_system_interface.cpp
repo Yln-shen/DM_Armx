@@ -53,6 +53,13 @@ double decode_mit_tau(const std::vector<uint8_t> & f, double t_max)
   return (static_cast<double>(t_u) / 4095.0) * 2.0 * t_max - t_max;
 }
 
+// MIT 帧的 16 位位置字段解码（与 dm_frames::mit_frame 互逆，PMAX=12.5）
+double decode_mit_pos(const std::vector<uint8_t> & f)
+{
+  const uint32_t q_u = (static_cast<uint32_t>(f[21]) << 8) | f[22];
+  return (static_cast<double>(q_u) / 65535.0) * 25.0 - 12.5;
+}
+
 class FakeMotorBusIo : public md::SerialIo
 {
 public:
@@ -742,6 +749,37 @@ TEST(DmSystemInterface, GravityIntegratorRampsClampsAndResets)
   const double tau_after = step(2.22);
   EXPECT_GT(tau_after - tau_clamped, limit - 0.2)
     << "命令跳变后没复位（旧积分被带过去了）：τ_i 本该从 −3.6 回到 0";
+}
+
+// ⑪ 使能时的保持帧**必须绕过软限位钳位** —— 旧实现下这个用例必失败。
+//    语义是"待在你现在的位置" ⇒ **任何钳位都会凭空造出一个 PD 项**。
+//    真机 2026-10-05 踩过：激活时 j4 被软限位钳掉 0.176 rad ⇒ kp=25 下 PD=4.39 > torque_max=3.5
+//    ⇒ **拒发 ⇒ FATAL ⇒ 整条链起不来**（kp=7 时 7×0.176=1.23 侥幸过关，所以一直被掩盖）。
+TEST(DmSystemInterface, ActivationHoldFrameBypassesSoftLimits)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF;
+  probe.close();
+
+  FakeMotorBusIo io;
+  // j6：sign=+1、offset=2.010141、软限位 ours ∈ [-3.141593, 3.141593]
+  //   电机侧 5.4 ⇒ ours 3.39 ⇒ **越上限 0.248 rad**（钳位版会把它拉回 3.1416，差 0.248）
+  io.pos[6] = 5.4;
+  md::DmSystemInterface iface(&io);
+  hardware_interface::HardwareInfo info = make_info(true, true, ARM_DYN_URDF, 1.0);
+  for (auto & j : info.joints) {
+    if (j.name == "joint6") {j.parameters["kp_hold"] = "25.0";}
+  }
+  // 钳位版：PD = 25 × 0.248 = 6.2 N·m > torque_max 3.5 ⇒ 拒发 ⇒ on_activate 抛异常
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS)
+    << "使能时的保持帧被软限位钳位了（旧实现的 bug：钳位造出 PD ⇒ kp 大时拒发 ⇒ 链起不来）";
+
+  // 帧序：on_activate 先给每个关节 enable()（零增益帧），再逐个发真实保持帧
+  //   ⇒ [j2.enable, j6.enable, j2.hold, j6.hold] ⇒ **最后一帧**是 j6 的保持帧
+  ASSERT_GE(io.mit_frames.size(), 4u);
+  const double q_des = decode_mit_pos(io.mit_frames.back());
+  EXPECT_NEAR(q_des, 5.4, 2.0 * 25.0 / 65535.0)
+    << "保持帧的目标被钳到 " << q_des << " 了；应该等于实测位置 5.4（保持帧不钳位）";
 }
 
 int main(int argc, char ** argv)
