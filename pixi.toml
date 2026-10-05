@@ -26,3 +26,9 @@ ros-jazzy-joint-state-publisher = ">=2.4.3,<3"
 ros-jazzy-joint-state-publisher-gui = ">=2.4.3,<3"
 ros-jazzy-rviz2 = ">=14.1.23,<15"
 ros-jazzy-tf2-ros = ">=0.36.22,<0.37"
+
+[activation.env]
+# 让**链接器**找得到 $CONDA_PREFIX/lib：rclcpp 的传递依赖（-lcap / -llttng-ust）在那里，
+# 而 pixi 默认不设 LIBRARY_PATH ⇒ 链可执行文件（gtest、ros2_control_node）会报「找不到 -lcap」。
+# 共享库不受影响（允许未定义符号，运行时由 LD_LIBRARY_PATH 解析）。见 AGENTS 陷阱 #32。
+LIBRARY_PATH = "$CONDA_PREFIX/lib"
