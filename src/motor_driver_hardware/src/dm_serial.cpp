@@ -61,6 +61,15 @@ void SerialPort::open()
   if (fd < 0) {throw std::runtime_error(errno_text(("打开串口失败 " + device_).c_str()));}
   fd_ = fd;
 
+  // 独占这个口：**同一时刻只允许一套节点开它**。
+  // 两个 controller_manager 同时开一个 tty 在 Linux 上是允许的（默认不排他），结果就是两套
+  // 各发各的帧、互相踩数据 —— 2026-10-05 真机踩过（②的 launch 没关就起③，看着像"发轨迹不动"）。
+  // 设了 TIOCEXCL 之后，第二家 open() 会直接 EBUSY 失败，报错清楚得多。
+  // 失败不致命（个别设备不支持），只是少了这层保护。
+  if (::ioctl(fd_, TIOCEXCL) != 0) {
+    // 什么都不做：不阻断正常使用
+  }
+
   struct termios tio {};
   if (::tcgetattr(fd_, &tio) != 0) {
     const std::string msg = errno_text("tcgetattr 失败");

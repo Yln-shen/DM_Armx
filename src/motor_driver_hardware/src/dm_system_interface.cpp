@@ -281,7 +281,9 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     RCLCPP_FATAL(get_logger(), "on_activate 失败：%s", e.what());
     RCLCPP_FATAL(get_logger(),
       "当前存在的串口设备：%s —— 设备号会随插拔顺序变（陷阱 #28）；真源是 "
-      "motor_driver/config/joint.yaml 的 channel（xacro 会把它写进 <param name=\"device\">）",
+      "motor_driver/config/joint.yaml 的 channel（xacro 会把它写进 <param name=\"device\">）。\n"
+      "  若是 'Device or resource busy'：**另一个 launch 还占着串口**（同一时刻只能起一套："
+      "先 Ctrl-C 掉旧的那套再起新的，否则两套会互相踩数据，现象是'发轨迹不动'）",
       list_tty_acm_devices().c_str());
     disable_all_quietly();
     try {
