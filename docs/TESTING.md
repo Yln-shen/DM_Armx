@@ -330,3 +330,23 @@ j1 −0.041076 · j2 −0.191649 · j3 −0.049248 · j4 −0.157540 · j5 +0.04
   "故障先失能再抛（ERR=13 提示锁存）"、"同一台电机档位不同就拒构造"。
 - 踩到并修掉的两处**测试自己**的问题（记下来免得下次再犯）：假串口要遵守与真 `SerialPort` 同一契约（**写要计数**）；
   `sync_states` 会先 `flush()`，所以预注入的帧会被丢掉 —— 得用应答器而不是预填。
+
+**M5（ros2_control 插件）代码侧验过**：`colcon test --packages-select motor_driver_hardware` ⇒
+`27 tests, 0 errors, 0 failures`（帧 5 + 总线 8 + 关节 5 + **插件 5** + 4 个 ctest 包装）。
+插件测试（`test_dm_system_interface.cpp`）在**假串口里塞了一台模拟电机**：收到 POS_VEL 就把位置跟过去、
+收到刷新就回状态、收到使能帧置 ERR=1、寄存器帧回显 RID。五条：①只读模式**一个控制帧都不发**（只发 0x7FF），
+状态仍能读出来且模型侧 ≈ 0（= 真机停放姿态）；②激活时**先写 `0x0A=2`、再使能、再补保持帧**（保持帧用
+**电机侧实测值** + vlim 0.1）；③命令是 NaN 时**继续发保持帧**（绝不当 0）；④**模型坐标 0 ⇒ 电机侧 1.785878**
+（M1b 那天从真机读数解出来的那个数，闭环读回来也对得上）；⑤ERR=0x0D ⇒ `read()` 报 ERROR，`on_deactivate()` 全失能。
+另外验了参数错误（缺 motor_id / sign=0 / vlim=0）在 `on_init` 就拒，档位与软限位矛盾在 `on_configure` 拒。
+
+**真机三步验收（还没做，等用户操作）**：① `real_control.launch.py`（默认 `enable_on_activate=false` +
+只起状态广播器）→ 用真机真实角度驱动 RViz，与模型对照；② `enable_on_activate:=true` → 只保持、零位移；
+③ 再加 `spawn_arm_controller:=true vlim:=0.5` → 发几度的小轨迹。
+
+**M5 踩到的两个环境/API 坑（已进 AGENTS 陷阱表）**：① 链接 rclcpp 的**可执行文件**报
+「找不到 `-lcap` / `-llttng-ust`」—— 库在 `$CONDA_PREFIX/lib` 但 pixi 没设 `LIBRARY_PATH`，
+CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响）；② `hardware_interface` 的
+`on_init(const HardwareInfo&)` 在 jazzy 已 deprecated，换 `on_init(const HardwareComponentInterfaceParams&)`。
+测试自己又犯了两次：期望值用了**未量化**的位置（真机反馈是 16 位定点，差 6e-5 rad）；
+以及想验"min>max"却把 min 设成 2.0（j2 的 max 是 2.188，本来就合法）。

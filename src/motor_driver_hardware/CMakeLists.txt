@@ -10,7 +10,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 
-# C++ 核：协议 + 串口 + 总线（纯 C++，**不依赖 rclcpp** —— 依赖 ROS 的只有 M5 的插件那一层）
+# ── C++ 核：协议 + 串口 + 总线 + 关节（**不依赖 rclcpp**）──
 add_library(dm_hardware
   src/dm_frames.cpp
   src/dm_serial.cpp
@@ -26,6 +26,35 @@ install(TARGETS dm_hardware
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
+
+# ── ros2_control 插件（这一层才依赖 ROS）──
+find_package(hardware_interface REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+
+# ⚠️ robostack 环境里 rclcpp 的传递依赖（-lcap / -llttng-ust / -llttng-ust-common）在
+#    $CONDA_PREFIX/lib 下，而 pixi 的激活**没有设置 LIBRARY_PATH** ⇒ 链接可执行文件（不是 .so）
+#    时会报「找不到 -lcap」。这里显式把环境的 lib 目录加进链接搜索路径。
+#    （共享库不受影响：允许未定义符号，运行时由 LD_LIBRARY_PATH 解析。）
+if(DEFINED ENV{CONDA_PREFIX})
+  link_directories($ENV{CONDA_PREFIX}/lib)
+endif()
+
+add_library(dm_system_interface src/dm_system_interface.cpp)
+target_link_libraries(dm_system_interface PUBLIC
+  dm_hardware
+  hardware_interface::hardware_interface
+  pluginlib::pluginlib
+  rclcpp::rclcpp
+  rclcpp_lifecycle::rclcpp_lifecycle)
+
+# 插件描述文件装进 share/<pkg> 并注册到 hardware_interface 的 pluginlib 导出组
+pluginlib_export_plugin_description_file(hardware_interface motor_driver_hardware.xml)
+install(TARGETS dm_system_interface
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -45,6 +74,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_dm_joint dm_hardware)
   target_compile_definitions(test_dm_joint PRIVATE
     MOTOR_DRIVER_PY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../motor_driver/motor_driver")
+
+  # 插件：假串口 + 模拟电机，走通"只读/使能/保持/命令换算/故障"（自带 main，要 rclcpp::init）
+  ament_add_gtest(test_dm_system_interface test/test_dm_system_interface.cpp)
+  target_link_libraries(test_dm_system_interface dm_system_interface)
 endif()
 
 ament_package()

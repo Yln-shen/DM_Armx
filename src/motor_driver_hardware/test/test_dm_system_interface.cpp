@@ -1,0 +1,380 @@
+// test_dm_system_interface.cpp —— 插件逻辑（不接真机，用假串口 + 一台"模拟电机"）。
+//
+// 假电机干三件事：收到 0x7FF 刷新 → 回当前状态；收到寄存器帧 → 回显 RID 的回包；
+// 收到 POS_VEL 命令 → **把位置跟过去**再回状态（模拟真机固件闭环）。
+// 这样"命令换算 → 发帧 → 状态回读"整条链都能在测试里跑通。
+#include <gtest/gtest.h>
+
+#include <hardware_interface/types/hardware_component_interface_params.hpp>
+#include <hardware_interface/types/hardware_interface_type_values.hpp>
+#include <rclcpp/rclcpp.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <map>
+#include <string>
+#include <vector>
+
+#include "motor_driver_hardware/dm_system_interface.hpp"
+
+namespace md = motor_driver_hardware;
+using hardware_interface::CallbackReturn;
+using hardware_interface::return_type;
+
+namespace
+{
+
+std::vector<uint8_t> feedback_frame(std::initializer_list<uint8_t> data8)
+{
+  std::vector<uint8_t> f(16, 0);
+  f[0] = 0xAA;
+  f[1] = 0x11;
+  std::size_t i = 7;
+  for (uint8_t b : data8) {f[i++] = b;}
+  f[15] = 0x55;
+  return f;
+}
+
+template<typename T>
+std::vector<uint8_t> to_vec(const T & f) {return std::vector<uint8_t>(f.begin(), f.end());}
+
+class FakeMotorBusIo : public md::SerialIo
+{
+public:
+  void open() override {open_ = true;}
+  void close() override {open_ = false;}
+  bool is_open() const override {return open_;}
+  void write(const uint8_t * data, std::size_t len) override
+  {
+    tx.insert(tx.end(), data, data + len);
+    stats_.tx_calls += 1;
+    stats_.tx_bytes += len;
+    respond(data, len);
+  }
+  std::size_t read_available(std::vector<uint8_t> & out) override
+  {
+    const std::size_t n = rx.size();
+    out.insert(out.end(), rx.begin(), rx.end());
+    rx.clear();
+    return n;
+  }
+  std::size_t bytes_available() const override {return rx.size();}
+  void flush_input() override {rx.clear();}
+  const md::SerialStats & stats() const override {return stats_;}
+
+  void push(std::initializer_list<uint8_t> bytes) {rx.insert(rx.end(), bytes.begin(), bytes.end());}
+  void push(const std::vector<uint8_t> & bytes) {rx.insert(rx.end(), bytes.begin(), bytes.end());}
+
+  // 模拟电机状态：电机侧位置（rad）/ ERR。初值取自真机停放姿态（id2 实测 +1.79 rad 那一带）
+  std::map<uint8_t, double> pos{{2, 1.7909}, {6, 1.7909}};
+  std::map<uint8_t, uint8_t> err{{2, 0x0}, {6, 0x0}};
+  std::vector<uint8_t> tx;
+  std::vector<uint8_t> rx;
+  std::vector<std::vector<uint8_t>> control_frames;   // 收到的 POS_VEL 命令
+  std::vector<std::vector<uint8_t>> enable_frames;    // 收到的使能/失能帧
+  bool open_ = false;
+  md::SerialStats stats_;
+
+  void push_feedback(uint8_t id)
+  {
+    const uint16_t pos_u = encode_pos(pos[id]);
+    const uint8_t d0 = static_cast<uint8_t>((id & 0x0F) | ((err[id] & 0x0F) << 4));
+    push(feedback_frame({d0, static_cast<uint8_t>(pos_u >> 8), static_cast<uint8_t>(pos_u & 0xFF),
+      0x00, 0x00, 0x00, 0x1E, 0x1F}));
+  }
+
+  // "电机实际报出来的"位置（经过 16 位量化）—— 测试算期望时要用这个，不能用未量化的 pos[id]
+  double reported_pos(uint8_t id) const
+  {
+    const uint16_t pos_u = encode_pos(pos.at(id));
+    return (static_cast<double>(pos_u) / 65535.0) * 25.0 - 12.5;
+  }
+
+private:
+  static uint16_t encode_pos(double p_m)
+  {
+    const double p_max = 12.5;      // 位置反馈的映射范围（j2/j6 都是 4340P 档位里的 12.5）
+    double u = (p_m + p_max) / (2.0 * p_max) * 65535.0;
+    u = std::max(0.0, std::min(u, 65535.0));
+    return static_cast<uint16_t>(u);
+  }
+
+  void respond(const uint8_t * f, std::size_t len)
+  {
+    if (len != md::kTxFrameLen) {return;}
+    const uint16_t can_id = static_cast<uint16_t>(f[13] | (f[14] << 8));
+    if (can_id == md::kCanIdBroadcast) {
+      const uint8_t target = f[21];
+      const uint8_t cmd = f[23];
+      if (cmd == 0xCC) {                                   // 刷新帧 → 回状态
+        push_feedback(target);
+      } else if (cmd == md::kRegCmdRead || cmd == md::kRegCmdWrite || cmd == md::kRegCmdSave) {
+        push(feedback_frame({target, 0x00, cmd, f[24], 0, 0, 0, 0}));   // 寄存器回包（回显 RID）
+      }
+      return;
+    }
+    if (can_id >= md::kCanIdPosVelBase && can_id < md::kCanIdPosVelBase + 0x0100) {
+      const uint8_t id = static_cast<uint8_t>(can_id - md::kCanIdPosVelBase);
+      pos[id] = md::uint8s_to_float32(f + 21);             // 固件跟到命令位置
+      control_frames.emplace_back(f, f + len);
+      push_feedback(id);
+      return;
+    }
+    if (can_id >= 1 && can_id <= 6 && (f[28] == md::kCmdEnable || f[28] == md::kCmdDisable)) {
+      const uint8_t id = static_cast<uint8_t>(can_id);
+      err[id] = (f[28] == md::kCmdEnable) ? 0x1 : 0x0;
+      enable_frames.emplace_back(f, f + len);
+      push_feedback(id);
+    }
+  }
+};
+
+// ── 用真机的标定值建 HardwareInfo（direction/offset 来自 joint.yaml，sign/δ 来自 align.yaml）──
+hardware_interface::ComponentInfo make_joint(const std::string & name,
+  std::initializer_list<std::pair<const std::string, std::string>> params)
+{
+  hardware_interface::InterfaceInfo info;
+  info.name = hardware_interface::HW_IF_POSITION;
+  hardware_interface::InterfaceInfo vel;
+  vel.name = hardware_interface::HW_IF_VELOCITY;
+
+  hardware_interface::ComponentInfo j;
+  j.name = name;
+  j.parameters = params;
+  j.command_interfaces.push_back(info);
+  j.state_interfaces.push_back(info);
+  j.state_interfaces.push_back(vel);
+  return j;
+}
+
+hardware_interface::HardwareInfo make_info(bool enable_on_activate)
+{
+  hardware_interface::HardwareInfo info;
+  info.name = "ArmReal";
+  info.type = "system";
+  info.hardware_parameters["device"] = "/dev/fake";
+  info.hardware_parameters["baud"] = "921600";
+  info.hardware_parameters["enable_on_activate"] = enable_on_activate ? "true" : "false";
+  info.hardware_parameters["vlim"] = "1.0";
+  info.joints.push_back(make_joint("joint2", {
+    {"motor_id", "2"}, {"motor_type", "4340P"}, {"direction", "-1"}, {"offset", "1.594229"},
+    {"p_max", "12.5"}, {"v_max", "10.0"}, {"t_max", "28.0"},
+    {"position_min", "-0.25"}, {"position_max", "2.188275"},
+    {"sign", "-1"}, {"zero_shift", "-0.191649"}}));
+  info.joints.push_back(make_joint("joint6", {
+    {"motor_id", "6"}, {"motor_type", "4310"}, {"direction", "1"}, {"offset", "2.010141"},
+    {"p_max", "12.5"}, {"v_max", "30.0"}, {"t_max", "10.0"},
+    {"position_min", "-3.141593"}, {"position_max", "3.141593"},
+    {"sign", "1"}, {"zero_shift", "1.782591"}}));
+  return info;
+}
+
+CallbackReturn init_and_activate(md::DmSystemInterface & iface,
+  const hardware_interface::HardwareInfo & info)
+{
+  hardware_interface::HardwareComponentInterfaceParams params;
+  params.hardware_info = info;
+  EXPECT_EQ(iface.on_init(params), CallbackReturn::SUCCESS);
+  EXPECT_EQ(iface.on_configure(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  return iface.on_activate(rclcpp_lifecycle::State());
+}
+
+double state_value(md::DmSystemInterface & iface, const std::string & joint,
+  const std::string & iface_name)
+{
+  for (auto & itf : iface.export_state_interfaces()) {
+    if (itf.get_prefix_name() == joint && itf.get_interface_name() == iface_name) {
+      const auto value = itf.get_optional<double>();   // get_value() 已弃用
+      if (!value.has_value()) {
+        ADD_FAILURE() << "状态接口 " << joint << "/" << iface_name << " 还没有值（NaN）";
+        return std::nan("");
+      }
+      return *value;
+    }
+  }
+  ADD_FAILURE() << "找不到状态接口 " << joint << "/" << iface_name;
+  return std::nan("");
+}
+
+void set_command(md::DmSystemInterface & iface, const std::string & joint, double value)
+{
+  for (auto & itf : iface.export_command_interfaces()) {
+    if (itf.get_prefix_name() == joint &&
+      itf.get_interface_name() == hardware_interface::HW_IF_POSITION)
+    {
+      ASSERT_TRUE(itf.set_value(value));
+      return;
+    }
+  }
+  ADD_FAILURE() << "找不到命令接口 " << joint;
+}
+
+const rclcpp::Time kT0(0, 0, RCL_ROS_TIME);
+const rclcpp::Duration kDt = rclcpp::Duration::from_seconds(0.01);
+
+}  // namespace
+
+// ① 只读模式：一个控制帧都不发，但状态能读到（而且模型侧 ≈ 0 = 真机停放姿态）
+TEST(DmSystemInterface, ReadOnlySendsNoControlFrames)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  const auto info = make_info(false);
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+
+  EXPECT_TRUE(io.control_frames.empty()) << "只读模式不该发 POS_VEL";
+  EXPECT_TRUE(io.enable_frames.empty()) << "只读模式不该使能";
+  for (std::size_t i = 0; i + md::kTxFrameLen <= io.tx.size(); i += md::kTxFrameLen) {
+    const uint16_t can_id = static_cast<uint16_t>(io.tx[i + 13] | (io.tx[i + 14] << 8));
+    EXPECT_EQ(can_id, md::kCanIdBroadcast) << "只读模式只允许 0x7FF（刷新/寄存器）帧";
+  }
+
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  // 模型侧：j2 与 j6 都应落在"真机停放姿态"（= 模型 0 / 1.56）附近。
+  // 注意用 reported_pos（经过 16 位量化）算期望 —— 用未量化的 pos[id] 会差 6e-5 对不上。
+  const double p2 = io.reported_pos(2);
+  const double p6 = io.reported_pos(6);
+  const double ours2 = -1.0 * (p2 - 1.594229);
+  const double ours6 = 1.0 * (p6 - 2.010141);
+  EXPECT_NEAR(state_value(iface, "joint2", "position"), md::ours_to_model(ours2, -1, -0.191649), 1e-9);
+  EXPECT_NEAR(state_value(iface, "joint6", "position"), md::ours_to_model(ours6, 1, 1.782591), 1e-9);
+  EXPECT_NEAR(state_value(iface, "joint2", "position"), 0.0, 0.02) << "真机停放姿态 = 模型 0";
+
+  const std::size_t before = io.tx.size();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_EQ(io.tx.size(), before) << "只读模式的 write() 一个字节都不该发";
+}
+
+// ② 使能模式：激活时写 0x0A=2、使能、并用**电机侧实测值**发保持帧
+TEST(DmSystemInterface, EnabledActivationWritesModeEnableAndHold)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  const auto info = make_info(true);
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+
+  // 每台都写了 0x0A = 2（uint32 小端 02 00 00 00）
+  std::size_t mode_writes = 0;
+  for (std::size_t i = 0; i + md::kTxFrameLen <= io.tx.size(); i += md::kTxFrameLen) {
+    const uint16_t can_id = static_cast<uint16_t>(io.tx[i + 13] | (io.tx[i + 14] << 8));
+    if (can_id == md::kCanIdBroadcast && io.tx[i + 23] == 0x55 && io.tx[i + 24] == 0x0A) {
+      EXPECT_EQ(io.tx[i + 25], 0x02);
+      mode_writes += 1;
+    }
+  }
+  EXPECT_EQ(mode_writes, 2u);
+
+  ASSERT_EQ(io.enable_frames.size(), 2u);
+  EXPECT_EQ(io.enable_frames[0], to_vec(md::cmd_frame(2, md::kCmdEnable)));
+  EXPECT_EQ(io.enable_frames[1], to_vec(md::cmd_frame(6, md::kCmdEnable)));
+  ASSERT_EQ(io.control_frames.size(), 2u);      // 保持帧
+  for (std::size_t k = 0; k < 2; ++k) {
+    const uint8_t id = static_cast<uint8_t>(2 + 4 * k);            // 2, 6
+    EXPECT_EQ(io.control_frames[k], to_vec(md::pos_vel_frame(id, io.pos[id], md::kHoldVlim)));
+    // 保持帧用的是**电机侧实测值**（不是模型 0、也不是软限位钳过的值）
+    EXPECT_NEAR(md::uint8s_to_float32(io.control_frames[k].data() + 21), io.pos[id], 1e-9);
+  }
+
+  // 命令还是 NaN（没人写过）⇒ write() 继续发保持帧，不能当 0
+  io.control_frames.clear();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  ASSERT_EQ(io.control_frames.size(), 2u);
+  EXPECT_NEAR(md::uint8s_to_float32(io.control_frames[0].data() + 21), io.pos[2], 1e-9);
+}
+
+// ③ 命令通路：模型坐标 →（sign/δ）→ q_ours →（direction/offset）→ 电机侧，再闭环读回来
+TEST(DmSystemInterface, CommandConvertsAndRoundTrips)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  const auto info = make_info(true);
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+
+  io.control_frames.clear();
+  set_command(iface, "joint2", 0.0);            // 模型 0 = 真机停放姿态
+  set_command(iface, "joint6", 1.56);
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  ASSERT_EQ(io.control_frames.size(), 2u);
+
+  // j2：模型 0 ⇒ 电机侧 1.785878（M1b 那天从真机读数解出来的那个数）
+  EXPECT_NEAR(md::uint8s_to_float32(io.control_frames[0].data() + 21), 1.785878, 1e-6);
+  // vlim 用参数里的 1.0（不是保持帧的 0.1）
+  EXPECT_NEAR(md::uint8s_to_float32(io.control_frames[0].data() + 25), 1.0, 1e-9);
+  // j6：模型 1.56 ⇒ 电机侧 = direction·(sign·(1.56−δ)) + offset
+  const double ours6 = md::model_to_ours(1.56, 1, 1.782591);
+  EXPECT_NEAR(md::uint8s_to_float32(io.control_frames[1].data() + 21), 1.0 * ours6 + 2.010141, 1e-6);
+
+  // 假电机已跟过去 ⇒ 下一圈 read() 的状态应回到命令值附近（16 位量化误差 ~4e-4 rad）
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  EXPECT_NEAR(state_value(iface, "joint2", "position"), 0.0, 1e-3);
+  EXPECT_NEAR(state_value(iface, "joint6", "position"), 1.56, 1e-3);
+}
+
+// ④ 故障：ERR 不是 0/1 ⇒ read() 报 ERROR（让 CM 停控制器）
+TEST(DmSystemInterface, FaultReturnsError)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  const auto info = make_info(true);
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+
+  io.err[2] = 0x0D;                    // 通讯丢失（锁存）
+  io.push_feedback(2);
+  EXPECT_EQ(iface.read(kT0, kDt), return_type::ERROR);
+
+  // 收尾：deactivate 会全部失能
+  ASSERT_EQ(iface.on_deactivate(rclcpp_lifecycle::State()), CallbackReturn::SUCCESS);
+  std::size_t disables = 0;
+  for (const auto & f : io.enable_frames) {
+    if (f[28] == md::kCmdDisable) {disables += 1;}
+  }
+  EXPECT_EQ(disables, 2u);
+}
+
+// ⑤ 参数错误当场拒（不能带着错参数去动电机）
+TEST(DmSystemInterface, RejectsBadParams)
+{
+  auto expect_init_error = [](hardware_interface::HardwareInfo info, const std::string & what) {
+      SCOPED_TRACE(what);
+      FakeMotorBusIo io;
+      md::DmSystemInterface iface(&io);
+      hardware_interface::HardwareComponentInterfaceParams params;
+      params.hardware_info = info;
+      EXPECT_EQ(iface.on_init(params), CallbackReturn::ERROR);
+    };
+
+  auto info = make_info(false);
+  info.joints[0].parameters.erase("motor_id");
+  expect_init_error(info, "缺 motor_id");
+
+  info = make_info(false);
+  info.joints[0].parameters["sign"] = "0";
+  expect_init_error(info, "sign=0");
+
+  info = make_info(false);
+  info.hardware_parameters["vlim"] = "0";
+  expect_init_error(info, "vlim=0");
+
+  // position_min > position_max 不是在 on_init 拦的（那是 dm_joint 构造函数的活），
+  // 但也不会漏过去：on_configure 里建 Joint 时抛 ⇒ configure 返回 ERROR（同样在碰硬件之前）
+  info = make_info(false);
+  info.joints[0].parameters["position_min"] = "3.0";    // j2 的 position_max 是 2.188275
+  {
+    FakeMotorBusIo io;
+    md::DmSystemInterface iface(&io);
+    hardware_interface::HardwareComponentInterfaceParams params;
+    params.hardware_info = info;
+    ASSERT_EQ(iface.on_init(params), CallbackReturn::SUCCESS);
+    EXPECT_EQ(iface.on_configure(rclcpp_lifecycle::State()), CallbackReturn::ERROR);
+  }
+}
+
+int main(int argc, char ** argv)
+{
+  rclcpp::init(argc, argv);
+  ::testing::InitGoogleTest(&argc, argv);
+  const int rc = RUN_ALL_TESTS();
+  rclcpp::shutdown();
+  return rc;
+}

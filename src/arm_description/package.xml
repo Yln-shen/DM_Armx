@@ -20,6 +20,8 @@
   <exec_depend>rviz2</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <!-- xacro 会读 motor_driver/config/joint.yaml 生成真机分支的 <param>（arm.ros2_control.xacro） -->
+  <exec_depend>motor_driver</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

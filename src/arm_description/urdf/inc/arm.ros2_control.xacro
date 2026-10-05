@@ -1,52 +1,93 @@
 <?xml version="1.0"?>
-<!-- ros2_control 硬件接口。
-     现在（M1/M2）用 ros2_control 自带的 mock：不接真机也能把
-     controller_manager → joint_trajectory_controller → joint_state_broadcaster 跑通。
-     M5 接真机时只换 <plugin>（motor_driver_hardware/DmSystemInterface）并补关节参数
-     （motor_id / motor_type / offset / direction / limit / torque_max，真源仍是
-      src/motor_driver/config/joint.yaml）。
+<!-- ros2_control 硬件接口。两条分支由 `use_mock` 选：
 
-     ⚠️ 每个关节的 `initial_value` 是 **mock 的起始姿态**，必须落在**换算后的限位**里
-     （限位见 arm_geometry.urdf.xacro 顶部）：这里取 (1.51, -1.0, -0.9, 0.3, 0.0, 0.0)，
-     FK 验证不自交（非相邻连杆最小间距 4.9 cm）。**写 0 会落在 j1~j3 换算后的限位之外**。 -->
+     - `use_mock:=true`（默认）：ros2_control 自带的 mock —— 不接真机就能把
+       controller_manager → joint_trajectory_controller → joint_state_broadcaster 跑通（M2 的验收链路）。
+     - `use_mock:=false`：真插件 `motor_driver_hardware/DmSystemInterface`。关节参数**由 xacro 直接从**
+       - `motor_driver/config/joint.yaml`（direction / offset / 档位 / 软限位 / 串口设备）
+       - `arm_description/config/align.yaml`（模型对齐 sign / zero_shift）
+       **读出来**生成 <param> ⇒ 单一真源不破，不用在两处维护同一批数字。
+
+     ⚠️ mock 分支的 `initial_value` 是**起始姿态**，必须落在换算后的限位里（见 arm_geometry.urdf.xacro 顶部）：
+        取 (1.51, -1.0, -0.9, 0.3, 0.0, 0.0)，FK 验证不自交。写 0 会落在 j1~j3 换算后的限位之外。
+     ⚠️ 真机分支默认 `enable_on_activate:=false`：**只读**（不使能、不发控制帧），
+        首轮验收先这么跑；要动电机必须显式传 true。 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="arm_ros2_control" params="name:=ArmMockSystem">
-    <ros2_control name="${name}" type="system">
-      <hardware>
-        <plugin>mock_components/GenericSystem</plugin>
-      </hardware>
+  <xacro:arg name="use_mock" default="true"/>
+  <xacro:arg name="enable_on_activate" default="false"/>
+  <xacro:arg name="vlim" default="1.0"/>
+  <xacro:arg name="joint_cfg" default="$(find motor_driver)/config/joint.yaml"/>
+  <xacro:arg name="align_cfg" default="$(find arm_description)/config/align.yaml"/>
 
-      <joint name="joint1">
-        <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">1.51</param></state_interface>
-        <state_interface name="velocity"/>
-      </joint>
-      <joint name="joint2">
-        <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">-1.0</param></state_interface>
-        <state_interface name="velocity"/>
-      </joint>
-      <joint name="joint3">
-        <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">-0.9</param></state_interface>
-        <state_interface name="velocity"/>
-      </joint>
-      <joint name="joint4">
-        <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.3</param></state_interface>
-        <state_interface name="velocity"/>
-      </joint>
-      <joint name="joint5">
-        <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
-        <state_interface name="velocity"/>
-      </joint>
-      <joint name="joint6">
-        <command_interface name="position"/>
-        <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
-        <state_interface name="velocity"/>
-      </joint>
+  <xacro:property name="arm_cfg" value="${xacro.load_yaml('$(arg joint_cfg)')}"/>
+  <xacro:property name="align_cfg" value="${xacro.load_yaml('$(arg align_cfg)')}"/>
+
+  <!-- mock 的一个关节：起始姿态用 initial（模型坐标） -->
+  <xacro:macro name="mock_joint" params="name initial">
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">${initial}</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- 真机的一个关节：参数全部从上面两个 yaml 里取 -->
+  <xacro:macro name="real_joint" params="name">
+    <xacro:property name="jcfg" value="${arm_cfg['joints'][name]}"/>
+    <xacro:property name="acfg" value="${align_cfg['joints'][name]}"/>
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <state_interface name="position"/>     <!-- 真值从硬件读，不给 initial_value -->
+      <state_interface name="velocity"/>
+      <param name="motor_id">${jcfg['slave_id']}</param>
+      <param name="motor_type">${jcfg['motor_type']}</param>
+      <param name="direction">${jcfg['direction']}</param>
+      <param name="offset">${jcfg['offset']}</param>
+      <param name="p_max">${jcfg['limit'][0]}</param>
+      <param name="v_max">${jcfg['limit'][1]}</param>
+      <param name="t_max">${jcfg['limit'][2]}</param>
+      <param name="position_min">${jcfg['position_min']}</param>
+      <param name="position_max">${jcfg['position_max']}</param>
+      <!-- 模型对齐：q_urdf = sign · q_ours + zero_shift -->
+      <param name="sign">${acfg['sign']}</param>
+      <param name="zero_shift">${acfg['zero_shift']}</param>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="arm_ros2_control" params="name:=ArmSystem">
+    <ros2_control name="${name}" type="system">
+      <xacro:if value="$(arg use_mock)">
+        <hardware>
+          <plugin>mock_components/GenericSystem</plugin>
+        </hardware>
+      </xacro:if>
+      <xacro:unless value="$(arg use_mock)">
+        <hardware>
+          <plugin>motor_driver_hardware/DmSystemInterface</plugin>
+          <param name="device">${arm_cfg['channel']}</param>
+          <param name="baud">${arm_cfg['baud']}</param>
+          <param name="enable_on_activate">$(arg enable_on_activate)</param>
+          <param name="vlim">$(arg vlim)</param>
+        </hardware>
+      </xacro:unless>
+
+      <xacro:if value="$(arg use_mock)">
+        <xacro:mock_joint name="joint1" initial="1.51"/>
+        <xacro:mock_joint name="joint2" initial="-1.0"/>
+        <xacro:mock_joint name="joint3" initial="-0.9"/>
+        <xacro:mock_joint name="joint4" initial="0.3"/>
+        <xacro:mock_joint name="joint5" initial="0.0"/>
+        <xacro:mock_joint name="joint6" initial="0.0"/>
+      </xacro:if>
+      <xacro:unless value="$(arg use_mock)">
+        <xacro:real_joint name="joint1"/>
+        <xacro:real_joint name="joint2"/>
+        <xacro:real_joint name="joint3"/>
+        <xacro:real_joint name="joint4"/>
+        <xacro:real_joint name="joint5"/>
+        <xacro:real_joint name="joint6"/>
+      </xacro:unless>
     </ros2_control>
   </xacro:macro>
 

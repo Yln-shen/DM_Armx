@@ -1,0 +1,394 @@
+// dm_system_interface.cpp —— SystemInterface 插件实现（真机通路）。
+#include "motor_driver_hardware/dm_system_interface.hpp"
+
+#include <hardware_interface/types/hardware_interface_type_values.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
+#include <unordered_map>
+
+namespace motor_driver_hardware
+{
+
+namespace
+{
+using Params = std::unordered_map<std::string, std::string>;
+using hardware_interface::CallbackReturn;
+using hardware_interface::return_type;
+
+constexpr uint8_t kRegCtrlMode = 0x0A;   // CTRL_MODE（RAM；uint32）
+constexpr uint8_t kRegKpAsr = 0x19;
+constexpr uint8_t kRegKiAsr = 0x1A;
+constexpr uint8_t kRegKpApr = 0x1B;
+constexpr uint8_t kRegKiApr = 0x1C;
+
+bool has(const Params & m, const std::string & key) {return m.count(key) != 0;}
+
+std::string as_str(const Params & m, const std::string & key, const std::string & def)
+{
+  auto it = m.find(key);
+  return it == m.end() ? def : it->second;
+}
+
+double as_double(const Params & m, const std::string & key, double def)
+{
+  auto it = m.find(key);
+  if (it == m.end()) {return def;}
+  std::size_t used = 0;
+  const double v = std::stod(it->second, &used);
+  if (used != it->second.size()) {
+    throw std::invalid_argument("参数 " + key + " 不是数字：" + it->second);
+  }
+  return v;
+}
+
+int as_int(const Params & m, const std::string & key, int def)
+{
+  return static_cast<int>(as_double(m, key, static_cast<double>(def)));
+}
+
+bool as_bool(const Params & m, const std::string & key, bool def)
+{
+  auto it = m.find(key);
+  if (it == m.end()) {return def;}
+  const std::string v = it->second;
+  if (v == "true" || v == "True" || v == "1") {return true;}
+  if (v == "false" || v == "False" || v == "0") {return false;}
+  throw std::invalid_argument("参数 " + key + " 不是布尔：" + v);
+}
+
+}  // namespace
+
+DmSystemInterface::~DmSystemInterface()
+{
+  teardown();
+}
+
+// ── 参数 ──
+bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & info)
+{
+  try {
+    const Params & hp = info.hardware_parameters;
+    device_ = as_str(hp, "device", "/dev/ttyACM1");
+    baud_ = as_int(hp, "baud", 921600);
+    // ⚠️ 默认 **false = 只读**：不使能、不发控制帧。要动电机必须显式打开。
+    enable_on_activate_ = as_bool(hp, "enable_on_activate", false);
+    vlim_ = as_double(hp, "vlim", 1.0);
+    fail_streak_limit_ = as_int(hp, "fail_streak_limit", 10);
+    if (!(vlim_ > 0.0)) {throw std::invalid_argument("vlim 必须是正数（rad/s）");}
+    if (fail_streak_limit_ <= 0) {throw std::invalid_argument("fail_streak_limit 必须是正整数");}
+
+    joints_.clear();
+    for (const auto & j : info.joints) {
+      const Params & p = j.parameters;
+      if (!has(p, "motor_id")) {
+        throw std::invalid_argument("关节 " + j.name + " 缺 <param name=\"motor_id\">");
+      }
+      JointParams jp;
+      jp.name = j.name;
+      jp.cfg.name = j.name;
+      jp.cfg.motor_id = static_cast<uint8_t>(as_int(p, "motor_id", 0));
+      if (jp.cfg.motor_id < 1 || jp.cfg.motor_id > 6) {
+        throw std::invalid_argument("关节 " + j.name + " 的 motor_id 必须在 1~6");
+      }
+      jp.cfg.direction = as_int(p, "direction", 1);
+      jp.cfg.offset = as_double(p, "offset", 0.0);
+      jp.cfg.motor_type = as_str(p, "motor_type", "");
+      jp.cfg.limit = Limit{as_double(p, "p_max", 12.5), as_double(p, "v_max", 10.0),
+        as_double(p, "t_max", 28.0)};
+      if (has(p, "position_min")) {jp.cfg.position_min = as_double(p, "position_min", 0.0);}
+      if (has(p, "position_max")) {jp.cfg.position_max = as_double(p, "position_max", 0.0);}
+      jp.cfg.mode = 2;                                  // 这条链只用 POS_VEL
+      jp.sign = as_int(p, "sign", 1);
+      if (jp.sign != 1 && jp.sign != -1) {
+        throw std::invalid_argument("关节 " + j.name + " 的 sign 只能是 ±1");
+      }
+      jp.zero_shift = as_double(p, "zero_shift", 0.0);
+      // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值）
+      if (has(p, "kp_asr") && has(p, "ki_asr") && has(p, "kp_apr") && has(p, "ki_apr")) {
+        jp.pid = std::array<double, 4>{as_double(p, "kp_asr", 0.0), as_double(p, "ki_asr", 0.0),
+          as_double(p, "kp_apr", 0.0), as_double(p, "ki_apr", 0.0)};
+      }
+      joints_.push_back(std::move(jp));
+    }
+    if (joints_.empty()) {throw std::invalid_argument("URDF 里一个关节都没有");}
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    hw_positions_.assign(joints_.size(), nan);      // 还没读到就保持 NaN，别谎报 0
+    hw_velocities_.assign(joints_.size(), nan);
+    hw_commands_.assign(joints_.size(), nan);       // NaN ⇒ write() 走"保持"
+
+    std::string summary;
+    for (const auto & jp : joints_) {
+      summary += " " + jp.name + "(id" + std::to_string(jp.cfg.motor_id) + ",dir" +
+        std::to_string(jp.cfg.direction) + ",off" + std::to_string(jp.cfg.offset) + ",s" +
+        std::to_string(jp.sign) + ",δ" + std::to_string(jp.zero_shift) +
+        (jp.pid.has_value() ? ",pid" : "") + ")";
+    }
+    RCLCPP_INFO(get_logger(),
+      "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s",
+      joints_.size(), summary.c_str(), device_.c_str(), baud_, vlim_,
+      enable_on_activate_ ? "true（会动电机）" : "false（只读）");
+    return true;
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(get_logger(), "参数有问题：%s", e.what());
+    return false;
+  }
+}
+
+void DmSystemInterface::build_hardware()
+{
+  if (injected_io_ == nullptr) {owned_io_ = std::make_unique<SerialPort>(device_, baud_);}
+  io_ = (injected_io_ != nullptr) ? injected_io_ : owned_io_.get();
+  bus_ = std::make_unique<MotorBus>(*io_);
+  for (auto & jp : joints_) {jp.joint = std::make_unique<Joint>(*bus_, jp.cfg);}
+}
+
+void DmSystemInterface::teardown()
+{
+  for (auto & jp : joints_) {jp.joint.reset();}
+  bus_.reset();
+  owned_io_.reset();
+  io_ = nullptr;
+}
+
+void DmSystemInterface::disable_all_quietly()
+{
+  if (bus_ == nullptr || io_ == nullptr || !io_->is_open()) {return;}
+  for (auto & jp : joints_) {
+    if (jp.joint == nullptr) {continue;}
+    try {
+      jp.joint->disable();
+    } catch (...) {
+      // 收尾路径不许抛
+    }
+  }
+}
+
+double DmSystemInterface::model_to_ours(std::size_t i, double q_urdf) const
+{
+  const JointParams & jp = joints_[i];
+  return motor_driver_hardware::model_to_ours(q_urdf, jp.sign, jp.zero_shift);
+}
+
+double DmSystemInterface::ours_to_model(std::size_t i, double q_ours) const
+{
+  const JointParams & jp = joints_[i];
+  return motor_driver_hardware::ours_to_model(q_ours, jp.sign, jp.zero_shift);
+}
+
+// ── 生命周期 ──
+CallbackReturn DmSystemInterface::on_init(
+  const hardware_interface::HardwareComponentInterfaceParams & params)
+{
+  if (hardware_interface::SystemInterface::on_init(params) != CallbackReturn::SUCCESS) {
+    return CallbackReturn::ERROR;
+  }
+  if (!parse_params(params.hardware_info)) {return CallbackReturn::ERROR;}
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn DmSystemInterface::on_configure(const rclcpp_lifecycle::State &)
+{
+  try {
+    build_hardware();
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(get_logger(), "建立串口/总线/关节对象失败：%s", e.what());
+    teardown();
+    return CallbackReturn::ERROR;
+  }
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
+{
+  if (bus_ == nullptr) {
+    RCLCPP_FATAL(get_logger(), "还没 configure 就 activate");
+    return CallbackReturn::ERROR;
+  }
+  try {
+    bus_->open();
+    RCLCPP_INFO(get_logger(), "串口已打开：%s @%d", device_.c_str(), baud_);
+
+    if (!bus_->sync_states(2.0, 0.05)) {
+      RCLCPP_WARN(get_logger(),
+        "sync_states 没在 2 秒内安静下来 —— 继续，但首轮位置可能不新（总线很吵？设备号对吗？）");
+    }
+    for (const auto & jp : joints_) {
+      if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
+        throw std::runtime_error(
+          "电机 " + std::to_string(jp.cfg.motor_id) + "（" + jp.name +
+          "）一开始就没有反馈 —— 查串口设备号/接线/电机供电");
+      }
+    }
+
+    // 逐台：切 POS_VEL（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
+    for (const auto & jp : joints_) {
+      if (!bus_->write_register(jp.cfg.motor_id, kRegCtrlMode, uint32_to_uint8s(2))) {
+        throw std::runtime_error(
+          "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 0x0A=2 没收到回包");
+      }
+      if (jp.pid.has_value()) {
+        const auto & pid = *jp.pid;
+        const std::array<std::pair<uint8_t, double>, 4> regs = {{
+          {kRegKpAsr, pid[0]}, {kRegKiAsr, pid[1]}, {kRegKpApr, pid[2]}, {kRegKiApr, pid[3]}}};
+        for (const auto & kv : regs) {
+          if (!bus_->write_register(jp.cfg.motor_id, kv.first, float32_to_uint8s(kv.second))) {
+            throw std::runtime_error(
+              "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 PID 寄存器 0x" +
+              std::to_string(kv.first) + " 没收到回包");
+          }
+        }
+      }
+    }
+
+    // 命令先全部置 NaN ⇒ write() 里会走"保持"（用实测位置），绝不朝零位冲
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::fill(hw_commands_.begin(), hw_commands_.end(), nan);
+    hw_positions_.assign(joints_.size(), nan);
+    hw_velocities_.assign(joints_.size(), nan);
+
+    if (enable_on_activate_) {
+      for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
+      RCLCPP_WARN(get_logger(), "已使能 %zu 台（保持帧 = 电机侧实测位置 + vlim %.2f）",
+        joints_.size(), kHoldVlim);
+    } else {
+      RCLCPP_WARN(get_logger(),
+        "enable_on_activate=false：**只读** —— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态");
+    }
+    return CallbackReturn::SUCCESS;
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(get_logger(), "on_activate 失败：%s", e.what());
+    disable_all_quietly();
+    try {
+      if (bus_ != nullptr) {bus_->close();}
+    } catch (...) {
+    }
+    return CallbackReturn::ERROR;
+  }
+}
+
+CallbackReturn DmSystemInterface::on_deactivate(const rclcpp_lifecycle::State &)
+{
+  RCLCPP_INFO(get_logger(), "deactivate：全部失能");
+  disable_all_quietly();
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn DmSystemInterface::on_cleanup(const rclcpp_lifecycle::State &)
+{
+  disable_all_quietly();
+  if (bus_ != nullptr) {
+    try {
+      bus_->close();
+    } catch (...) {
+    }
+  }
+  teardown();
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn DmSystemInterface::on_error(const rclcpp_lifecycle::State &)
+{
+  RCLCPP_ERROR(get_logger(), "进入 error 状态：尽力失能并关串口");
+  disable_all_quietly();
+  if (bus_ != nullptr) {
+    try {
+      bus_->close();
+    } catch (...) {
+    }
+  }
+  return CallbackReturn::SUCCESS;
+}
+
+// ── 接口导出 ──
+std::vector<hardware_interface::StateInterface> DmSystemInterface::export_state_interfaces()
+{
+  std::vector<hardware_interface::StateInterface> out;
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    out.emplace_back(joints_[i].name, hardware_interface::HW_IF_POSITION, &hw_positions_[i]);
+    out.emplace_back(joints_[i].name, hardware_interface::HW_IF_VELOCITY, &hw_velocities_[i]);
+  }
+  return out;
+}
+
+std::vector<hardware_interface::CommandInterface> DmSystemInterface::export_command_interfaces()
+{
+  std::vector<hardware_interface::CommandInterface> out;
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    out.emplace_back(joints_[i].name, hardware_interface::HW_IF_POSITION, &hw_commands_[i]);
+  }
+  return out;
+}
+
+// ── 周期读写 ──
+return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration &)
+{
+  if (bus_ == nullptr || io_ == nullptr || !io_->is_open()) {return return_type::ERROR;}
+
+  bus_->poll();
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    JointParams & jp = joints_[i];
+    if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
+      if (++jp.missing_streak >= fail_streak_limit_) {
+        RCLCPP_ERROR(get_logger(),
+          "关节 %s（电机 %u）连续 %d 圈没有反馈 —— 报 ERROR（串口掉了 / 电机断电？）",
+          jp.name.c_str(), jp.cfg.motor_id, jp.missing_streak);
+        return return_type::ERROR;
+      }
+      continue;
+    }
+    jp.missing_streak = 0;
+    const JointState st = jp.joint->get_state();      // q_ours
+    hw_positions_[i] = ours_to_model(i, st.position);
+    hw_velocities_[i] = static_cast<double>(jp.sign) * st.velocity;   // 矢量只乘 sign
+    if (st.err != 0x0 && st.err != 0x1) {
+      const char * text = err_text(st.err);
+      RCLCPP_ERROR(get_logger(),
+        "关节 %s 故障 ERR=%u（%s）—— 报 ERROR。注意 ERR=13(通讯丢失) 是锁存的，只能断电再上电清；"
+        "失能只是让电机松掉，重力负载下会掉", jp.name.c_str(), st.err,
+        text != nullptr ? text : "未知错误码");
+      return return_type::ERROR;
+    }
+  }
+  // 只读模式要主动问状态（电机不主动报）；使能后命令帧本身就带回包，不必再刷
+  if (!enable_on_activate_) {
+    for (const auto & jp : joints_) {bus_->send_refresh(jp.cfg.motor_id);}
+  }
+  return return_type::OK;
+}
+
+return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duration &)
+{
+  if (bus_ == nullptr) {return return_type::ERROR;}
+  // ⚠️ 只读模式下 write() **什么都不发**：这是"不接真机也能先只看"的前提
+  if (!enable_on_activate_) {return return_type::OK;}
+
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    JointParams & jp = joints_[i];
+    if (std::isnan(hw_commands_[i])) {
+      // 还没人写过命令（控制器没起 / 刚激活）：发保持帧 —— 用**电机侧实测值**，不换算不钳位
+      const auto st = bus_->get_state(jp.cfg.motor_id);
+      if (!st.has_value()) {
+        RCLCPP_ERROR(get_logger(), "关节 %s 没有实测位置，无法发保持帧", jp.name.c_str());
+        return return_type::ERROR;
+      }
+      bus_->send_pos_vel(jp.cfg.motor_id, st->pos, kHoldVlim);
+      continue;
+    }
+    try {
+      jp.joint->set_pos_vel(model_to_ours(i, hw_commands_[i]), vlim_);
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(get_logger(), "关节 %s 拒发：%s", jp.name.c_str(), e.what());
+      return return_type::ERROR;
+    }
+  }
+  return return_type::OK;
+}
+
+}  // namespace motor_driver_hardware
+
+#include <pluginlib/class_list_macros.hpp>   // NOLINT
+PLUGINLIB_EXPORT_CLASS(motor_driver_hardware::DmSystemInterface, hardware_interface::SystemInterface)

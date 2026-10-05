@@ -25,6 +25,19 @@ namespace motor_driver_hardware
 
 constexpr double kHoldVlim = 0.1;   // 保持帧的速度幅值（与 Python 侧 HOLD_VLIM 一致）
 
+// 模型坐标（URDF / ros2_control 接口用的那一套） ⇄ 我们的关节坐标 q_ours。
+//   q_urdf = sign · q_ours + zero_shift        （sign/zero_shift 来自 arm_description/config/align.yaml）
+// 放在这里是为了让**插件与测试用同一份公式**，而不是各写一遍。
+inline double model_to_ours(double q_urdf, int sign, double zero_shift)
+{
+  return static_cast<double>(sign) * (q_urdf - zero_shift);
+}
+
+inline double ours_to_model(double q_ours, int sign, double zero_shift)
+{
+  return static_cast<double>(sign) * q_ours + zero_shift;
+}
+
 struct JointConfig
 {
   std::string name;

@@ -1,9 +1,10 @@
 # motor_driver_hardware —— DM_Armx 的 C++ 侧
 
-当前有 **协议层 + 串口层 + 总线层 + 关节层**（一个 `dm_hardware` 库，**不依赖 rclcpp**）；
-`ros2_control` 的 `SystemInterface` 插件是下一步（M5，见根目录 `AGENTS.md` 的路线）。
+当前有 **协议层 + 串口层 + 总线层 + 关节层**（一个 `dm_hardware` 库，**不依赖 rclcpp**）
+与 **`DmSystemInterface` 插件**（ros2_control 的 `SystemInterface`，这一层才依赖 ROS）。
+下一步是 MoveIt（M6，见根目录 `AGENTS.md` 的路线）。
 
-## 四层分别管什么
+## 五层分别管什么
 
 | 层 | 文件 | 管什么 | 不管什么 |
 |---|---|---|---|
@@ -11,6 +12,29 @@
 | 串口 | `dm_serial` | termios 8N1 @921600、**非阻塞读**、写满、`stats` | 不解析帧（`SerialIo` 是接口，测试可塞内存假串口） |
 | 总线 | `dm_bus` | 唯一发送出口、收帧分类（反馈 / 寄存器回包 / 陌生 ID）、状态缓存、`wait_feedback`、`sync_states`、寄存器 I/O | 不写寄存器（只发帧）、不自动使能、不判安全、不拥有线程 |
 | 关节 | `dm_joint` | 换算（direction/offset）、软限位、PMAX、NaN 拦、`set_pos_vel`、使能（**带保持帧**）、状态、ERR 检查 | 不拥有控制循环、不 poll、不写寄存器、**只做 POS_VEL** |
+| 插件 | `dm_system_interface` | `SystemInterface` 生命周期、参数解析（含**模型对齐 sign/δ**）、`read()`/`write()`、`enable_on_activate` | 不碰运动学 / 轨迹；**默认只读**（不发控制帧） |
+
+## 三层坐标（最容易看错的地方）
+
+    URDF / 模型坐标  --sign / δ-->  q_ours  --direction / offset-->  电机 p_m
+    (ros2_control 接口)            (dm_joint 的关节侧)                 (电机读数)
+
+`sign`/`δ` 来自 `arm_description/config/align.yaml`，`direction`/`offset` 来自 `motor_driver/config/joint.yaml`，
+两者由 **xacro 读出来变成 `<param>`** 传进插件 ⇒ 单一真源不破。换算函数只有一份（`dm_joint.hpp`）。
+
+## 怎么用（真机三步验收）
+
+```bash
+colcon build --symlink-install && source install/setup.bash
+# ① 只读：不使能、不发控制帧，只发 0x7FF 刷新帧读状态（默认就是这一步）
+ros2 launch arm_bringup real_control.launch.py
+# ② 使能保持：零位移（保持帧 = 电机侧实测位置 + vlim 0.1）
+ros2 launch arm_bringup real_control.launch.py enable_on_activate:=true
+# ③ 可以发轨迹（先给慢速）
+ros2 launch arm_bringup real_control.launch.py enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5
+```
+
+测试：`colcon test --packages-select motor_driver_hardware`（27 个用例：协议/总线/关节/插件）。
 
 ## 这一层是什么 / 不是什么
 
@@ -67,16 +91,22 @@ colcon test-result --verbose          # 期望 0 failures
 ```text
 motor_driver_hardware/
 ├─ include/motor_driver_hardware/
-│  ├─ dm_frames.hpp    协议：帧构造 + 收帧切分 + 解码
-│  ├─ dm_serial.hpp    SerialIo 接口 + SerialPort（termios）
-│  ├─ dm_bus.hpp       MotorBus：收发、缓存、sync_states、寄存器 I/O
-│  └─ dm_joint.hpp     JointConfig + Joint：换算/限位/使能/状态
-├─ src/                对应四个 .cpp
+│  ├─ dm_frames.hpp           协议：帧构造 + 收帧切分 + 解码
+│  ├─ dm_serial.hpp           SerialIo 接口 + SerialPort（termios）
+│  ├─ dm_bus.hpp              MotorBus：收发、缓存、sync_states、寄存器 I/O
+│  ├─ dm_joint.hpp            JointConfig + Joint + 模型坐标换算函数
+│  └─ dm_system_interface.hpp ros2_control 插件（默认只读）
+├─ src/                       对应五个 .cpp
+├─ motor_driver_hardware.xml  pluginlib 导出（hardware_interface::SystemInterface）
 └─ test/
-   ├─ test_dm_frames.cpp   与 Python dm_frames 逐字节对拍（34 用例）
-   ├─ test_dm_bus.cpp      假串口走通收发管线（8 用例）
-   └─ test_dm_joint.cpp    与 Python joint.py 对拍换算/发帧/保持帧（5 用例）
+   ├─ test_dm_frames.cpp          与 Python dm_frames 逐字节对拍（34 用例）
+   ├─ test_dm_bus.cpp             假串口走通收发管线（8 用例）
+   ├─ test_dm_joint.cpp           与 Python joint.py 对拍换算/发帧/保持帧（5 用例）
+   └─ test_dm_system_interface.cpp 假串口 + 模拟电机验插件（只读/使能/保持/换算/故障，5 用例）
 ```
+
+⚠️ 若在别处新建链接 rclcpp 的**可执行文件**，记得 `link_directories($ENV{CONDA_PREFIX}/lib)` ——
+pixi 激活不设 `LIBRARY_PATH`，否则报「找不到 `-lcap` / `-llttng-ust`」（AGENTS 陷阱 #32）。
 
 **为什么 C++ 侧只有 POS_VEL**：ros2_control 这条链的命令接口是 `position`，背后就是 POS_VEL；
 MIT / 力位混控在 Python 侧已经跑通且够用，搬过来只会变成没人测的死代码。要加是后续的小事。

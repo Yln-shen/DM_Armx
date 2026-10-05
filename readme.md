@@ -23,8 +23,8 @@
 | ROS2 接口包 | [arm_msgs](src/arm_msgs) | ✅ 3 个 msg（`JointMotorCmd` / `JointMotorState` / `ArmStatus`）+ 1 个 action（`MoveToPose`）；夹爪本阶段不做 |
 | 机器人描述 | [arm_description](src/arm_description) | ✅ URDF/xacro（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **[config/align.yaml](src/arm_description/config/align.yaml)（模型对齐，2026-10-04 M1b 实测）**；joint limit 已换算成本项目标定值 |
 | ROS2 胶水层 | [arm_bringup](src/arm_bringup) | ✅ `real_joint_states`：**只读**真机 → `/joint_states`（模型镜像/对齐用）；串口连续失败会 FATAL 退出（不装死） |
-| C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL）；**与 Python 三份实现逐字节/逐数值对拍**（21 用例全过）；`SystemInterface` 插件待做（M5） |
-| ROS2 控制 | — | ⚠️ **未接**：`ros2_control` 硬件接口（M5）、MoveIt（M6）还没做；mock 链路（M2）已跑通，目前只有只读镜像节点会 import rclpy |
+| C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL）+ **`DmSystemInterface`（ros2_control 插件）**；**与 Python 三份实现逐字节/逐数值对拍**（27 用例全过） |
+| ROS2 控制 | — | ✅ 代码就绪（插件 + [real_control.launch.py](src/arm_bringup/launch/real_control.launch.py)）；⚠️ **真机三步验收还没做**（只读 / 保持 / 小动作）；MoveIt 待做（M6） |
 | 夹爪 | — | ❌ 本阶段不做 |
 
 > ⚠️ **现在还不能真的驱动整臂**：驱动层（协议 / 总线 / 单关节 / 整臂 / 标定）已就绪，但**上层还没接** ——
@@ -151,9 +151,10 @@ DM_Armx/
 **路线：MoveIt 算 IK / 轨迹 → ros2_control 下发执行**（不自搭运动学 / 轨迹 / 控制循环）。
 
 - 已完成：6 轴**方向 / 零位 / 软限位标定**（M1b 模型对齐 + 限位换算进 URDF）；`arm_msgs`；`arm_description`；
-  **M2 mock 链路**（`controller_manager` + JTC + 广播器，两个控制器 active、轨迹验收通过，不碰真机）；
-  **M3 C++ 协议层**（`dm_frames` 与 Python 逐字节对拍，34 用例全过）
-- 下一步（M4）：C++ 串口 / 总线层（非阻塞帧泵）+ 关节模型（换算 / 限位 / 力矩钳位 / 故障解码）
-- 之后（M5~M6）：`SystemInterface` 插件接真机（只读 → 小动作 → 验收）→ MoveIt（SRDF / kinematics / ompl）
+  **M2 mock 链路**；**M3/M4 C++ 侧**（协议 / 串口 / 总线 / 关节，与 Python 逐字节对拍）；
+  **M5 ros2_control 插件**（`DmSystemInterface`，默认只读；假串口 + 模拟电机的 27 个用例全过）
+- 下一步（真机验收，你来操作、我调参）：① `ros2 launch arm_bringup real_control.launch.py`（只读，核对模型与真机）
+  ② 加 `enable_on_activate:=true`（使能保持，零位移）③ 再加 `spawn_arm_controller:=true vlim:=0.5`（几度小动作）
+- 之后（M6）：MoveIt（SRDF / kinematics / ompl）；先对着 mock 跑，再换真插件
 
 细节看 [AGENTS.md](AGENTS.md)（精确到方法的状态与不变量）与 [docs/DESIGN.md](docs/DESIGN.md)（设计意图）。

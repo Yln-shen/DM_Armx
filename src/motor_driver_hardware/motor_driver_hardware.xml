@@ -1,0 +1,11 @@
+<library path="dm_system_interface">
+  <class name="motor_driver_hardware/DmSystemInterface"
+         type="motor_driver_hardware::DmSystemInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      DM_Armx 的达妙电机 SystemInterface。命令接口是 position（背后走 POS_VEL），
+      状态接口是 position + velocity。默认 enable_on_activate=false（只读）：
+      不使能、不发控制帧，只发 0x7FF 刷新帧读状态。
+    </description>
+  </class>
+</library>

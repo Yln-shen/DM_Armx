@@ -16,7 +16,9 @@
 ## 1. 这是什么（一句话）
 
 桌面级 6 轴机械臂上位机工程：USB-CAN → 达妙电机。关节 1–3 = **4340P**，4–6 = **4310**，夹爪（4310）本阶段不做。
-当前做到**驱动层**（协议 / 总线 / 单关节 / 整臂 / 寄存器工具 + 6 轴标定），**没有 ROS2 上层**（代码**不 import rclpy**）。
+当前：**驱动层**（协议 / 总线 / 单关节 / 整臂 / 寄存器工具 + 6 轴标定）已就绪；ROS2 侧已有
+**模型描述 + 模型对齐 + 只读镜像 + mock 控制链路 + C++ 硬件接口插件**。
+（`motor_driver` 这个 Python 包**仍然不 import rclpy** —— ROS 的东西都在 `arm_*` 与 `motor_driver_hardware` 里。）
 
 **路线（不变量）**：上层 **MoveIt 算 IK / 轨迹** → **ros2_control 下发执行**；本包只做电机驱动、标定与
 `ros2_control` 硬件接口，**不实现**运动学 / 轨迹生成 / 控制循环。
@@ -38,7 +40,7 @@
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
-| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库）：`dm_frames`（协议帧编解码）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口便于注入假串口）+ `dm_bus`（唯一发送出口 / 收帧分类 / 状态缓存 / `sync_states` / 寄存器 I/O）+ `dm_joint`（换算 / 软限位 / PMAX / 只走 **POS_VEL** 的关节） | **不依赖 rclcpp**（插件那层才依赖 ROS）；`dm_joint` **只做 mode 2**（MIT/力位混控没移植 —— 不用的路径不写）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致；`SystemInterface` 插件还没做 |
+| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、保持帧、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -95,12 +97,18 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 `dm_joint`：`JointConfig`（name/motor_id/direction/offset/`Limit`/软限位/mode）→ `Joint`：
 `joint_to_motor`/`motor_to_joint`/`clamp`/`clamp_pmax`/`prepare_frame`（NaN→软限位→换算→PMAX）·
 `set_pos_vel`（**仅 mode 2**）· `enable`（**无缓存位置拒使能 + 立刻补保持帧**）· `disable` ·
-`get_state`（无反馈抛）· `assert_healthy`（只查 ERR，故障先失能再抛）。
+`get_state`（无反馈抛）· `assert_healthy`（只查 ERR，故障先失能再抛）；
+`DmSystemInterface`（插件，`SystemInterface`）：参数**全部来自 <param>**（device/baud/enable_on_activate/vlim +
+每关节 motor_id/motor_type/direction/offset/p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/可选 PID）·
+生命周期 `on_init`（解析校验）→ `on_configure`（建串口/总线/关节）→ `on_activate`（开串口 + `sync_states` +
+写 `0x0A=2` + 可选写 PID + 可选使能）→ `on_deactivate`（**全部失能**）；
+`read()`（poll + 填 position/velocity + **ERR 非 0/1 报 ERROR**）· `write()`（**命令是 NaN 就发保持帧**；
+只读模式一个字节都不发）。
 
-**未实现（别以为有）**：`ros2_control` 硬件接口插件（C++ 侧协议/串口/总线/关节**都已就位**，只差插件）·
-MoveIt 配置（SRDF / kinematics / ompl）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) · 重力补偿 ·
-电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
-C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）。
+**未实现（别以为有）**：MoveIt 配置（SRDF / kinematics / ompl）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
+重力补偿 · 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
+C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）·
+真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）还没做。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 
@@ -251,6 +259,17 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 **单位与换算**：位置 `电机侧 = direction × 关节侧 + offset`（逆换算 `关节侧 = direction × (电机侧 − offset)`）；
 **速度 / 力矩是矢量：只乘 `direction`，不加 `offset`**。本层**没有减速比折算**（电机报的就是输出轴 rad）。
 
+**三层坐标（M5 起，最容易看错的地方）**：ros2_control / URDF / MoveIt 用的是**模型坐标**，
+插件在里面再套一层模型对齐：
+
+    模型坐标  --sign / zero_shift-->  q_ours  --direction / offset-->  电机 p_m
+    (ros2_control 接口)              (dm_joint 的"关节侧"、软限位在这一套)   (电机读数)
+
+- `sign` / `zero_shift` 来自 `arm_description/config/align.yaml`（M1b 实测），
+  `direction` / `offset` 来自 `motor_driver/config/joint.yaml`；两者由 **xacro 变成 `<param>`** 传进插件 ⇒ 单一真源不破。
+- 换算函数就一份：`dm_joint.hpp` 的 `model_to_ours()` / `ours_to_model()`（插件与测试共用，别各写一遍）。
+- 速度 / 力矩过这层只乘 `sign`（不加 `zero_shift`）。
+
 **2026-10-03 真机（6 轴整臂，`/dev/ttyACM0`）**：
 - **`MST_ID(0x07)` 已统一为 `0x11~0x16`**（用户改的；`ESC_ID` 仍 1~6）。本层认电机只看反馈数据段 `D[0] & 0x0F`，**不看接收帧里的 CAN ID** ⇒ 改 MST_ID 对 `dm_bus`/`Joint`/`dm_registers` 无影响；`dm_bringup` 的 `--fb-id` 默认正是 `0x10+id`。
 - **位置真源 = 寄存器 `0x50 p_m`（float32）== 反馈帧的 `pos`**；**≠ `0x51 xout`**（真机实测每台差一个常数：+0.072 / −0.016 / −0.031 / +0.058 / +0.170 / +0.259 rad；交替读数证明它不随时间漂）⇒ 标定与换算一律按 `p_m`（或反馈帧）。
@@ -293,6 +312,8 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 29 | **`joint_state_publisher*` 会订阅 `/joint_states` 再回发** ⇒ 与"真机镜像"节点同时开着，两个发布者打架 | 2026-10-04 真踩：M1a 的 `display.launch.py` 没关，`/joint_states` 有 2 个发布者（一个 RELIABLE、一个 BEST_EFFORT），RViz 里的机械臂**发抖**。⇒ 镜像前先 `ros2 topic info /joint_states` 确认 **Publisher count: 1**；`ros2 node list` 里出现**两个 `/robot_state_publisher`** 是同一问题的征兆 |
 | 30 | **协议有两份实现（Python `dm_frames.py` + C++ `dm_frames`），浮点运算顺序不一致就差 1 个 LSB** | `float_to_uint` 必须"先钳位 → 先减、后除、再乘 → **向零截断**"（Python `int()` 与 C++ `static_cast` 都是向零）；把乘法换个位置（例如 `x * 4095 / 500`）就可能差 1 LSB。`pos_vel`/`force_pos` 的 float32 也必须走同样的 `double → float` 一轮转换。⇒ **不靠人眼看**：`colcon test --packages-select motor_driver_hardware` 的 34 个逐字节对拍用例就是这条的机器保证 |
 | 31 | **往 `src/` 里拷第三方 CMake 工程，会被 colcon 当成"包"** | 2026-10-04 真踩：把达妙官方 C++ 例程拷进 `src/third_party/C++例程/u2can/`，它的 `CMakeLists.txt` 里是 `project (dm_Linux_Drive)`（**`project` 与 `(` 之间有空格**，grep `project(` 抓不到）⇒ colcon 把它识别成 plain cmake 包：`colcon list` 多出一个 `dm_Linux_Drive`，全量构建报 `1 package aborted: motor_driver`（连累了无关的包）。⇒ 修法是标准做法：在 `src/third_party/` 放一个**空的 `COLCON_IGNORE`**（colcon 跳过该目录及其全部子目录）。⚠️ 之前拷 Python 例程没暴露这个问题，只是因为它们**没有 CMakeLists.txt** |
+| 32 | **在 pixi/robostack 环境里链接 rclcpp 的**可执行文件**会报「找不到 `-lcap` / `-llttng-ust`」** | 2026-10-04 真踩（第一次写 C++ ROS 可执行文件时才暴露）：`libcap.so` / `liblttng-ust*.so` 就在 `$CONDA_PREFIX/lib` 下，但 **pixi 的激活不设置 `LIBRARY_PATH`** ⇒ 链接器不搜那个目录。共享库（我们的插件 `.so`）不受影响 —— 允许未定义符号、运行时由 `LD_LIBRARY_PATH` 解析；只有**可执行文件**（gtest、`ros2_control_node`）会失败。⇒ 在 CMake 里 `link_directories($ENV{CONDA_PREFIX}/lib)`（见 `motor_driver_hardware/CMakeLists.txt`）。根治办法是在 `pixi.toml` 的 `[activation.env]` 里设 `LIBRARY_PATH`，但那要改环境配置（待用户定） |
+| 33 | **`hardware_interface` 的 `on_init(const HardwareInfo&)` 在 jazzy 已 `[[deprecated]]`** | 新签名是 `on_init(const HardwareComponentInterfaceParams&)` ⇒ `params.hardware_info` 就是那份 HardwareInfo（另有个 `executor` 弱指针）。写老签名能编译，但**每个构建都出一条 deprecated 警告**；换新签名后单元测试也更好构造（默认构造 + 填 `hardware_info` 即可，见 `test/test_dm_system_interface.cpp`） |
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -325,6 +346,10 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   **内存字节流**当串口，就能不接硬件走通"发帧 → 收反馈 → 进缓存"整条链；`test_dm_bus.cpp` 还带一个
   **应答器**（收到刷新帧就回一条反馈），所以 `sync_states()` 那种"先丢旧的、再主动问"的流程也能测。
   `test_dm_joint.cpp` 则直接调 Python 的 `joint.py` 比 `prepare_frame`/发帧结果。
+- **插件级测试**（`test/test_dm_system_interface.cpp`）：假串口里再塞一台**模拟电机** —— 收到 POS_VEL 就把位置
+  跟过去、收到刷新就回状态、收到使能帧就置 ERR=1、寄存器帧回显 RID。于是"只读模式一个控制帧都不发"、
+  "激活时写 `0x0A=2` + 使能 + 用**电机侧实测值**发保持帧"、"命令 NaN 继续保持"、
+  "模型坐标 0 ⇒ 电机侧 1.785878"（M1b 实测解出来的那个数）"故障报 ERROR" 全都能不接硬件验。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
 
