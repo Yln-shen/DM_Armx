@@ -41,7 +41,7 @@
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + 显示 launch | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**把真机关节角按 `q_urdf = sign·q_ours + zero_shift` 发 `/joint_states`，用于模型对齐与只读监视） | **绝不 `enable()`**；串口连续失败达 `max_fail_streak` 就 FATAL 退出（不装死）；参数默认值取自 `arm_description/config/align.yaml` |
 | [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
-| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、保持帧、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
+| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、锁定保持目标、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -102,9 +102,9 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 `DmSystemInterface`（插件，`SystemInterface`）：参数**全部来自 <param>**（device/baud/enable_on_activate/vlim +
 每关节 motor_id/motor_type/direction/offset/p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/可选 PID）·
 生命周期 `on_init`（解析校验）→ `on_configure`（建串口/总线/关节）→ `on_activate`（开串口 + `sync_states` +
-写 `0x0A=2` + 可选写 PID + 可选使能）→ `on_deactivate`（**全部失能**）；
-`read()`（poll + 填 position/velocity + **ERR 非 0/1 报 ERROR**）· `write()`（**命令是 NaN 就发保持帧**；
-只读模式一个字节都不发）。
+写 `0x0A=2` + 可选写 PID + 可选使能 + **锁定保持目标**）→ `on_deactivate`（**全部失能**）；
+`read()`（poll + 填 position/velocity + **ERR 非 0/1 报 ERROR**）· `write()`（**命令是 NaN 就发"锁定的保持目标"**
+= 使能那一刻的电机侧位置，见陷阱 #38；只读模式一个字节都不发）。
 
 **未实现（别以为有）**：`arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
 重力补偿 · 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
@@ -320,7 +320,7 @@ PID 现为 `KP_ASR=0.00372 / KI_ASR=0.002 / KP_APR=54 / KI_APR=0` —— **与 `
 | 35 | **`ros2_control_node` 会从**共享话题** `/robot_description` 订阅别人的 URDF** | 2026-10-05 真机踩（很危险）：用户那套真机 `real_control.launch.py` 还开着，我起 `arm_moveit_config` 的 mock 链 ⇒ mock 的 CM 从 `/robot_description` 订阅到**真机版** URDF ⇒ `Loaded hardware 'ArmSystem' from plugin motor_driver_hardware/DmSystemInterface` ⇒ 开了真机串口、**把 6 台电机使能了**（`enable_on_activate=true` 也是从别人的 URDF 里来的）⇒ 随后 `关节 joint1 故障 ERR=13`（**锁存，只能断电清**）并在 error 里失能退出。⇒ ①**别用"重映射订阅"这招**：CM 只从话题取描述、**不回退自己的参数** ⇒ 重映射后它永远卡在 `Waiting for data on 'robot_description' topic to finish initialization`（硬件起不来、RViz 里是"残缺的模型"），2026-10-05 当场回退；②真正兜底是两条：**任何时候只开一套**（mock / 真机互斥）（mock 与真机、以及 `move_group.launch.py use_mock:=true`）；③TIOCEXCL 只能挡住"两个进程同时开串口"，**挡不住"订阅错 URDF"** —— 两件事都要防 |
 | 36 | **激活硬件时"一次采样就要求所有电机就位"会偶发失败** | 2026-10-05 真机踩：`on_activate` 里只做一次 2 秒 `sync_states`，然后要求 6 台全有反馈 ⇒ 冷启动/刚上电时总有一两台回得慢 ⇒ FATAL `电机 2（joint2）一开始就没有反馈` ⇒ 硬件没激活 ⇒ 没有 `/joint_states` ⇒ RViz 里"残缺的模型"（而 Python 侧一问 6 台全部正常、ERR 全 0 ⇒ 是**时序**不是硬件）。⇒ ①激活时**重试**（最多约 5~8 秒：每轮 0.5s `sync_states` + 0.3s 等）直到全部就位；②**只读模式容忍缺席**（告警 + 跳过，能看几台是几台），"6 台必须全在"只在 `enable_on_activate=true` 时严格；③只读模式下某台 ERR 故障也**只报一次、不中断**（否则一台故障把整条只读链拖死，反而看不见其它关节） |
 | 37 | **MoveIt 的 `CheckStartStateBounds` 不会替你"就近钳位"起始状态，越界就**拒绝规划**** | 2026-10-05 真机踩：真机 j1 = `1.371670`，比 URDF 下界 `1.392202` 低 **0.0205** —— 即使这个量**小于** `ompl_planning.yaml` 的 `start_state_max_bounds_error: 0.1`，适配器照样报 `Start state out of bounds. Aborting planning pipeline.` ⇒ `error_code = 99999`、轨迹为空。⚠️ 好在"拒绝"比"静默钳位"安全（只读模式下机械臂一个字节没收到，规划前后 `/joint_states` 逐位相同）。⇒ **真机规划前先比对"实测姿态 vs URDF 限位"**（模型坐标下的限位见 §5）；越界就先把关节弄回限位内（本轮是手动推回去，零电机命令） |
-| 38 | **"使能保持"是 follow-me 式，不是刚性保持** —— 控制器没起时 `write()` 发的保持帧，目标是**每圈重新读到的实测位置**（`dm_system_interface.cpp:440-445`：`send_pos_vel(id, bus_->get_state(id)->pos, kHoldVlim)`） | 2026-10-05 真机实测（`enable_on_activate:=true`、不起轨迹控制器）：j1/j3 在重力下**缓慢蠕动**，20 s 里 j1 −0.00267 rad（0.15°）、j3 −0.00153，j2/j4/j5/j6 为 0。⇒ 它保证的是"**不跳变、不朝零位冲、每圈喂狗**"，**不保证不动**（无回复力 ⇒ 重力能慢慢把关节压走）。⚠️ 轨迹**执行期间与之后**不受影响：`hw_commands_` 不再是 NaN，保持的是最后一条命令。要刚性保持得把目标改成"使能那一刻锁定的值"（**未改，待定**） |
+| 38 | **"使能保持"曾是 follow-me 式（每圈重读实测位置）⇒ 没有回复力，重力能把关节慢慢压走**；**已改成"锁定使能那一刻的位置"** | 2026-10-05 真机实测（`enable_on_activate:=true`、不起轨迹控制器）：j1/j3 在重力下**缓慢蠕动**，20 s 里 j1 −0.00267 rad（0.15°）、j3 −0.00153，j2/j4/j5/j6 为 0。⇒ 它保证的是"**不跳变、不朝零位冲、每圈喂狗**"，**不保证不动**。⚠️ 轨迹**执行期间与之后**不受影响（`hw_commands_` 不再是 NaN，保持的是最后一条命令）。**当天已修**：`on_activate` 把"使能那一刻的电机侧位置"锁进 `JointParams::hold_pos`，`write()` 一直发它 ⇒ 变成**有回复力**的保持。真机复测同一 20 s 场景：j1/j3 各只走 **1 LSB（0.000381 rad）就钉住**（之后 12 s 不动），改前 j1 是 −0.002670 且持续下滑。⚠️ 代价：使能状态下**用手推关节会被顶回来**（follow-me 时是"推哪算哪"）；重力负载下会持续通一点电流。回归用例 `test_dm_system_interface.cpp::HoldTargetIsLatchedNotReread`（**旧实现下必失败**，已实测） |
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -355,7 +355,7 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   `test_dm_joint.cpp` 则直接调 Python 的 `joint.py` 比 `prepare_frame`/发帧结果。
 - **插件级测试**（`test/test_dm_system_interface.cpp`）：假串口里再塞一台**模拟电机** —— 收到 POS_VEL 就把位置
   跟过去、收到刷新就回状态、收到使能帧就置 ERR=1、寄存器帧回显 RID。于是"只读模式一个控制帧都不发"、
-  "激活时写 `0x0A=2` + 使能 + 用**电机侧实测值**发保持帧"、"命令 NaN 继续保持"、
+  "激活时写 `0x0A=2` + 使能 + **锁定保持目标**"、"命令 NaN 继续保持"、
   "模型坐标 0 ⇒ 电机侧 1.785878"（M1b 实测解出来的那个数）"故障报 ERROR" 全都能不接硬件验。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。

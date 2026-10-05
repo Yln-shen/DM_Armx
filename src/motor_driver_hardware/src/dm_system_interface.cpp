@@ -287,7 +287,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
       }
     }
 
-    // 命令先全部置 NaN ⇒ write() 里会走"保持"（用实测位置），绝不朝零位冲
+    // 命令先全部置 NaN ⇒ write() 里会走"保持"（用**锁定的**保持目标），绝不朝零位冲
     const double nan = std::numeric_limits<double>::quiet_NaN();
     std::fill(hw_commands_.begin(), hw_commands_.end(), nan);
     hw_positions_.assign(joints_.size(), nan);
@@ -295,7 +295,17 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
 
     if (enable_on_activate_) {
       for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
-      RCLCPP_WARN(get_logger(), "已使能 %zu 台（保持帧 = 电机侧实测位置 + vlim %.2f）",
+      // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
+      // 为什么不每圈重读："读哪停哪"没有回复力，重力能把关节慢慢压走（陷阱 #38）。
+      for (auto & jp : joints_) {
+        const auto st = bus_->get_state(jp.cfg.motor_id);
+        if (!st.has_value()) {
+          throw std::runtime_error(
+            "关节 " + jp.name + " 使能后仍没有实测位置，锁不住保持目标");
+        }
+        jp.hold_pos = st->pos;
+      }
+      RCLCPP_WARN(get_logger(), "已使能 %zu 台（保持目标 = **使能那一刻锁定**的电机侧位置 + vlim %.2f）",
         joints_.size(), kHoldVlim);
     } else {
       RCLCPP_WARN(get_logger(),
@@ -436,13 +446,13 @@ return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duratio
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
     if (std::isnan(hw_commands_[i])) {
-      // 还没人写过命令（控制器没起 / 刚激活）：发保持帧 —— 用**电机侧实测值**，不换算不钳位
-      const auto st = bus_->get_state(jp.cfg.motor_id);
-      if (!st.has_value()) {
-        RCLCPP_ERROR(get_logger(), "关节 %s 没有实测位置，无法发保持帧", jp.name.c_str());
+      // 还没人写过命令（控制器没起 / 刚激活）：发保持帧 —— 目标是**使能那一刻锁定**的电机侧实测值，
+      // 不换算不钳位、也不重读（重读=follow-me，没有回复力，见陷阱 #38）
+      if (!jp.hold_pos.has_value()) {
+        RCLCPP_ERROR(get_logger(), "关节 %s 没有锁定的保持目标，无法发保持帧", jp.name.c_str());
         return return_type::ERROR;
       }
-      bus_->send_pos_vel(jp.cfg.motor_id, st->pos, kHoldVlim);
+      bus_->send_pos_vel(jp.cfg.motor_id, *jp.hold_pos, kHoldVlim);
       continue;
     }
     try {

@@ -284,6 +284,36 @@ TEST(DmSystemInterface, EnabledActivationWritesModeEnableAndHold)
   EXPECT_NEAR(md::uint8s_to_float32(io.control_frames[0].data() + 21), io.pos[2], 1e-9);
 }
 
+// ②b 保持目标是**使能那一刻锁定**的，不是每圈重读实测值（陷阱 #38）
+//     重读 = follow-me：没有回复力，重力能把关节慢慢压走且永远不纠正
+//     （2026-10-05 真机：20 s 里 j1 −0.0027 rad）。旧实现下这条**必然失败**。
+TEST(DmSystemInterface, HoldTargetIsLatchedNotReread)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  const auto info = make_info(true);
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+
+  // 激活时那条保持帧就是"锁定值"（电机侧的量化读数）
+  ASSERT_EQ(io.control_frames.size(), 2u);
+  const std::vector<uint8_t> locked_frame = io.control_frames[0];          // joint2
+  const double locked_pos = md::uint8s_to_float32(locked_frame.data() + 21);
+
+  // 模拟重力/手推把它挪走 0.05 rad，并让总线缓存读到新位置
+  io.pos[2] = locked_pos - 0.05;
+  io.pos[6] = io.pos[6] + 0.02;
+  io.push_feedback(2);
+  io.push_feedback(6);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+
+  // 命令仍是 NaN（控制器没起）⇒ 发出去的目标必须还是**锁定值**
+  io.control_frames.clear();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  ASSERT_EQ(io.control_frames.size(), 2u);
+  EXPECT_EQ(io.control_frames[0], to_vec(md::pos_vel_frame(2, locked_pos, md::kHoldVlim)))
+    << "j2 的保持目标跟着实测值跑了 —— 那就是 follow-me（旧行为），不是锁定";
+}
+
 // ③ 命令通路：模型坐标 →（sign/δ）→ q_ours →（direction/offset）→ 电机侧，再闭环读回来
 TEST(DmSystemInterface, CommandConvertsAndRoundTrips)
 {

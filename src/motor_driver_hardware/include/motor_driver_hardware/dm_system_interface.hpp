@@ -8,8 +8,9 @@
 //     `direction`/`offset` 来自 motor_driver/config/joint.yaml —— 由 xacro 变成 <param> 传进来。
 //
 // 安全设计（都是真机踩出来的，别删）：
-//   1. **命令是 NaN 就发"保持"**（用电机侧实测位置）：ros2_control 里没被写过的命令接口就是 NaN，
-//      当 0 处理 = 一使能就朝零位冲；
+//   1. **命令是 NaN 就发"保持"**（目标是**使能那一刻锁定**的电机侧位置）：ros2_control 里没被写过的
+//      命令接口就是 NaN，当 0 处理 = 一使能就朝零位冲。锁定而不是"每圈重读实测值"，是因为后者没有
+//      回复力 —— 重力能把关节慢慢压走（陷阱 #38，2026-10-05 真机实测 20s 掉 0.0027 rad）；
 //   2. `write()` 每圈给**所有**关节发帧：不发帧的会被电机侧 500ms 看门狗打成锁存 ERR=13（只能断电清）；
 //   3. `enable_on_activate=false`（默认）时**不发任何控制帧**，只发 0x7FF 刷新帧读状态 ⇒ 可做"只读"验收；
 //   4. `on_deactivate()` **全部失能**；`read()` 里 ERR 不是 0/1 ⇒ 返回 ERROR 让 CM 停控制器。
@@ -77,6 +78,7 @@ private:
     std::unique_ptr<Joint> joint;
     int missing_streak = 0;
     uint8_t err_warned = 0;                           // 只读模式下"这个故障码已提示过"
+    std::optional<double> hold_pos;                   // 使能那一刻锁定的保持目标（电机侧）；空 = 还没锁定
   };
 
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）

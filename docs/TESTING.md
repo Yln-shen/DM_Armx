@@ -539,20 +539,29 @@ goal.yaml 骨架：`request.group_name: arm` + `goal_constraints[0].joint_constr
 **③ 只读 + `plan_only`**：j1 进限位后 `error_code = 1 (SUCCESS)`，
 轨迹首点与真机实测**逐位相同**（没有被钳位），TOTP 正常执行。
 
-**④ 使能但不动**（`enable_on_activate:=true`，不起轨迹控制器）：
-日志 `已使能 6 台（保持帧 = 电机侧实测位置 + vlim 0.10）`、**0 条 ERROR/FATAL**。
-但**漂移不是零** —— j1/j3 在重力下**缓慢蠕动**（2 Hz 采样 20 s）：
+**④ 使能但不动**（`enable_on_activate:=true`，不起轨迹控制器）：**0 条 ERROR/FATAL**。
+**第一版实现（follow-me）下漂移不是零** —— j1/j3 在重力下**单调蠕动**（2 Hz 采样 20 s）：
 
-    j1: 1.494887 → 1.492216   （Δ = −0.002670 rad = −0.15°）
+    j1: 1.494887 → 1.492216   （Δ = −0.002670 rad = −0.15°，看不到收敛）
     j3: −0.008774 → −0.010300 （Δ = −0.001526）
     j2/j4/j5/j6: Δ = 0
 
-原因是 `dm_system_interface.cpp:438-445`：控制器没起时 `write()` 的保持帧是
-`send_pos_vel(id, bus_->get_state(id)->pos, kHoldVlim)` —— 目标是**每圈重新读到的实测位置**，
-即 **follow-me 式保持**：没有回复力，重力把关节压走后指令跟着走。
-⇒ 它保证"不跳变、不朝零位冲、每圈喂狗"，**不保证刚性不动**。
+原因：那时 `write()` 的保持帧是 `send_pos_vel(id, bus_->get_state(id)->pos, kHoldVlim)` ——
+目标是**每圈重新读到的实测位置**（**follow-me**）：没有回复力，重力把关节压走后指令跟着走。
+
+⇒ **当天修掉**（陷阱 #38）：`on_activate` 把"使能那一刻的电机侧位置"锁进 `JointParams::hold_pos`，
+`write()` 一直发它。真机复测同一个 20 s 场景：
+
+| | follow-me（改前） | 锁定（改后） |
+|---|---|---|
+| j1 | −0.002670，**持续下滑** | **−0.000381（1 LSB），8 s 后钉住、余下 12 s 不动** |
+| j3 | −0.001526 | −0.000381（1 LSB） |
+| j2/j4/j5/j6 | 0 | 0 |
+
+⇒ 从"**无界蠕动**"变成"**1 LSB 收敛**"。代价：使能状态下**用手推关节会被顶回来**（follow-me 时是"推哪算哪"）；
+重力负载下会持续通一点电流。回归用例：`test_dm_system_interface.cpp::HoldTargetIsLatchedNotReread`
+（**旧实现下必失败**，已实测：把实现退回 HEAD 跑该用例 ⇒ 报"j2 的保持目标跟着实测值跑了"）。
 （M5 记的"零漂移"宜读作"短时 ≤0.003 rad"；当时姿态/时长可能不同。）
-⚠️ 待定（要改代码）：把保持帧改成"**使能那一刻锁定的固定目标**"才有回复力。
 
 **⑤ 小轨迹执行**（`enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5`，goal scaling 0.1）：
 
@@ -569,6 +578,10 @@ goal.yaml 骨架：`request.group_name: arm` + `goal_constraints[0].joint_constr
   不是硬件没走到。要精确到位就把 `tolerance_±` 收紧。
 - 速度匹配：`vlim=0.5` + scaling 0.1 ⇒ TOTP 峰值约 0.22 rad/s < 硬件上限 0.5 ⇒ 硬件跟得上。
   （若让轨迹比 `vlim` 快，硬件会滞后于轨迹，动作会在 action 返回之后才走完。）
+
+**⑤b 改完保持帧之后复测**（同一个 goal、同样的 `vlim=0.5`）：仍然 `Goal reached, success!`、
+`error_code = 1`、0 条 ERROR/FATAL；实测末点 vs 规划末点 ≤ **0.00084 rad（0.048°）**
+（规划末点距目标 0.009~0.018，仍停在容差球边缘）。⇒ **锁定保持没有破坏轨迹通路**。
 
 **复现（⚠️ 一次只开一套；`move_group.launch.py` 真机时必须是 `use_mock:=false`）**：
 
