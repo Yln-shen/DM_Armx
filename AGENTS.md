@@ -108,7 +108,7 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 **未实现（别以为有）**：MoveIt 配置（SRDF / kinematics / ompl）· `arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) ·
 重力补偿 · 电压监控（本层读不到 `0x3C`）· **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；
 C++ 包的 `test/` 是唯一例外，见 §7）· C++ 侧的 **MIT / 力位混控路径**（只做 POS_VEL）·
-真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）还没做。
+真机上的 **ros2_control 三步验收**（只读 / 保持 / 小动作）**已通过**（2026-10-05，见 docs/TESTING.md 末节）。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 

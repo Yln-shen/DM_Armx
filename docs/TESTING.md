@@ -366,4 +366,17 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 3. ROS 守护进程的**幽灵节点**（daemon 缓存）让 `ros2 node list` 显示出多套 mock，误导过一次判断 ⇒
    看进程用 `ps -eo pid,etime,args | grep ros2_control_node` 更可靠。
 
-**待做**：② 使能保持（要求零位移）、③ 小动作。
+**M5 真机验收 ②（使能保持）2026-10-05 通过**：`enable_on_activate:=true`（只起广播器）⇒ 日志
+`已使能 6 台（保持帧 = 电机侧实测位置 + vlim 0.10）`，**机械臂零位移**（保持帧用电机侧实测值，不朝零位冲）。
+
+**M5 真机验收 ③（小动作）2026-10-05 通过**：`enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5`
+⇒ `list_controllers` 里 `arm_controller(joint_trajectory_controller) active` + 广播器 active；发一条 3 秒小轨迹
+（j6：0 → 0.10 rad）⇒ goal 成功，`/joint_states` 实测 `[1.5594, ~0, ~0, ~0, -0.0008, 0.0992]`
+—— **j6 到位、其余关节纹丝不动**，日志无拒发、无 ERROR。
+
+⚠️ 这一步踩过一个坑：**两套 launch 抢同一个串口**（②那套没关就起③ ⇒ 看着像"发轨迹不动"，
+其实是 JTC 不在、`send_goal` 没有 action server）。根因是 Linux 默认允许重复打开同一个 tty ⇒
+已在 `SerialPort::open()` 设 **`TIOCEXCL`**（第二家直接 EBUSY 失败），并在报错里提示"先 Ctrl-C 旧的那套"。
+
+**M5 结论**：`MoveIt → ros2_control` 路线上的**执行端（硬件接口）已在真机跑通**：
+只读镜像 ✓ → 使能保持 ✓ → 轨迹小动作 ✓。下一步 M6：MoveIt（SRDF / kinematics / ompl）。
