@@ -10,11 +10,22 @@
 #   侧的控制器增益，跟驱动层无关，放这里更干净。
 #
 # 用途：被 urdf/inc/arm.ros2_control.xacro 的**真机分支**读成每关节的 <param>，
-#      再由 DmSystemInterface 解析进 JointConfig（2.4.2 只解析，不使用）。
+#      再由 DmSystemInterface 解析进 JointConfig。
+#
+# ── ki_hold：宿主侧积分增益（2026-10-05 加）──
+# **MIT 模式下固件没有积分**（τ = kp·Δp + kd·Δv + t_ff），所以 MIT 的稳态误差被
+#   不可重复扰动/kp 卡住：真机实测 j3 在 kp=7 下差 0.134 rad，而 POS_VEL（固件积分）是 0.0016 rad。
+#   把这 0.8 N·m 的扰动**积掉**，MIT 才能追平 POS_VEL 的静态精度。
+# 做法：τ_i += ki_hold · (q_des − q) · dt，加进 MIT 帧的 t_ff（即宿主侧 PI + 重力前馈）。
+# ⚠️ **默认 0.0 = 完全不生效**（一个字节都不变），要分级打开：
+#   先保持模式小步试（如 0.3），确认静差收敛且**不振荡**，再往上加。
+# ⚠️ 积分 + 100 Hz + 干摩擦（j3 有 ~0.8 N·m 不可重复扰动）是**极限环的经典配方**
+#   ⇒ 插件里配了抗饱和（钳 ±0.3·torque_max 且饱和时停积）、误差门控（>0.15 rad 不积）、
+#     以及四个复位条件（激活 / 命令跳变 / 残差守卫触发 / 失能）。
 joints:
-  joint1: {kp_hold: 7.0, kd_hold: 0.8}   # 4340P，待标定
-  joint2: {kp_hold: 7.0, kd_hold: 0.8}   # 4340P，待标定
-  joint3: {kp_hold: 7.0, kd_hold: 0.8}   # 4340P，待标定
-  joint4: {kp_hold: 7.0, kd_hold: 0.8}   # 4310，与 DESIGN 参考值一致
-  joint5: {kp_hold: 7.0, kd_hold: 0.8}   # 4310
-  joint6: {kp_hold: 7.0, kd_hold: 0.8}   # 4310
+  joint1: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.0}   # 4340P，待标定
+  joint2: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.0}   # 4340P，待标定
+  joint3: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.0}   # 4340P，待标定
+  joint4: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.0}   # 4310，与 DESIGN 参考值一致
+  joint5: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.0}   # 4310
+  joint6: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.0}   # 4310

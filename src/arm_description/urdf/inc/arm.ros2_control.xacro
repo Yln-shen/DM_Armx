@@ -77,6 +77,9 @@
       <param name="torque_max">${jcfg['torque_max']}</param>
       <param name="kp_hold">${mcfg['kp_hold']}</param>
       <param name="kd_hold">${mcfg['kd_hold']}</param>
+      <!-- ki_hold：宿主侧积分增益。**默认 0 = 完全不生效**（MIT 固件没有积分，
+           所以稳态误差被"扰动/kp"卡住；积掉它才追得上 POS_VEL 的静态精度）。 -->
+      <param name="ki_hold">${mcfg['ki_hold']}</param>
     </joint>
   </xacro:macro>
 

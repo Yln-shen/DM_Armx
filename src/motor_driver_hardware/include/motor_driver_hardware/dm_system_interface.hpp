@@ -83,6 +83,12 @@ private:
     // MIT（gravity_ff=true）才用得上。torque_max 存进 cfg.torque_max（关节侧额定值）。
     double kp_hold = 0.0;
     double kd_hold = 0.0;
+    // ki_hold：**宿主侧积分增益**（默认 0 = 不生效）。MIT 模式下固件没有积分，稳态误差被
+    // "不可重复扰动/kp" 卡住（真机 j3 在 kp=7 下差 0.134 rad，而 POS_VEL 是 0.0016 rad）
+    // ⇒ τ_i 加进 MIT 帧的 t_ff，就变成"宿主侧 PI + 重力前馈"。
+    double ki_hold = 0.0;
+    double tau_i = 0.0;                               // 积分器输出（**关节侧** N·m）
+    std::optional<double> prev_q_ref_ours;            // 上一周期的参考（判断命令是否跳变 ⇒ 复位积分）
     std::optional<double> hold_ours;                  // 同一个保持目标的**关节侧**值（MIT 的保持帧要它）
     double last_tau_ours = 0.0;                       // 上一次算出来的重力项；算不出来时拿它顶（必须继续喂狗）
   };
@@ -96,8 +102,10 @@ private:
   double model_to_ours(std::size_t i, double q_urdf) const;
   double ours_to_model(std::size_t i, double q_ours) const;
 
-  // gravity_ff=true 时 write() 走这条：实测姿态 → 重力项 → 每关节 MIT 帧（含残差守卫）
-  hardware_interface::return_type write_gravity_ff(const rclcpp::Time & time);
+  // gravity_ff=true 时 write() 走这条：实测姿态 → 重力项 +（可选）宿主侧积分 → 每关节 MIT 帧
+  // （含残差守卫）。`period` 是积分步长 —— 用控制循环给的真实周期，别写死 1/100。
+  hardware_interface::return_type write_gravity_ff(
+    const rclcpp::Time & time, const rclcpp::Duration & period);
 
   std::vector<JointParams> joints_;
   std::vector<double> hw_positions_;

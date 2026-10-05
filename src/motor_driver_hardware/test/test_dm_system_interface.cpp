@@ -83,6 +83,7 @@ public:
   // 模拟电机状态：电机侧位置（rad）/ ERR。初值取自真机停放姿态（id2 实测 +1.79 rad 那一带）
   std::map<uint8_t, double> pos{{2, 1.7909}, {6, 1.7909}};
   std::map<uint8_t, double> vel{{2, 0.0}, {6, 0.0}};      // 电机侧 rad/s（用来造速度尖峰）
+  bool freeze_pos = false;                                // true ⇒ 收到 MIT 也不再跟命令（造持续误差）
   std::map<uint8_t, double> vmax{{2, 10.0}, {6, 30.0}};   // 各自的 VMAX（12 位映射范围）
   std::map<uint8_t, uint8_t> err{{2, 0x0}, {6, 0x0}};
   std::vector<uint8_t> tx;
@@ -160,7 +161,7 @@ private:
       //    真机那时出力恒为 0、根本不会动（假电机若无脑跟随，位置会跳到 p_des）。
       const uint8_t id = static_cast<uint8_t>(can_id);
       const uint32_t kp_u = (static_cast<uint32_t>(f[24] & 0x0F) << 8) | f[25];
-      if (kp_u > 0) {
+      if (kp_u > 0 && !freeze_pos) {
         const uint32_t q_u = (static_cast<uint32_t>(f[21]) << 8) | f[22];
         pos[id] = (static_cast<double>(q_u) / 65535.0) * 25.0 - 12.5;
       }
@@ -189,7 +190,7 @@ hardware_interface::ComponentInfo make_joint(const std::string & name,
 }
 
 hardware_interface::HardwareInfo make_info(bool enable_on_activate, bool gravity_ff = false,
-  const std::string & urdf_path = "", double gravity_ff_scale = 1.0)
+  const std::string & urdf_path = "", double gravity_ff_scale = 1.0, double ki_hold = 0.0)
 {
   hardware_interface::HardwareInfo info;
   info.name = "ArmReal";
@@ -202,6 +203,7 @@ hardware_interface::HardwareInfo make_info(bool enable_on_activate, bool gravity
     info.hardware_parameters["gravity_ff"] = "true";
     info.hardware_parameters["urdf_path"] = urdf_path;
     info.hardware_parameters["gravity_ff_scale"] = std::to_string(gravity_ff_scale);
+    info.hardware_parameters["_ki_hold_for_test"] = "";   // 占位（每关节 param 见下）
   }
   // torque_max / kp_hold / kd_hold 只有 gravity_ff 时才被校验；POS_VEL 路径不看它们。
   info.joints.push_back(make_joint("joint2", {
@@ -209,13 +211,15 @@ hardware_interface::HardwareInfo make_info(bool enable_on_activate, bool gravity
     {"p_max", "12.5"}, {"v_max", "10.0"}, {"t_max", "28.0"},
     {"position_min", "-0.25"}, {"position_max", "2.188275"},
     {"sign", "-1"}, {"zero_shift", "-0.191649"},
-    {"torque_max", "12.0"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"}}));
+    {"torque_max", "12.0"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"},
+    {"ki_hold", std::to_string(ki_hold)}}));
   info.joints.push_back(make_joint("joint6", {
     {"motor_id", "6"}, {"motor_type", "4310"}, {"direction", "1"}, {"offset", "2.010141"},
     {"p_max", "12.5"}, {"v_max", "30.0"}, {"t_max", "10.0"},
     {"position_min", "-3.141593"}, {"position_max", "3.141593"},
     {"sign", "1"}, {"zero_shift", "1.782591"},
-    {"torque_max", "3.5"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"}}));
+    {"torque_max", "3.5"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"},
+    {"ki_hold", std::to_string(ki_hold)}}));
   return info;
 }
 
@@ -686,6 +690,58 @@ TEST(DmSystemInterface, GravityGuardGracePeriodAndDebounce)
   ASSERT_FALSE(io2.mit_frames.empty());
   EXPECT_NEAR(decode_mit_tau(io2.mit_frames[0], 28.0), 0.0, 1.5 * lsb_j2)
     << "位置越界该在第一帧就锁死";
+}
+
+// ⑩ 宿主侧积分（ki_hold）：默认 0 不生效；>0 时按误差爬升、到上限停积、命令跳变/守卫触发就复位
+TEST(DmSystemInterface, GravityIntegratorRampsClampsAndResets)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF;
+  probe.close();
+
+  constexpr double kKi = 100.0;                 // τ_i 每周期 += ki·err·dt
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true, true, ARM_DYN_URDF, 1.0, kKi)),
+    CallbackReturn::SUCCESS);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  const double hold_model = state_value(iface, "joint2", "position");   // 激活时的（= 保持目标）
+
+  io.freeze_pos = true;                         // 之后假电机不再跟命令 ⇒ 误差持续存在
+  io.pos[2] += 0.05;                            // 偏离保持点 0.05 rad（< 守卫 0.1，不会触发守卫）
+  io.push_feedback(2);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+
+  // 每周期按 joints_ 顺序写两帧 ⇒ 最后两帧里的**前一帧**是 joint2
+  auto step = [&](double t) {
+      io.mit_frames.clear();
+      EXPECT_EQ(iface.read(kT0, kDt), return_type::OK);
+      EXPECT_EQ(iface.write(rclcpp::Time(static_cast<int64_t>(t * 1e9), RCL_ROS_TIME), kDt),
+        return_type::OK);
+      EXPECT_GE(io.mit_frames.size(), 2u);
+      return decode_mit_tau(io.mit_frames[io.mit_frames.size() - 2], 28.0);
+    };
+  const double lsb = 2.0 * 28.0 / 4095.0;
+  const double limit = 0.3 * 12.0;              // τ_i 上限 = 0.3 × torque_max(joint2)
+
+  const double tau_ff0 = step(0.01);
+  const double tau_ff1 = step(0.02);
+  // 误差 ≈ −0.05（motor 侧 +0.05、direction=−1）⇒ 每周期 Δτ_i ≈ 100×(−0.05)×0.01 = −0.05
+  EXPECT_NEAR(tau_ff1 - tau_ff0, kKi * (-0.05) * 0.01, 3 * lsb) << "积分没有按误差爬升";
+
+  // 一直积到撞上限（|τ_i| = 0.3×12 = 3.6），然后**停住不再涨**
+  double tau_clamped = tau_ff1;
+  for (int k = 2; k < 220; ++k) {tau_clamped = step(0.01 * (k + 1));}
+  EXPECT_GT(std::fabs(tau_clamped - tau_ff0), limit - 0.2) << "没积到上限";
+  const double tau_more = step(2.21);
+  EXPECT_NEAR(tau_more, tau_clamped, 3 * lsb) << "饱和后还在涨（条件积分没生效）";
+
+  // 复位：命令参考**单周期跳变 0.10 rad**（> 阈值 0.05），而跟踪误差 0.15 rad（< 守卫 0.3 ⇒ 不触发守卫）
+  //   direction=−1 ⇒ 模型坐标下"实测 +0.05"对应"参考 −0.10"（详见 make_info 里 j2 的 sign/δ）
+  set_command(iface, "joint2", hold_model - 0.10);
+  const double tau_after = step(2.22);
+  EXPECT_GT(tau_after - tau_clamped, limit - 0.2)
+    << "命令跳变后没复位（旧积分被带过去了）：τ_i 本该从 −3.6 回到 0";
 }
 
 int main(int argc, char ** argv)
