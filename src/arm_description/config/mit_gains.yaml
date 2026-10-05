@@ -9,6 +9,18 @@
 #   （多写一个键就 TypeError）⇒ 塞进去会连带改 Python 包。而 kp/kd 只是 ros2_control
 #   侧的控制器增益，跟驱动层无关，放这里更干净。
 #
+# ── kp_hold：位置增益（2026-10-05 真机分级从占位值 7.0 改到 25.0）──
+# **静态误差的本质是死区**：稳态 kp·e = 扰动 ⇒ |e| ≤ 扰动/kp。所以 kp 直接决定静态精度：
+#   真机实测最大残差 kp=7 **0.106 rad** → kp=15 **0.059** → kp=25 **0.0385**（单调）。
+# ⚠️ **宿主侧积分（ki_hold）破不了这个死区**：它以 100 Hz 爬，越过静摩擦就"跳一格"、摩擦反向、
+#   再爬 ⇒ ki≥1.0 时出现**极限环**（实测 j3 抖动 0.107 rad）。kp 是**固件在电机里按 10+ kHz 执行**的，
+#   所以只有它才能做亚静摩擦的连续蠕动。
+# ⚠️ **kp 有硬上界 = torque_max / 轨迹期望滞后**：`clamp_mit_torque` 在 **PD 项自己超过 torque_max**
+#   时**拒发** ⇒ write() 返回 ERROR ⇒ CM 报硬件错误 ⇒ 失能 ⇒ **机械臂掉下来**（陷阱 #39）。
+#   j1~j3（torque_max 12.0）可到 ~80；**j4~j6（3.5）只能到 ~25**（0.14 rad 滞后）。
+# ⚠️ 改善是**次线性**的（kp 7→25 是 3.6 倍、误差只降 2.3 倍，kp·e 从 0.74 涨到 0.96 N·m）
+#   ⇒ 疑似传动柔度（编码器在电机侧、看不到减速器扭转），再往上边际收益递减。
+#
 # 用途：被 urdf/inc/arm.ros2_control.xacro 的**真机分支**读成每关节的 <param>，
 #      再由 DmSystemInterface 解析进 JointConfig。
 #
@@ -23,9 +35,9 @@
 #   ⇒ 插件里配了抗饱和（钳 ±0.3·torque_max 且饱和时停积）、误差门控（>0.15 rad 不积）、
 #     以及四个复位条件（激活 / 命令跳变 / 残差守卫触发 / 失能）。
 joints:
-  joint1: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint2: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint3: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
-  joint4: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310，与 DESIGN 参考值一致
-  joint5: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
-  joint6: {kp_hold: 7.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
+  joint1: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
+  joint2: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
+  joint3: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4340P，待标定
+  joint4: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310，与 DESIGN 参考值一致
+  joint5: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
+  joint6: {kp_hold: 25.0, kd_hold: 0.8, ki_hold: 0.3}   # 4310
