@@ -69,6 +69,9 @@
           <param name="baud">${arm_cfg['baud']}</param>
           <param name="enable_on_activate">$(arg enable_on_activate)</param>
           <param name="vlim">$(arg vlim)</param>
+          <!-- 动力学模型（重力前馈）的路径：由 CMake 在构建时从**同一个 xacro** 展开并安装，
+               惯性与运动学和运行期那份同源。插件目前**不读**它（2.2/2.4 才接上）。 -->
+          <param name="urdf_path">$(find arm_description)/urdf/arm.urdf</param>
         </hardware>
       </xacro:unless>
 
