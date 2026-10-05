@@ -24,7 +24,7 @@
 #    换算到电机侧后必须落在 ±PMAX 内，否则 arm_config 会拒绝加载。
 
 # ── 整臂全局参数（ArmConfig）──
-channel: /dev/ttyACM0      # USB-CAN 适配器的串口（UART 侧）
+channel: /dev/dm_can      # USB-CAN 适配器的串口（UART 侧）
                            # ⚠️ 这个编号**会随插拔顺序来回变**（2026-10-04 实测两回：ACM0→ACM1，又 ACM1→ACM0）。
                            #    变了就是"打不开串口 ⇒ 硬件没激活 ⇒ RViz 停在零位姿"（看着像模型不对）。
                            #    想一劳永逸：按适配器序列号加 udev 规则固定成 /dev/dm_can，再把这里改成它。

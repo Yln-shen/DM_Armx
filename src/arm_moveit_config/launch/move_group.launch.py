@@ -61,6 +61,12 @@ def generate_launch_description():
     with open(os.path.join(cfg, "config", "arm.srdf"), "r", encoding="utf-8") as f:
         srdf_text = f.read()
 
+    # ompl_planning.yaml → 扁平参数（ompl.xxx）
+    _ompl_raw = load_yaml(cfg, "config", "ompl_planning.yaml")
+    _ompl_flat = {"ompl." + k: v for k, v in _ompl_raw.items() if k != "arm"}
+    for _k, _v in _ompl_raw.get("arm", {}).items():
+        _ompl_flat["ompl.arm." + _k] = _v
+
     # MoveIt 的参数按"经典结构"显式拼：SRDF → robot_description_semantic、IK →
     # robot_description_kinematics、OMPL → ompl.*、控制器映射 → 顶层键。
     # 这样不依赖 moveit_configs_utils 的 API 细节，出问题一眼能看出是哪个文件。
@@ -69,7 +75,10 @@ def generate_launch_description():
         {"robot_description_semantic": srdf_text},
         {"robot_description_kinematics": load_yaml(cfg, "config", "kinematics.yaml")},
         {"planning_pipelines": ["ompl"], "default_planning_pipeline": "ompl"},
-        {"ompl": load_yaml(cfg, "config", "ompl_planning.yaml")},
+        # ⚠️ 曾经写成 {"ompl": {...}}（嵌套 dict）⇒ MoveIt 的 ParamListener 读不到，报
+        #    "Planning plugin name is empty or not defined in namespace 'ompl'"。
+        #    改成**扁平键** ompl.xxx；planner_configs 这类嵌套值 ROS 会自动摊平。
+        _ompl_flat,
         load_yaml(cfg, "config", "moveit_controllers.yaml"),
         {"allow_trajectory_execution": True,
          "publish_planning_scene": True,
