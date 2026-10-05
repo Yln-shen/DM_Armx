@@ -5,6 +5,7 @@
 // 这样"命令换算 → 发帧 → 状态回读"整条链都能在测试里跑通。
 #include <gtest/gtest.h>
 
+#include <hardware_interface/component_parser.hpp>
 #include <hardware_interface/types/hardware_component_interface_params.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -368,6 +369,68 @@ TEST(DmSystemInterface, RejectsBadParams)
     ASSERT_EQ(iface.on_init(params), CallbackReturn::SUCCESS);
     EXPECT_EQ(iface.on_configure(rclcpp_lifecycle::State()), CallbackReturn::ERROR);
   }
+}
+
+// ⑥ URDF 解析这一关：ros2_control 的解析器到底有没有把 <joint> 里的 <param> 读出来？
+//    这一条是真机现象逼出来的：如果 `joint.parameters` 是空的，插件只能吃默认值
+//    （sign=1 / zero_shift=0）⇒ j1 会显示 ≈0 而不是 +1.5708，正好差 90°。
+TEST(DmSystemInterface, ParsesJointParamsFromUrdf)
+{
+  // 与 arm_description 的 xacro 输出**同构**的最小 URDF
+  const std::string urdf = R"URDF(<?xml version="1.0"?>
+<robot name="t">
+  <link name="base_link"/>
+  <link name="link1"/>
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <limit lower="-1.0" upper="1.0" effort="1.0" velocity="1.0"/>
+  </joint>
+  <ros2_control name="ArmSystem" type="system">
+    <hardware>
+      <plugin>motor_driver_hardware/DmSystemInterface</plugin>
+      <param name="device">/dev/fake</param>
+      <param name="enable_on_activate">false</param>
+      <param name="vlim">1.0</param>
+    </hardware>
+    <joint name="joint1">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <param name="motor_id">1</param>
+      <param name="direction">-1</param>
+      <param name="offset">1.306486</param>
+      <param name="p_max">12.5</param>
+      <param name="v_max">10.0</param>
+      <param name="t_max">28.0</param>
+      <param name="position_min">-0.096419</param>
+      <param name="position_max">0.137522</param>
+      <param name="sign">-1</param>
+      <param name="zero_shift">1.529724</param>
+    </joint>
+  </ros2_control>
+</robot>
+)URDF";
+
+  const auto infos = hardware_interface::parse_control_resources_from_urdf(urdf);
+  ASSERT_EQ(infos.size(), 1u);
+  const auto & info = infos[0];
+  ASSERT_EQ(info.joints.size(), 1u);
+  ASSERT_TRUE(info.joints[0].parameters.count("sign") != 0)
+    << "解析器没把 <joint> 里的 <param> 读进 parameters ⇒ 插件只能吃默认 sign=1/δ=0 ⇒ 差 90°";
+  EXPECT_EQ(info.joints[0].parameters.at("sign"), "-1");
+  EXPECT_EQ(info.joints[0].parameters.at("zero_shift"), "1.529724");
+  EXPECT_EQ(info.joints[0].parameters.at("motor_id"), "1");
+  EXPECT_EQ(info.hardware_parameters.at("device"), "/dev/fake");
+
+  // 端到端：j1 的原始读数 +1.347562（M1b 实测）⇒ 模型侧必须是 +1.5708
+  FakeMotorBusIo io;
+  io.pos[1] = 1.347562;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  EXPECT_NEAR(state_value(iface, "joint1", "position"), 1.5708, 5e-4)
+    << "模型侧 j1 不对 ⇒ 真机 RViz 里就会差这 90°";
 }
 
 int main(int argc, char ** argv)
