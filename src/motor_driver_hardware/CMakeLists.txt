@@ -89,9 +89,11 @@ if(BUILD_TESTING)
   target_compile_definitions(test_dm_joint PRIVATE
     MOTOR_DRIVER_PY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../motor_driver/motor_driver")
 
-  # 插件：假串口 + 模拟电机，走通"只读/使能/保持/命令换算/故障"（自带 main，要 rclcpp::init）
+  # 插件：假串口 + 模拟电机，走通"只读/使能/保持/命令换算/故障/重力前馈"（自带 main，要 rclcpp::init）
   ament_add_gtest(test_dm_system_interface test/test_dm_system_interface.cpp)
   target_link_libraries(test_dm_system_interface dm_system_interface)
+  target_compile_definitions(test_dm_system_interface PRIVATE
+    ARM_DYN_URDF="${CMAKE_BINARY_DIR}/../arm_description/arm_dynamics.urdf")
 
   # 重力项：与已跑通的 MuJoCo 逐点对拍（守住 sign 那一段符号链）
   #   ARM_DYN_URDF 指向 **arm_description 构建时生成**的那份纯 URDF

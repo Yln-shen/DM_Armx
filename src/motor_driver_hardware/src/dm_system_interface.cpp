@@ -21,6 +21,9 @@ using hardware_interface::CallbackReturn;
 using hardware_interface::return_type;
 
 constexpr uint8_t kRegCtrlMode = 0x0A;   // CTRL_MODE（RAM；uint32）
+// 重力前馈的残差守卫阈值：偏离保持点这么多就**撤掉全部 tau_ff**（仍留在 MIT + kp_hold 下）
+constexpr double kGravityGuardRad = 0.1;        // 位置偏差（rad）
+constexpr double kGravityGuardRadPerS = 0.5;    // 速度（rad/s）
 constexpr uint8_t kRegKpAsr = 0x19;
 constexpr uint8_t kRegKiAsr = 0x1A;
 constexpr uint8_t kRegKpApr = 0x1B;
@@ -124,7 +127,9 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
         as_double(p, "t_max", 28.0)};
       if (has(p, "position_min")) {jp.cfg.position_min = as_double(p, "position_min", 0.0);}
       if (has(p, "position_max")) {jp.cfg.position_max = as_double(p, "position_max", 0.0);}
-      jp.cfg.mode = 2;                                  // 这条链只用 POS_VEL
+      // gravity_ff=true ⇒ 整条链走 MIT（只有 MIT 能直接给力矩，重力前馈必须有它）；
+      // false ⇒ 一切照旧 POS_VEL（固件闭环，静态精度最好）
+      jp.cfg.mode = gravity_ff_ ? 1 : 2;
       jp.sign = as_int(p, "sign", 1);
       if (jp.sign != 1 && jp.sign != -1) {
         throw std::invalid_argument("关节 " + j.name + " 的 sign 只能是 ±1");
@@ -247,6 +252,30 @@ CallbackReturn DmSystemInterface::on_configure(const rclcpp_lifecycle::State &)
     teardown();
     return CallbackReturn::ERROR;
   }
+  if (gravity_ff_) {
+    // 重力模型在这里一次性建好（Data/缓冲都预分配）⇒ write() 里零堆分配。
+    // 构造失败**不静默降级**：少算一个关节的重力就敢发力矩，比直接起不来危险得多。
+    try {
+      std::vector<std::string> names;
+      std::vector<int> signs;
+      names.reserve(joints_.size());
+      signs.reserve(joints_.size());
+      for (const auto & jp : joints_) {
+        names.push_back(jp.name);
+        signs.push_back(jp.sign);
+      }
+      gravity_ = std::make_unique<GravityModel>(urdf_path_, names, signs);
+      q_urdf_buf_.assign(joints_.size(), 0.0);
+      tau_ours_buf_.assign(joints_.size(), 0.0);
+      RCLCPP_INFO(get_logger(), "重力模型已加载：%s（%zu 关节，sign 已按关节套上）",
+        urdf_path_.c_str(), gravity_->size());
+    } catch (const std::exception & e) {
+      RCLCPP_FATAL(get_logger(),
+        "gravity_ff=true 但重力模型建不起来（urdf_path=%s）：%s", urdf_path_.c_str(), e.what());
+      teardown();
+      return CallbackReturn::ERROR;
+    }
+  }
   return CallbackReturn::SUCCESS;
 }
 
@@ -299,9 +328,11 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
 
     // 逐台：切 POS_VEL（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
     for (const auto & jp : joints_) {
-      if (!bus_->write_register(jp.cfg.motor_id, kRegCtrlMode, uint32_to_uint8s(2))) {
+      const uint32_t mode = gravity_ff_ ? 1u : 2u;      // 1 = MIT（重力前馈）/ 2 = 位置速度
+      if (!bus_->write_register(jp.cfg.motor_id, kRegCtrlMode, uint32_to_uint8s(mode))) {
         throw std::runtime_error(
-          "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 0x0A=2 没收到回包");
+          "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 0x0A=" + std::to_string(mode) +
+          " 没收到回包");
       }
       if (jp.pid.has_value()) {
         const auto & pid = *jp.pid;
@@ -334,6 +365,9 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
             "关节 " + jp.name + " 使能后仍没有实测位置，锁不住保持目标");
         }
         jp.hold_pos = st->pos;
+        // 同一个保持目标的**关节侧**值：POS_VEL 的保持帧要电机侧（绕过换算=真保持），
+        // MIT 的保持帧要关节侧（set_mit 会自己换算回来）。两者是同一点，别混用。
+        jp.hold_ours = jp.joint->motor_to_joint(st->pos);
       }
       RCLCPP_WARN(get_logger(), "已使能 %zu 台（保持目标 = **使能那一刻锁定**的电机侧位置 + vlim %.2f）",
         joints_.size(), kHoldVlim);
@@ -474,6 +508,7 @@ return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duratio
   if (bus_ == nullptr) {return return_type::ERROR;}
   // ⚠️ 只读模式下 write() **什么都不发**：这是"不接真机也能先只看"的前提
   if (!enable_on_activate_) {return return_type::OK;}
+  if (gravity_ff_) {return write_gravity_ff();}
 
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
@@ -491,6 +526,77 @@ return_type DmSystemInterface::write(const rclcpp::Time &, const rclcpp::Duratio
       jp.joint->set_pos_vel(model_to_ours(i, hw_commands_[i]), vlim_);
     } catch (const std::exception & e) {
       RCLCPP_ERROR(get_logger(), "关节 %s 拒发：%s", jp.name.c_str(), e.what());
+      return return_type::ERROR;
+    }
+  }
+  return return_type::OK;
+}
+
+return_type DmSystemInterface::write_gravity_ff()
+{
+  // ── ① 用**实测姿态**算这一帧的重力项（hw_positions_ 就是模型坐标 q_urdf）──
+  bool have_q = true;
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    q_urdf_buf_[i] = hw_positions_[i];
+    if (!std::isfinite(hw_positions_[i])) {have_q = false;}
+  }
+  if (have_q) {
+    try {
+      gravity_->tau_ours(q_urdf_buf_.data(), tau_ours_buf_.data());
+      for (std::size_t i = 0; i < joints_.size(); ++i) {
+        joints_[i].last_tau_ours = tau_ours_buf_[i];
+      }
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR_ONCE(get_logger(), "重力项算不出来（这一帧沿用上一次的值）：%s", e.what());
+    }
+  } else {
+    // ⚠️ 这一帧**绝不能跳过不发**：500ms 看门狗一超时就锁存 ERR=13，只能断电清（陷阱 #24/#25）
+    RCLCPP_WARN_ONCE(get_logger(),
+      "还没有实测位置 ⇒ 重力项沿用上一次的值（首次为 0）；仍继续发帧喂狗");
+  }
+
+  // ── ② 残差守卫：越界就**锁存**并把 tau_ff 全部置 0（仍在 MIT + kp_hold 下，不失阻尼）──
+  if (!gravity_guard_tripped_) {
+    for (std::size_t i = 0; i < joints_.size(); ++i) {
+      const JointParams & jp = joints_[i];
+      if (!jp.hold_ours.has_value() || !std::isfinite(hw_positions_[i])) {continue;}
+      const double dev_pos = std::fabs(hw_positions_[i] - ours_to_model(i, *jp.hold_ours));
+      const double vel = std::isfinite(hw_velocities_[i]) ? hw_velocities_[i] : 0.0;
+      if (dev_pos > kGravityGuardRad || std::fabs(vel) > kGravityGuardRadPerS) {
+        gravity_guard_tripped_ = true;
+        RCLCPP_ERROR(get_logger(),
+          "‼ 残差守卫触发：关节 %s 偏离保持点 %.3f rad、速度 %.3f rad/s（阈值 %.2f / %.2f）"
+          " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
+          jp.name.c_str(), dev_pos, vel, kGravityGuardRad, kGravityGuardRadPerS);
+        break;
+      }
+    }
+  }
+
+  // ── ③ 逐关节发 MIT 帧 ──
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    JointParams & jp = joints_[i];
+    const double tau = gravity_guard_tripped_ ? 0.0 : jp.last_tau_ours;
+    double q_cmd = 0.0;
+    double dq_cmd = 0.0;
+    if (std::isnan(hw_commands_[i])) {
+      // 控制器没起 / 刚激活 ⇒ 保持帧：目标是**使能那一刻锁定**的关节侧位置（陷阱 #38 的教训）
+      if (!jp.hold_ours.has_value()) {
+        RCLCPP_ERROR(get_logger(), "关节 %s 没有锁定的保持目标，无法发 MIT 保持帧", jp.name.c_str());
+        return return_type::ERROR;
+      }
+      q_cmd = *jp.hold_ours;
+    } else {
+      q_cmd = model_to_ours(i, hw_commands_[i]);
+      // 速度是矢量：模型坐标 → 关节侧只乘 sign（不加 zero_shift）
+      if (std::isfinite(hw_vel_commands_[i])) {
+        dq_cmd = static_cast<double>(jp.sign) * hw_vel_commands_[i];
+      }
+    }
+    try {
+      jp.joint->set_mit(jp.kp_hold, jp.kd_hold, q_cmd, dq_cmd, tau);
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(get_logger(), "关节 %s 拒发 MIT 帧：%s", jp.name.c_str(), e.what());
       return return_type::ERROR;
     }
   }

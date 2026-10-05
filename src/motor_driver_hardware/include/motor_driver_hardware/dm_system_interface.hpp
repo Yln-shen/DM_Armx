@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "motor_driver_hardware/dm_bus.hpp"
+#include "motor_driver_hardware/dm_gravity.hpp"
 #include "motor_driver_hardware/dm_joint.hpp"
 #include "motor_driver_hardware/dm_serial.hpp"
 
@@ -82,6 +83,8 @@ private:
     // MIT（gravity_ff=true）才用得上。torque_max 存进 cfg.torque_max（关节侧额定值）。
     double kp_hold = 0.0;
     double kd_hold = 0.0;
+    std::optional<double> hold_ours;                  // 同一个保持目标的**关节侧**值（MIT 的保持帧要它）
+    double last_tau_ours = 0.0;                       // 上一次算出来的重力项；算不出来时拿它顶（必须继续喂狗）
   };
 
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）
@@ -92,6 +95,9 @@ private:
   // 模型坐标 ⇄ 我们的关节坐标
   double model_to_ours(std::size_t i, double q_urdf) const;
   double ours_to_model(std::size_t i, double q_ours) const;
+
+  // gravity_ff=true 时 write() 走这条：实测姿态 → 重力项 → 每关节 MIT 帧（含残差守卫）
+  hardware_interface::return_type write_gravity_ff();
 
   std::vector<JointParams> joints_;
   std::vector<double> hw_positions_;
@@ -111,9 +117,17 @@ private:
   bool enable_on_activate_ = false;                   // 默认**只读**
   double vlim_ = 1.0;                                 // POS_VEL 速度上限（rad/s）
   int fail_streak_limit_ = 10;                        // 连续多少圈收不到反馈就报错
-  // 重力前馈总开关（默认 false ⇒ 一切照旧走 POS_VEL）。2.4.2 只解析，**尚未使用**。
+  // 重力前馈总开关（默认 false ⇒ 一切照旧走 POS_VEL）。
   bool gravity_ff_ = false;
   std::string urdf_path_;                             // 动力学模型路径（gravity_ff 时才要求非空）
+  // 重力模型：gravity_ff=true 时在 on_configure 建好（构造即抛 ⇒ FATAL，不静默降级）
+  std::unique_ptr<GravityModel> gravity_;
+  // 残差守卫（|q−q_hold| 或 |dq| 越界）⇒ 锁存：**把 tau_ff 全部置 0**（仍留 MIT+kp_hold），
+  // 并只报一次 ERROR。比"运行期写寄存器切回 POS_VEL"简单也安全得多（切模式要走陷阱 #2 的流程）。
+  bool gravity_guard_tripped_ = false;
+  // q 缓冲：tau_ours() 要按关节顺序读，不每帧分配
+  std::vector<double> q_urdf_buf_;
+  std::vector<double> tau_ours_buf_;
 };
 
 }  // namespace motor_driver_hardware

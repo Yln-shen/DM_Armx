@@ -13,11 +13,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "motor_driver_hardware/dm_system_interface.hpp"
+
+#ifndef ARM_DYN_URDF
+#error "缺少 ARM_DYN_URDF（应由 CMake target_compile_definitions 传入）"
+#endif
 
 namespace md = motor_driver_hardware;
 using hardware_interface::CallbackReturn;
@@ -39,6 +44,14 @@ std::vector<uint8_t> feedback_frame(std::initializer_list<uint8_t> data8)
 
 template<typename T>
 std::vector<uint8_t> to_vec(const T & f) {return std::vector<uint8_t>(f.begin(), f.end());}
+
+// MIT 帧的 12 位力矩字段解码（与 dm_frames::mit_frame 的编码互逆：
+//   编码 float_to_uint(t, -t_max, t_max, 12) **向零截断**；解码就会差最多 1 LSB）
+double decode_mit_tau(const std::vector<uint8_t> & f, double t_max)
+{
+  const uint32_t t_u = (static_cast<uint32_t>(f[27] & 0x0F) << 8) | f[28];
+  return (static_cast<double>(t_u) / 4095.0) * 2.0 * t_max - t_max;
+}
 
 class FakeMotorBusIo : public md::SerialIo
 {
@@ -73,6 +86,7 @@ public:
   std::vector<uint8_t> tx;
   std::vector<uint8_t> rx;
   std::vector<std::vector<uint8_t>> control_frames;   // 收到的 POS_VEL 命令
+  std::vector<std::vector<uint8_t>> mit_frames;       // 收到的 MIT 命令
   std::vector<std::vector<uint8_t>> enable_frames;    // 收到的使能/失能帧
   bool open_ = false;
   md::SerialStats stats_;
@@ -81,8 +95,10 @@ public:
   {
     const uint16_t pos_u = encode_pos(pos[id]);
     const uint8_t d0 = static_cast<uint8_t>((id & 0x0F) | ((err[id] & 0x0F) << 4));
+    // 速度字段：12 位映射里 0 落在**中点 2047**（不是 2048）⇒ D[3]=0x7F, D[4]=0xF0。
+    // ⚠️ 写 0x00,0x00 会被解成 −VMAX（第一版就这么写的，MIT 用例里 kd 项直接爆掉）。
     push(feedback_frame({d0, static_cast<uint8_t>(pos_u >> 8), static_cast<uint8_t>(pos_u & 0xFF),
-      0x00, 0x00, 0x00, 0x1E, 0x1F}));
+      0x7F, 0xF0, 0x00, 0x1E, 0x1F}));
   }
 
   // "电机实际报出来的"位置（经过 16 位量化）—— 测试算期望时要用这个，不能用未量化的 pos[id]
@@ -122,10 +138,28 @@ private:
       push_feedback(id);
       return;
     }
-    if (can_id >= 1 && can_id <= 6 && (f[28] == md::kCmdEnable || f[28] == md::kCmdDisable)) {
+    if (can_id >= 1 && can_id <= 6) {
+      // 使能/失能帧的数据段恒为 {0xFF×7, 0xFC/0xFD}（见 dm_frames::cmd_frame）——
+      // 必须**整体**判，只看最后一个字节会把某些 MIT 帧误判成使能帧。
+      bool all_ff = true;
+      for (std::size_t k = 21; k <= 27; ++k) {if (f[k] != 0xFF) {all_ff = false;}}
+      if (all_ff && (f[28] == md::kCmdEnable || f[28] == md::kCmdDisable)) {
+        const uint8_t id = static_cast<uint8_t>(can_id);
+        err[id] = (f[28] == md::kCmdEnable) ? 0x1 : 0x0;
+        enable_frames.emplace_back(f, f + len);
+        push_feedback(id);
+        return;
+      }
+      // MIT 帧：CAN ID **就是电机 id 本身**（与使能帧同 ID，靠数据段区分）。
+      // ⚠️ 只有 kp>0 时才"跟过去"：`Joint::enable()` 在 MIT 下发的是**零增益零前馈**保持帧，
+      //    真机那时出力恒为 0、根本不会动（假电机若无脑跟随，位置会跳到 p_des）。
       const uint8_t id = static_cast<uint8_t>(can_id);
-      err[id] = (f[28] == md::kCmdEnable) ? 0x1 : 0x0;
-      enable_frames.emplace_back(f, f + len);
+      const uint32_t kp_u = (static_cast<uint32_t>(f[24] & 0x0F) << 8) | f[25];
+      if (kp_u > 0) {
+        const uint32_t q_u = (static_cast<uint32_t>(f[21]) << 8) | f[22];
+        pos[id] = (static_cast<double>(q_u) / 65535.0) * 25.0 - 12.5;
+      }
+      mit_frames.emplace_back(f, f + len);
       push_feedback(id);
     }
   }
@@ -149,7 +183,8 @@ hardware_interface::ComponentInfo make_joint(const std::string & name,
   return j;
 }
 
-hardware_interface::HardwareInfo make_info(bool enable_on_activate)
+hardware_interface::HardwareInfo make_info(bool enable_on_activate, bool gravity_ff = false,
+  const std::string & urdf_path = "")
 {
   hardware_interface::HardwareInfo info;
   info.name = "ArmReal";
@@ -158,16 +193,23 @@ hardware_interface::HardwareInfo make_info(bool enable_on_activate)
   info.hardware_parameters["baud"] = "921600";
   info.hardware_parameters["enable_on_activate"] = enable_on_activate ? "true" : "false";
   info.hardware_parameters["vlim"] = "1.0";
+  if (gravity_ff) {
+    info.hardware_parameters["gravity_ff"] = "true";
+    info.hardware_parameters["urdf_path"] = urdf_path;
+  }
+  // torque_max / kp_hold / kd_hold 只有 gravity_ff 时才被校验；POS_VEL 路径不看它们。
   info.joints.push_back(make_joint("joint2", {
     {"motor_id", "2"}, {"motor_type", "4340P"}, {"direction", "-1"}, {"offset", "1.594229"},
     {"p_max", "12.5"}, {"v_max", "10.0"}, {"t_max", "28.0"},
     {"position_min", "-0.25"}, {"position_max", "2.188275"},
-    {"sign", "-1"}, {"zero_shift", "-0.191649"}}));
+    {"sign", "-1"}, {"zero_shift", "-0.191649"},
+    {"torque_max", "12.0"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"}}));
   info.joints.push_back(make_joint("joint6", {
     {"motor_id", "6"}, {"motor_type", "4310"}, {"direction", "1"}, {"offset", "2.010141"},
     {"p_max", "12.5"}, {"v_max", "30.0"}, {"t_max", "10.0"},
     {"position_min", "-3.141593"}, {"position_max", "3.141593"},
-    {"sign", "1"}, {"zero_shift", "1.782591"}}));
+    {"sign", "1"}, {"zero_shift", "1.782591"},
+    {"torque_max", "3.5"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"}}));
   return info;
 }
 
@@ -461,6 +503,76 @@ TEST(DmSystemInterface, ParsesJointParamsFromUrdf)
   ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
   EXPECT_NEAR(state_value(iface, "joint1", "position"), 1.5708, 5e-4)
     << "模型侧 j1 不对 ⇒ 真机 RViz 里就会差这 90°";
+}
+
+// ⑥ gravity_ff=true：模式写 1(MIT) + 保持帧走 MIT + 力矩前馈 = direction × 重力项
+TEST(DmSystemInterface, GravityFfSendsMitWithGravityTorque)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF
+                            << " —— 先 `colcon build --packages-select arm_description`";
+  probe.close();
+
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true, true, ARM_DYN_URDF)),
+    CallbackReturn::SUCCESS);
+
+  // ① 两台都写 0x0A = 1（MIT），且**没有**任何 POS_VEL 帧
+  std::size_t mode1 = 0, mode2 = 0;
+  for (std::size_t i = 0; i + md::kTxFrameLen <= io.tx.size(); i += md::kTxFrameLen) {
+    const uint16_t can_id = static_cast<uint16_t>(io.tx[i + 13] | (io.tx[i + 14] << 8));
+    if (can_id == md::kCanIdBroadcast && io.tx[i + 23] == 0x55 && io.tx[i + 24] == 0x0A) {
+      const uint32_t v = md::uint8s_to_uint32(&io.tx[i + 25]);
+      if (v == 1) {++mode1;} else if (v == 2) {++mode2;}
+    }
+  }
+  EXPECT_EQ(mode1, 2u) << "gravity_ff=true 时该写 0x0A=1（MIT）";
+  EXPECT_EQ(mode2, 0u);
+  EXPECT_TRUE(io.control_frames.empty()) << "gravity_ff 下不该出现 POS_VEL 控制帧";
+
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  io.mit_frames.clear();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  ASSERT_EQ(io.mit_frames.size(), 2u) << "命令是 NaN ⇒ 每台发一帧 MIT 保持帧";
+
+  // ② 期望的 t_ff = direction × (重力项在**实测姿态**上的值)。
+  //    重力项本身已经过 2.3 与 MuJoCo 逐点对拍，这里验的是"接进插件之后符号链还对"。
+  const double q2 = state_value(iface, "joint2", "position");
+  const double q6 = state_value(iface, "joint6", "position");
+  std::vector<double> q_model = {q2, q6};
+  md::GravityModel gm(ARM_DYN_URDF, {"joint2", "joint6"}, {-1, 1});
+  std::vector<double> tau_ours(2, 0.0);
+  gm.tau_ours(q_model.data(), tau_ours.data());
+
+  struct Exp {uint8_t id; double direction; double t_max;};
+  const Exp exps[] = {{2, -1.0, 28.0}, {6, 1.0, 10.0}};
+  for (std::size_t k = 0; k < 2; ++k) {
+    const auto & f = io.mit_frames[k];
+    EXPECT_EQ(f[13], exps[k].id) << "MIT 帧的 CAN ID 必须是电机 id 本身（不是 0x100+id）";
+    // 12 位定点，容差给 1.5 个 LSB（编码是**向零截断**，不是四舍五入）
+    const double lsb = 2.0 * exps[k].t_max / 4095.0;
+    EXPECT_NEAR(decode_mit_tau(f, exps[k].t_max), exps[k].direction * tau_ours[k], 1.5 * lsb)
+      << "关节 " << static_cast<int>(exps[k].id) << " 的 t_ff 不等于 direction × 重力项";
+  }
+}
+
+// ⑦ gravity_ff=true 但**只读**：仍然一个控制帧都不发（含 MIT）
+TEST(DmSystemInterface, GravityFfReadOnlyStillSendsNothing)
+{
+  std::ifstream probe(ARM_DYN_URDF);
+  ASSERT_TRUE(probe.good()) << "找不到 " << ARM_DYN_URDF;
+  probe.close();
+
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(false, true, ARM_DYN_URDF)),
+    CallbackReturn::SUCCESS);
+  io.mit_frames.clear();
+  const std::size_t before = io.tx.size();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_EQ(io.tx.size(), before) << "只读模式（即使 gravity_ff=true）一个字节都不该发";
+  EXPECT_TRUE(io.mit_frames.empty());
 }
 
 int main(int argc, char ** argv)
