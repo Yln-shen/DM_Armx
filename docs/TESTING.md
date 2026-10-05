@@ -435,8 +435,10 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 是刻意的保守选择）。**下一步**：从日志里抓具体碰撞对（`Found a contact between 'linkX' and 'linkY'`），
 补进 `arm.srdf` 的 `disable_collisions`（或改用 Setup Assistant 生成的列表）。
 
-**M6 诊断结论（2026-10-05 深夜，接手的人从这里继续）**：`plan_only` 返回 ABORTED **不是规划失败**，而是
+**M6 诊断结论（2026-10-05 深夜）**：`plan_only` 返回 ABORTED **不是规划失败**，而是
 **响应适配器失败**：
+> ⚠️ **本段已被下面的"结案"段取代**：速度限位缺失是**真因**，但那条 `Invalid max_velocity_scaling_factor 0.000000`
+> 只是**无害告警**（TOTP 把 0 当 1.0），**不是**原因；"排查顺序"的三步请按结案段的对照实验来读。
 
 ```
 [WARN]  time_optimal_trajectory_generation: Invalid max_velocity_scaling_factor 0.000000 → defaulting to 1.0
@@ -457,3 +459,55 @@ CMake 里补 `link_directories($ENV{CONDA_PREFIX}/lib)`（共享库不受影响�
 **不含 `DM_Armx`** ⇒ 真机 CM 一直活着，mock 的 `/joint_states` 因此是**真机姿态**，与 mock 模型不匹配。
 正确做法：`ps -eo pid,args | grep ros2_control_node` 拿到 PID 后 **kill 具体数字**（别按模式杀，见下），
 或直接确认 `ps -eo args | grep -c ros2_control_node` 为 0 再起 mock。
+
+**M6 结案：mock 上规划 + 执行都跑通（2026-10-05）**。真因**不是**那条 scaling 告警，而是紧跟它的：
+
+    [ERROR] time_optimal_trajectory_generation: No velocity limit was defined for joint joint1!
+            You have to define velocity limits in the URDF or joint_limits.yaml
+
+机制：**`joint_limits.yaml` 里只要写了某个关节的条目，它就覆盖 URDF 的限位** —— 所以
+`has_velocity_limits: false` **不等于**"用 URDF 的值"（该文件原来的注释正是这么以为的），而是
+"这个关节**没有**速度上限" ⇒ TOTP 必须先有速度/加速度上限才能算时间参数 ⇒ 它直接失败 ⇒ 整条 plan ABORTED。
+
+**对照实验（4 格矩阵；每格都断言 `ps -eo comm | grep -c '^move_group$'` == 1 再信结果）**：
+
+| 用例 | `joint_limits.yaml` | goal 的 scaling | `error_code` | `No velocity limit` 错误 |
+|---|---|---|---|---|
+| A | 新：`has_velocity_limits: true` + `max_velocity` 10/30 | 0.5 | **1 = SUCCESS** | 0 次 |
+| B | 旧：`has_velocity_limits: false` | 0.5 | 99999 = FAILURE | 1 次 |
+| D | 旧 | 0.0 | 99999 = FAILURE | 1 次 |
+| C | 新 | 0.0 | **1 = SUCCESS** | 0 次 |
+
+⇒ 唯一自变量是**速度限位**；`scaling_factor = 0` 与失败**无关**（C 用 0 照样成功）。
+`max_velocity` 取 `motor_driver/config/joint.yaml` 的 `limit[1]`（就是输出轴 rad/s：j1~j3 4340P → 10、j4~j6 4310 → 30）。
+
+**mock 上 plan + execute 也通了**（`plan_only: false`，同一个关节空间目标，`/joint_states` 实测）：
+
+    执行前: [1.5100, -1.0000, -0.9000, 0.3000, 0.0000, 0.0000]
+    目标:   [1.4500, -0.8000, -0.7000, 0.4000, 0.1000, 0.3000]
+    执行后: [1.4602, -0.7947, -0.7025, 0.3933, 0.1169, 0.2862]   ← 末点落在 0.02 容差内
+
+`error_code.val = 1`，move_group 侧无 ABORTED / 无规划错误（只有一条无关的 "No 3D sensor plugin(s) for octomap"
+与 FIFO RT 调度告警）。⇒ **MoveIt → ros2_control → 硬件这条链在 mock 上端到端成立**。
+
+复现（headless；⚠️ launch 与 action 客户端必须在**同一次 shell 调用**里，原因见下）：
+
+    source install/setup.bash
+    ros2 launch arm_moveit_config move_group.launch.py use_rviz:=false &
+    # 等 launch 日志出现 "You can start planning now!"，再等 ~3 s
+    ros2 action send_goal /move_action moveit_msgs/action/MoveGroup "$(cat goal.yaml)"
+
+goal.yaml 骨架：`request.group_name: arm` + `goal_constraints[0].joint_constraints`（6 个关节各给
+`position` / `tolerance_above` / `tolerance_below` / `weight`）+ `planning_options.plan_only: true|false`。
+
+⚠️ **两条操作教训（这轮又踩了，都属于"看起来像规划问题、其实是环境问题"）**：
+1. **跨沙箱调用不通 FastDDS 的数据面**：把 launch 放进后台 job、goal 客户端放到**另一次** shell 调用里，
+   **发现**（`ros2 node/topic/service list`，走 daemon）全部正常，但 `ros2 topic echo` 与任何服务调用
+   **收不到一个字节**（`bwrap` 给每次调用独立的 `/dev/shm`，FastDDS 的 SHM 传输断在这一层）。
+   ⇒ **launch 和它的客户端放进同一次 shell 调用**（后来文件策略放开、无 `bwrap` 时则无此问题）。
+2. **`kill -INT $LPID` 杀不掉 `ros2 launch` 的子进程** ⇒ 上一轮的 `move_group` 还活着，下一轮就有**两个**
+   `move_group` 同时应答 action ⇒ 读到的是**被污染实例**给出的结果（这轮真的拿到过假的 `val:1`，
+   而当时正在测的那份配置其实失败了）。⇒ ①用 `setsid ros2 launch ... &` 起、收尾 `kill -INT -$LPID`
+   （杀整个进程组）；②**每轮先断言 `move_group` 实例数 == 1** 再信结果；③**别用 `pgrep -f "move_group"` 清场** ——
+   它会匹配到你自己命令行里的 `move_group.launch.py`（这轮把自己 SIGKILL 了一次）；
+   用 `ps -eo pid,comm` 匹配 comm 列才安全。
