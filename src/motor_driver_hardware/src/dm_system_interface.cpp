@@ -3,6 +3,8 @@
 
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 
+#include <glob.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -57,6 +59,22 @@ bool as_bool(const Params & m, const std::string & key, bool def)
   if (v == "true" || v == "True" || v == "1") {return true;}
   if (v == "false" || v == "False" || v == "0") {return false;}
   throw std::invalid_argument("参数 " + key + " 不是布尔：" + v);
+}
+
+// 打不开串口时把**当前存在的** ttyACM 设备列出来 —— 设备号会随插拔顺序变（AGENTS 陷阱 #28），
+// 与其让用户去猜，不如直接把可选项打进日志。
+std::string list_tty_acm_devices()
+{
+  std::string out;
+  glob_t g{};
+  if (glob("/dev/ttyACM*", 0, nullptr, &g) == 0) {
+    for (std::size_t i = 0; i < g.gl_pathc; ++i) {
+      if (i > 0) {out += ", ";}
+      out += g.gl_pathv[i];
+    }
+  }
+  globfree(&g);
+  return out.empty() ? "（一个都没有：适配器没插好或驱动没加载）" : out;
 }
 
 }  // namespace
@@ -261,6 +279,10 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     return CallbackReturn::SUCCESS;
   } catch (const std::exception & e) {
     RCLCPP_FATAL(get_logger(), "on_activate 失败：%s", e.what());
+    RCLCPP_FATAL(get_logger(),
+      "当前存在的串口设备：%s —— 设备号会随插拔顺序变（陷阱 #28）；真源是 "
+      "motor_driver/config/joint.yaml 的 channel（xacro 会把它写进 <param name=\"device\">）",
+      list_tty_acm_devices().c_str());
     disable_all_quietly();
     try {
       if (bus_ != nullptr) {bus_->close();}

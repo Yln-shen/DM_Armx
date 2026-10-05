@@ -24,10 +24,11 @@
 #    换算到电机侧后必须落在 ±PMAX 内，否则 arm_config 会拒绝加载。
 
 # ── 整臂全局参数（ArmConfig）──
-channel: /dev/ttyACM1      # USB-CAN 适配器的串口（UART 侧）
-                           # ⚠️ 这个编号**会随插拔顺序变**（2026-10-04 真踩：ttyACM0 → ttyACM1，
-                           #    结果只读节点读串口一直失败、"模型冻住"）。想一劳永逸就按适配器
-                           #    序列号加一条 udev 规则固定成 /dev/dm_can，再把这里改成它。
+channel: /dev/ttyACM0      # USB-CAN 适配器的串口（UART 侧）
+                           # ⚠️ 这个编号**会随插拔顺序来回变**（2026-10-04 实测两回：ACM0→ACM1，又 ACM1→ACM0）。
+                           #    变了就是"打不开串口 ⇒ 硬件没激活 ⇒ RViz 停在零位姿"（看着像模型不对）。
+                           #    想一劳永逸：按适配器序列号加 udev 规则固定成 /dev/dm_can，再把这里改成它。
+                           #    插件打开失败时会把**当前存在的 /dev/ttyACM*** 打进日志，照它改即可。
 baud: 921600               # UART 波特率；CAN 侧固定 1 Mbps（由寄存器 0x23 决定）
 serial_timeout: 0.003      # pyserial 读超时（秒）。**必须远小于 1/send_hz**，
                            # 大了会把"发一帧等一帧"那条路拖死
