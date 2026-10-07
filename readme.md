@@ -19,16 +19,18 @@
 | 配置解析 | [arm_config.py](src/motor_driver/motor_driver/arm_config.py) + [config/joint.yaml](src/motor_driver/config/joint.yaml) | ✅ 6 关节（**已按本项目标定** offset / direction / 软限位） |
 | 寄存器工具 | [dm_registers.py](src/motor_driver/motor_driver/dm_registers.py) | ✅ `list`/`dump`/`verify`/`set`/`restore`；**2026-10-01 真机全路径验证**：读 ✓、写 RAM ✓（4 个 PID + 切 `0x0A`）、**写 flash ✓**（6 台 `0x09` 存 500ms，断电后仍在）；`Reg.per_unit` 单处定义单位换算 |
 | 单电机排障脚本 | [dm_bringup.py](src/motor_driver/motor_driver/dm_bringup.py) | ✅ `read`/`monitor`/`jog --mit`/`bandwidth`；**刻意不 import 本包**、只走厂商 SDK（排障时用来分清是封装错还是链路错）。2026-10-01 恢复并真机只读验证 |
-| 整臂层 | [arm.py](src/motor_driver/motor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz）；**力矩路与过温路都做过阈值注入验证**（监控 92ms / 过温 0.7ms 触发 → 自动急停，零误报）；**已做**：6 轴**方向/零位/软限位标定**（2026-10-03，含逐个关节通电停到软限位两端的复核，方向逐个目视确认）；**未做**：带目标的动作、ROS2 |
+| 整臂层 | [arm.py](src/motor_driver/motor_driver/arm.py) | ⚠️ **部分**：13 个公开方法 + 力矩/温度监控；真机 6 台验证（100Hz 双循环 0 超时、500Hz 单跑 499.7Hz）；**力矩路与过温路都做过阈值注入验证**（监控 92ms / 过温 0.7ms 触发 → 自动急停，零误报）；**已做**：6 轴**方向/零位/软限位标定**（2026-10-03，含逐个关节通电停到软限位两端的复核，方向逐个目视确认）。⚠️ 这一层是**直连电机的旁路**；ROS2 那条链走 `motor_driver_hardware` 的插件，不经过它 |
 | ROS2 接口包 | [arm_msgs](src/arm_msgs) | ✅ 3 个 msg（`JointMotorCmd` / `JointMotorState` / `ArmStatus`）+ 1 个 action（`MoveToPose`）；夹爪本阶段不做 |
 | 机器人描述 | [arm_description](src/arm_description) | ✅ URDF/xacro（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **[config/align.yaml](src/arm_description/config/align.yaml)（模型对齐，2026-10-04 M1b 实测）**；joint limit 已换算成本项目标定值 |
-| ROS2 胶水层 | [arm_bringup](src/arm_bringup) | ✅ `real_joint_states`：**只读**真机 → `/joint_states`（模型镜像/对齐用）；串口连续失败会 FATAL 退出（不装死） |
-| C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL）+ **`DmSystemInterface`（ros2_control 插件）**；**与 Python 三份实现逐字节/逐数值对拍**（27 用例全过） |
-| ROS2 控制 | — | ✅ 代码就绪（插件 + [real_control.launch.py](src/arm_bringup/launch/real_control.launch.py)）；⚠️ **真机三步验收还没做**（只读 / 保持 / 小动作）；MoveIt 待做（M6） |
-| 夹爪 | — | ❌ 本阶段不做 |
+| C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位）+ `dm_gravity`（pinocchio 重力项）+ **`DmSystemInterface`（ros2_control 插件：POS_VEL / MIT + 重力前馈 / 残差守卫）**；**与 Python 三份实现逐字节/逐数值对拍**（36 用例全过） |
+| ROS2 控制 | [arm_bringup](src/arm_bringup) | ✅ [real_control.launch.py](src/arm_bringup/launch/real_control.launch.py)（真机 ros2_control）+ 两份控制器配置；`real_joint_states` 是**只读**镜像（模型核对用，绝不 enable）；**真机三步验收已过**（只读 / 保持 / 小动作，2026-10-05）；`gravity_ff:=true` 为整链 MIT + 重力前馈（默认 false） |
+| MoveIt | [arm_moveit_config](src/arm_moveit_config) | ✅ SRDF / KDL / OMPL / `move_group.launch.py`；**mock 与真机的 plan / plan+execute 都已跑通**（2026-10-05） |
+| 应用层 | [arm_application](src/arm_application) | ✅ `safe_park_node`：把臂收到**折叠位**（走 JTC 的正常轨迹通路，不碰电机）；**真机已验**（残差 0.0015~0.031 rad；含"发目标前查限位"的护栏） |
+| 夹爪 | — | ❌ 本阶段不做；但 `arm_description` 已备好可切换的一路（`dyn_model:=arm_identified_gripper.urdf`，夹爪质量**未辨识**） |
 
-> ⚠️ **现在还不能真的驱动整臂**：驱动层（协议 / 总线 / 单关节 / 整臂 / 标定）已就绪，但**上层还没接** ——
-> 控制循环由 `ros2_control` 的 update 驱动（**不自搭**），IK / 轨迹由 MoveIt 出；夹爪本阶段不做。
+> ✅ **整臂能动了**：控制循环由 `ros2_control` 的 update 驱动（**不自搭**），IK / 轨迹由 MoveIt 出。
+> 真机跑通过的：只读镜像、使能保持、JTC 轨迹、MoveIt 规划+执行、MIT + 重力前馈整链、`safe_park` 收臂。
+> ⚠️ 仍然**没有**的：安全认证层、碰撞检测、带载标定；夹爪本阶段不做。
 
 ## 一页架构
 
@@ -140,9 +142,12 @@ DM_Armx/
    ├─ arm_description/          机器人描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）
    │  ├─ config/align.yaml      模型对齐 sign/zero_shift（**真源**，M1b 实测）
    │  ├─ urdf/ …                arm.urdf.xacro + inc/{arm_geometry, gripper, arm.ros2_control}
+   │  ├─ scripts/               apply_identified_inertia.py（夹爪可切换）+ gen_joint_limits_header.py（给应用层的限位头文件）
    │  └─ launch/ rviz/ meshes/(73M) reference/
-   ├─ arm_bringup/              ROS2 胶水层（`real_joint_states`：只读真机 → /joint_states；mock 控制链路）
-   ├─ motor_driver_hardware/    C++ 侧协议层（`dm_frames`；与 Python 逐字节对拍）
+   ├─ arm_bringup/              ROS2 胶水层（`real_joint_states`：只读真机 → /joint_states；真机 ros2_control launch）
+   ├─ arm_moveit_config/        MoveIt 配置（SRDF / KDL / OMPL / move_group.launch.py / rviz）
+   ├─ arm_application/          **应用层**（`safe_park_node`：走 JTC 把臂收进折叠位；不碰电机）
+   ├─ motor_driver_hardware/    C++ 侧协议层 + ros2_control 插件（与 Python 逐字节对拍）
    └─ third_party/              厂商 SDK（Python 例程 + C++ 例程 u2can）
 ```
 
@@ -150,11 +155,13 @@ DM_Armx/
 
 **路线：MoveIt 算 IK / 轨迹 → ros2_control 下发执行**（不自搭运动学 / 轨迹 / 控制循环）。
 
-- 已完成：6 轴**方向 / 零位 / 软限位标定**（M1b 模型对齐 + 限位换算进 URDF）；`arm_msgs`；`arm_description`；
-  **M2 mock 链路**；**M3/M4 C++ 侧**（协议 / 串口 / 总线 / 关节，与 Python 逐字节对拍）；
-  **M5 ros2_control 插件**（`DmSystemInterface`，默认只读；假串口 + 模拟电机的 27 个用例全过）
-- 下一步（真机验收，你来操作、我调参）：① `ros2 launch arm_bringup real_control.launch.py`（只读，核对模型与真机）
-  ② 加 `enable_on_activate:=true`（使能保持，零位移）③ 再加 `spawn_arm_controller:=true vlim:=0.5`（几度小动作）
-- 之后（M6）：MoveIt（SRDF / kinematics / ompl）；先对着 mock 跑，再换真插件
+- 已完成：6 轴**方向 / 零位 / 软限位标定**；`arm_msgs`；`arm_description`；**M2 mock 链路**；
+  **M3/M4 C++ 侧**（协议 / 串口 / 总线 / 关节，与 Python 逐字节对拍）；
+  **M5 ros2_control 插件**（`DmSystemInterface`）+ **MIT + 重力前馈整链**（含辨识、摩擦前馈、宿主侧积分）；
+  **M6 MoveIt**（SRDF / kinematics / ompl，mock 与真机 plan+execute 都跑通）；
+  **应用层 `safe_park`**（收臂 + 发目标前查限位）。
+- **没做的**：夹爪（含质量辨识）、带载标定、安全认证层、碰撞检测、`arm_msgs` 之上的节点。
+- 每次上真机的入口：`ros2 launch arm_bringup real_control.launch.py`（默认**只读**，
+  加 `enable_on_activate:=true spawn_arm_controller:=true` 才会动）。
 
 细节看 [AGENTS.md](AGENTS.md)（精确到方法的状态与不变量）与 [docs/DESIGN.md](docs/DESIGN.md)（设计意图）。
