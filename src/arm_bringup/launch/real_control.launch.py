@@ -16,7 +16,9 @@
 ⚠️ 真机注意：
   - `enable_on_activate` 默认 **false**：不显式打开就绝不会动电机；
   - 使能后**每圈都要给 6 台发帧**（500ms 看门狗，陷阱 #24/#25）——本插件在 write() 里发，别去改；
-  - 控制器一停 / 节点一退，硬件进入 deactivate ⇒ **全部失能**；
+  - **停 `arm_controller` 不会让硬件失能**（控制器与硬件组件是两套生命周期，硬件仍 ACTIVE、
+    插件继续发保持帧托着臂）；只有 `ros2_control_node` 退出 / 显式切硬件组件状态才走
+    `on_deactivate()` ⇒ **全部失能**。收臂见 `arm_application` 的 `safe_park_node`。
   - 串口设备号会变（陷阱 #28）：真源是 motor_driver/config/joint.yaml 的 `channel`，
     xacro 会把它写进 `<param name="device">`；对不上就改 yaml（或加 udev 规则固定设备名）。
 """
