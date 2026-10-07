@@ -1,4 +1,9 @@
 // dm_system_interface.cpp —— SystemInterface 插件实现（真机通路）。
+//
+// 结构：`on_init` 解析参数 → `on_configure` 建串口/总线/关节（+ 重力模型）→ `on_activate`
+// 写模式 + 使能 + 锁定保持目标 → 之后每周期 `read()` / `write()`。
+// 两条 write 路径见 dm_system_interface.hpp 头部；本文件的顺序是"参数解析 → 骨架 → 生命周期
+// → 接口导出 → 周期读写 → 重力前馈（4 个环节）→ 收臂状态机"。
 #include "motor_driver_hardware/dm_system_interface.hpp"
 
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
@@ -6,9 +11,11 @@
 #include <glob.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 #include <unordered_map>
 
 namespace motor_driver_hardware
@@ -20,24 +27,29 @@ using Params = std::unordered_map<std::string, std::string>;
 using hardware_interface::CallbackReturn;
 using hardware_interface::return_type;
 
+// ── 寄存器 ──
 constexpr uint8_t kRegCtrlMode = 0x0A;   // CTRL_MODE（RAM；uint32）
-// 重力前馈的残差守卫阈值：偏离保持点这么多就**撤掉全部 tau_ff**（仍留在 MIT + kp_hold 下）
-constexpr double kGravityGuardRad = 0.1;        // 位置偏差（rad）
-constexpr double kGravityGuardRadPerS = 0.5;    // 速度（rad/s）
-// 有命令（跑轨迹）时按"跟踪误差"判，阈值放宽：正常滞后要放过，只抓跑飞
-constexpr double kGravityGuardTrackRad = 0.3;
-// 宿主侧积分（ki_hold）的三个保护，理由见 arm_description/config/mit_gains.yaml 顶部：
-constexpr double kGravityIntegGateRad = 0.15;    // 误差门控：|q_des−q| 超过它就不积分
-constexpr double kGravityIntegFrac = 0.3;        // τ_i 上限 = 0.3 × torque_max
-constexpr double kGravityIntegResetRad = 0.05;   // 参考单周期跳变超过它 ⇒ 复位积分
-//   结论：**保持**时查 位置(0.1) + 速度(0.5)；**跑轨迹**时只查 跟踪误差(0.3)。
-// 速度那一路的宽限期与防抖（见 gravity_guard_since_ 的注释：使能瞬间机械臂真的在掉）
-constexpr double kGravityGraceSec = 0.5;
-constexpr double kGravityVelDebounceSec = 0.2;
 constexpr uint8_t kRegKpAsr = 0x19;
 constexpr uint8_t kRegKiAsr = 0x1A;
 constexpr uint8_t kRegKpApr = 0x1B;
 constexpr uint8_t kRegKiApr = 0x1C;
+
+// ── 重力前馈的残差守卫阈值（**调这里 = 改安全行为，想清楚再动**）──
+// 语义分两种，否则一跑轨迹就误触发（机械臂本来就要离开激活姿态）：
+//   保持（命令 NaN）⇒ 比"偏离使能时锁定的保持点"，位置 kGuardRad / 速度 kGuardRadPerS；
+//   有命令（跑轨迹）⇒ 比"跟踪误差"（命令 − 实测），阈值放宽到 kGuardTrackRad，只抓"跑飞"。
+constexpr double kGuardRad = 0.1;
+constexpr double kGuardRadPerS = 0.5;
+constexpr double kGuardTrackRad = 0.3;
+// 速度那一路的宽限与防抖：使能到第一次 write 之间 MIT 是零增益的，机械臂**真的在掉**
+// （2026-10-05 实测 0.7~1.5 rad/s）⇒ 一个采样就锁死会把整轮前馈白废掉。
+constexpr double kGuardGraceSec = 0.5;
+constexpr double kGuardVelDebounceSec = 0.2;
+
+// ── 宿主侧积分（ki_hold）的三个保护（理由见 arm_description/config/mit_gains.yaml 顶部）──
+constexpr double kIntegGateRad = 0.15;    // 误差门控：|q_des−q| 超过它就不积分
+constexpr double kIntegFrac = 0.3;        // τ_i 上限 = 0.3 × torque_max
+constexpr double kIntegResetRad = 0.05;   // 参考单周期跳变超过它 ⇒ 复位积分
 
 bool has(const Params & m, const std::string & key) {return m.count(key) != 0;}
 
@@ -97,18 +109,108 @@ DmSystemInterface::~DmSystemInterface()
   teardown();
 }
 
-// ── 参数 ──
+// ══════════════════════════ 参数 ══════════════════════════
+
+bool DmSystemInterface::parse_one_joint(const hardware_interface::ComponentInfo & j)
+{
+  const Params & p = j.parameters;
+  if (!has(p, "motor_id")) {
+    throw std::invalid_argument("关节 " + j.name + " 缺 <param name=\"motor_id\">");
+  }
+  JointParams jp;
+  jp.name = j.name;
+  jp.cfg.name = j.name;
+  jp.cfg.motor_id = static_cast<uint8_t>(as_int(p, "motor_id", 0));
+  if (jp.cfg.motor_id < 1 || jp.cfg.motor_id > 6) {
+    throw std::invalid_argument("关节 " + j.name + " 的 motor_id 必须在 1~6");
+  }
+  jp.cfg.direction = as_int(p, "direction", 1);
+  jp.cfg.offset = as_double(p, "offset", 0.0);
+  jp.cfg.motor_type = as_str(p, "motor_type", "");
+  jp.cfg.limit = Limit{as_double(p, "p_max", 12.5), as_double(p, "v_max", 10.0),
+    as_double(p, "t_max", 28.0)};
+  if (has(p, "position_min")) {jp.cfg.position_min = as_double(p, "position_min", 0.0);}
+  if (has(p, "position_max")) {jp.cfg.position_max = as_double(p, "position_max", 0.0);}
+  // gravity_ff=true ⇒ 整条链走 MIT（只有 MIT 能直接给力矩，重力前馈必须有它）；
+  // false ⇒ 一切照旧 POS_VEL（固件闭环，静态精度最好）
+  jp.cfg.mode = gravity_ff_ ? 1 : 2;
+  jp.sign = as_int(p, "sign", 1);
+  if (jp.sign != 1 && jp.sign != -1) {
+    throw std::invalid_argument("关节 " + j.name + " 的 sign 只能是 ±1");
+  }
+  jp.zero_shift = as_double(p, "zero_shift", 0.0);
+  if (has(p, "torque_max")) {jp.cfg.torque_max = as_double(p, "torque_max", 0.0);}
+  jp.kp_hold = as_double(p, "kp_hold", 0.0);
+  jp.kd_hold = as_double(p, "kd_hold", 0.0);
+  jp.ki_hold = as_double(p, "ki_hold", 0.0);                    // 默认 0 = 宿主侧积分不生效
+  jp.friction_c = as_double(p, "friction_c", 0.0);              // 默认 0 = 摩擦前馈不生效
+  jp.friction_v_eps = as_double(p, "friction_v_eps", 0.0);
+
+  if (gravity_ff_) {
+    // 打开重力前馈才校验 —— 默认 false 时这些参数不该拦住任何东西
+    if (!jp.cfg.torque_max.has_value() || !(*jp.cfg.torque_max > 0.0)) {
+      throw std::invalid_argument(
+        "关节 " + j.name + "：gravity_ff=true 时 torque_max 必须是正数（关节侧 N·m）");
+    }
+    if (!(jp.kp_hold > 0.0)) {
+      throw std::invalid_argument("关节 " + j.name + "：gravity_ff=true 时 kp_hold 必须是正数");
+    }
+    if (!(jp.kd_hold >= 0.0)) {
+      throw std::invalid_argument("关节 " + j.name + "：kd_hold 不能是负数");
+    }
+    if (!(jp.ki_hold >= 0.0)) {
+      throw std::invalid_argument("关节 " + j.name + "：ki_hold 不能是负数");
+    }
+    if (!(jp.friction_c >= 0.0)) {
+      throw std::invalid_argument("关节 " + j.name + "：friction_c 不能是负数");
+    }
+    if (jp.friction_c > 0.0 && !(jp.friction_v_eps > 0.0)) {
+      throw std::invalid_argument(
+        "关节 " + j.name + "：开了 friction_c 就必须给正的 friction_v_eps"
+        "（它是 tanh 的速度尺度，给 0 会除零）");
+    }
+  }
+  // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值）
+  if (has(p, "kp_asr") && has(p, "ki_asr") && has(p, "kp_apr") && has(p, "ki_apr")) {
+    jp.pid = std::array<double, 4>{as_double(p, "kp_asr", 0.0), as_double(p, "ki_asr", 0.0),
+      as_double(p, "kp_apr", 0.0), as_double(p, "ki_apr", 0.0)};
+  }
+  joints_.push_back(std::move(jp));
+  return true;
+}
+
+void DmSystemInterface::log_params() const
+{
+  std::string summary;
+  for (const auto & jp : joints_) {
+    summary += " " + jp.name + "(id" + std::to_string(jp.cfg.motor_id) + ",dir" +
+      std::to_string(jp.cfg.direction) + ",off" + std::to_string(jp.cfg.offset) + ",s" +
+      std::to_string(jp.sign) + ",δ" + std::to_string(jp.zero_shift) +
+      (jp.cfg.torque_max.has_value() ? ",tm" + std::to_string(*jp.cfg.torque_max) : "") +
+      ",kp" + std::to_string(jp.kp_hold) + ",kd" + std::to_string(jp.kd_hold) +
+      ",ki" + std::to_string(jp.ki_hold) +
+      ",fc" + std::to_string(jp.friction_c) +
+      (jp.pid.has_value() ? ",pid" : "") + ")";
+  }
+  RCLCPP_INFO(get_logger(),
+    "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s"
+    "\n  gravity_ff=%s scale=%.3f urdf_path=%s",
+    joints_.size(), summary.c_str(), device_.c_str(), baud_, vlim_,
+    enable_on_activate_ ? "true（会动电机）" : "false（只读）",
+    gravity_ff_ ? "true（整链 MIT + 重力前馈）" : "false（走 POS_VEL）", gravity_ff_scale_,
+    urdf_path_.empty() ? "(未给)" : urdf_path_.c_str());
+}
+
 bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & info)
 {
   try {
     const Params & hp = info.hardware_parameters;
-    device_ = as_str(hp, "device", "/dev/ttyACM1");
+    device_ = as_str(hp, "device", "/dev/ttyACM0");   // 兜底值；真源是 joint.yaml 的 channel（xacro 注入）
     baud_ = as_int(hp, "baud", 921600);
     // ⚠️ 默认 **false = 只读**：不使能、不发控制帧。要动电机必须显式打开。
     enable_on_activate_ = as_bool(hp, "enable_on_activate", false);
     vlim_ = as_double(hp, "vlim", 1.0);
     fail_streak_limit_ = as_int(hp, "fail_streak_limit", 10);
-    // 重力前馈总开关（默认 false = 一切照旧走 POS_VEL）。2.4.2 只解析，**尚未使用**。
     gravity_ff_ = as_bool(hp, "gravity_ff", false);
     urdf_path_ = as_str(hp, "urdf_path", "");
     gravity_ff_scale_ = as_double(hp, "gravity_ff_scale", 1.0);
@@ -123,74 +225,9 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     }
 
     joints_.clear();
-    for (const auto & j : info.joints) {
-      const Params & p = j.parameters;
-      if (!has(p, "motor_id")) {
-        throw std::invalid_argument("关节 " + j.name + " 缺 <param name=\"motor_id\">");
-      }
-      JointParams jp;
-      jp.name = j.name;
-      jp.cfg.name = j.name;
-      jp.cfg.motor_id = static_cast<uint8_t>(as_int(p, "motor_id", 0));
-      if (jp.cfg.motor_id < 1 || jp.cfg.motor_id > 6) {
-        throw std::invalid_argument("关节 " + j.name + " 的 motor_id 必须在 1~6");
-      }
-      jp.cfg.direction = as_int(p, "direction", 1);
-      jp.cfg.offset = as_double(p, "offset", 0.0);
-      jp.cfg.motor_type = as_str(p, "motor_type", "");
-      jp.cfg.limit = Limit{as_double(p, "p_max", 12.5), as_double(p, "v_max", 10.0),
-        as_double(p, "t_max", 28.0)};
-      if (has(p, "position_min")) {jp.cfg.position_min = as_double(p, "position_min", 0.0);}
-      if (has(p, "position_max")) {jp.cfg.position_max = as_double(p, "position_max", 0.0);}
-      // gravity_ff=true ⇒ 整条链走 MIT（只有 MIT 能直接给力矩，重力前馈必须有它）；
-      // false ⇒ 一切照旧 POS_VEL（固件闭环，静态精度最好）
-      jp.cfg.mode = gravity_ff_ ? 1 : 2;
-      jp.sign = as_int(p, "sign", 1);
-      if (jp.sign != 1 && jp.sign != -1) {
-        throw std::invalid_argument("关节 " + j.name + " 的 sign 只能是 ±1");
-      }
-      jp.zero_shift = as_double(p, "zero_shift", 0.0);
-      // MIT（gravity_ff=true）才用得上：力矩上限与保持增益。2.4.2 只解析，**不使用**。
-      if (has(p, "torque_max")) {jp.cfg.torque_max = as_double(p, "torque_max", 0.0);}
-      jp.kp_hold = as_double(p, "kp_hold", 0.0);
-      jp.kd_hold = as_double(p, "kd_hold", 0.0);
-      jp.ki_hold = as_double(p, "ki_hold", 0.0);   // 默认 0 = 宿主侧积分不生效
-      jp.friction_c = as_double(p, "friction_c", 0.0);            // 默认 0 = 摩擦前馈不生效
-      jp.friction_v_eps = as_double(p, "friction_v_eps", 0.0);
-      if (gravity_ff_) {
-        // 打开重力前馈才校验 —— 默认 false 时这些参数不该拦住任何东西
-        if (!jp.cfg.torque_max.has_value() || !(*jp.cfg.torque_max > 0.0)) {
-          throw std::invalid_argument(
-            "关节 " + j.name + "：gravity_ff=true 时 torque_max 必须是正数（关节侧 N·m）");
-        }
-        if (!(jp.kp_hold > 0.0)) {
-          throw std::invalid_argument(
-            "关节 " + j.name + "：gravity_ff=true 时 kp_hold 必须是正数");
-        }
-        if (!(jp.kd_hold >= 0.0)) {
-          throw std::invalid_argument("关节 " + j.name + "：kd_hold 不能是负数");
-        }
-        if (!(jp.ki_hold >= 0.0)) {
-          throw std::invalid_argument("关节 " + j.name + "：ki_hold 不能是负数");
-        }
-        if (!(jp.friction_c >= 0.0)) {
-          throw std::invalid_argument("关节 " + j.name + "：friction_c 不能是负数");
-        }
-        if (jp.friction_c > 0.0 && !(jp.friction_v_eps > 0.0)) {
-          throw std::invalid_argument(
-            "关节 " + j.name + "：开了 friction_c 就必须给正的 friction_v_eps"
-            "（它是 tanh 的速度尺度，给 0 会除零）");
-        }
-      }
-      // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值）
-      if (has(p, "kp_asr") && has(p, "ki_asr") && has(p, "kp_apr") && has(p, "ki_apr")) {
-        jp.pid = std::array<double, 4>{as_double(p, "kp_asr", 0.0), as_double(p, "ki_asr", 0.0),
-          as_double(p, "kp_apr", 0.0), as_double(p, "ki_apr", 0.0)};
-      }
-      joints_.push_back(std::move(jp));
-    }
+    for (const auto & j : info.joints) {parse_one_joint(j);}
     if (joints_.empty()) {throw std::invalid_argument("URDF 里一个关节都没有");}
-
+    rt_.assign(joints_.size(), JointRuntime{});
     const double nan = std::numeric_limits<double>::quiet_NaN();
     hw_positions_.assign(joints_.size(), nan);      // 还没读到就保持 NaN，别谎报 0
     hw_velocities_.assign(joints_.size(), nan);
@@ -198,30 +235,15 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     hw_commands_.assign(joints_.size(), nan);       // NaN ⇒ write() 走"保持"
     hw_vel_commands_.assign(joints_.size(), nan);   // 同理：没人写过就是 NaN（MIT 分支会查）
 
-    std::string summary;
-    for (const auto & jp : joints_) {
-      summary += " " + jp.name + "(id" + std::to_string(jp.cfg.motor_id) + ",dir" +
-        std::to_string(jp.cfg.direction) + ",off" + std::to_string(jp.cfg.offset) + ",s" +
-        std::to_string(jp.sign) + ",δ" + std::to_string(jp.zero_shift) +
-        (jp.cfg.torque_max.has_value() ? ",tm" + std::to_string(*jp.cfg.torque_max) : "") +
-        ",kp" + std::to_string(jp.kp_hold) + ",kd" + std::to_string(jp.kd_hold) +
-        ",ki" + std::to_string(jp.ki_hold) +
-        ",fc" + std::to_string(jp.friction_c) +
-        (jp.pid.has_value() ? ",pid" : "") + ")";
-    }
-    RCLCPP_INFO(get_logger(),
-      "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s"
-      "\n  gravity_ff=%s scale=%.3f urdf_path=%s",
-      joints_.size(), summary.c_str(), device_.c_str(), baud_, vlim_,
-      enable_on_activate_ ? "true（会动电机）" : "false（只读）",
-      gravity_ff_ ? "true（整链 MIT + 重力前馈）" : "false（走 POS_VEL）", gravity_ff_scale_,
-      urdf_path_.empty() ? "(未给)" : urdf_path_.c_str());
+    log_params();
     return true;
   } catch (const std::exception & e) {
     RCLCPP_FATAL(get_logger(), "参数有问题：%s", e.what());
     return false;
   }
 }
+
+// ══════════════════════════ 骨架 ══════════════════════════
 
 void DmSystemInterface::build_hardware()
 {
@@ -264,7 +286,8 @@ double DmSystemInterface::ours_to_model(std::size_t i, double q_ours) const
   return motor_driver_hardware::ours_to_model(q_ours, jp.sign, jp.zero_shift);
 }
 
-// ── 生命周期 ──
+// ══════════════════════════ 生命周期 ══════════════════════════
+
 CallbackReturn DmSystemInterface::on_init(
   const hardware_interface::HardwareComponentInterfaceParams & params)
 {
@@ -358,9 +381,9 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
         "只读模式：%zu 台没有反馈（%s）—— 继续跑（不影响其它关节）", missing.size(), names.c_str());
     }
 
-    // 逐台：切 POS_VEL（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
+    // 逐台：切控制模式（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
+    const uint32_t mode = gravity_ff_ ? 1u : 2u;      // 1 = MIT（重力前馈）/ 2 = 位置速度
     for (const auto & jp : joints_) {
-      const uint32_t mode = gravity_ff_ ? 1u : 2u;      // 1 = MIT（重力前馈）/ 2 = 位置速度
       if (!bus_->write_register(jp.cfg.motor_id, kRegCtrlMode, uint32_to_uint8s(mode))) {
         throw std::runtime_error(
           "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 0x0A=" + std::to_string(mode) +
@@ -387,64 +410,50 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     hw_velocities_.assign(joints_.size(), nan);
     hw_efforts_.assign(joints_.size(), nan);
     hw_vel_commands_.assign(joints_.size(), nan);   // 控制器还没写过速度命令
-    if (enable_on_activate_) {
-      for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
-      // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
-      // 为什么不每圈重读："读哪停哪"没有回复力，重力能把关节慢慢压走（陷阱 #38）。
-      for (auto & jp : joints_) {
-        const auto st = bus_->get_state(jp.cfg.motor_id);
-        if (!st.has_value()) {
-          throw std::runtime_error(
-            "关节 " + jp.name + " 使能后仍没有实测位置，锁不住保持目标");
-        }
-        jp.hold_pos = st->pos;
-        jp.tau_i = 0.0;                    // 复位宿主侧积分（上一次运行的状态不能带过来）
-        jp.prev_q_ref_ours.reset();
-        // 同一个保持目标的**关节侧**值：POS_VEL 的保持帧要电机侧（绕过换算=真保持），
-        // MIT 的保持帧要关节侧（set_mit 会自己换算回来）。两者是同一点，别混用。
-        jp.hold_ours = jp.joint->motor_to_joint(st->pos);
-      }
-      if (gravity_ff_) {
-        // ⚠️ MIT 下 `enable()` 发的是**零增益零前馈**保持帧（出力恒为 0）⇒ 到第一次 write()
-        //    之间机械臂是**自由下落**的。真机实测（2026-10-05）：j4 在这段窗口里掉了 0.104 rad，
-        //    直接把"位置残差守卫"顶爆 ⇒ tau_ff 被锁成 0，整轮前馈白废。
-        //    这里立刻补一帧**真实**的 MIT 保持帧，把窗口关掉。
-        for (std::size_t i = 0; i < joints_.size(); ++i) {
-          q_urdf_buf_[i] = ours_to_model(i, *joints_[i].hold_ours);
-        }
-        gravity_->tau_ours(q_urdf_buf_.data(), tau_ours_buf_.data());
-        for (std::size_t i = 0; i < joints_.size(); ++i) {
-          JointParams & jp = joints_[i];
-          jp.last_tau_ours = tau_ours_buf_[i];
-          // ⚠️ 保持帧**必须绕过软限位钳位**（prepare_frame_raw）：语义是"待在你现在的位置"，
-          //    钳了就会凭空造出一个 PD 项 —— 真机 2026-10-05 实测：激活时 j4 被软限位钳掉
-          //    0.176 rad ⇒ kp=25 下 PD=4.39 > torque_max 3.5 ⇒ **拒发 ⇒ FATAL ⇒ 整条链起不来**。
-          //    kp=7 时 7×0.176=1.23 < 3.5，所以这个问题一直被掩盖着。
-          //    POS_VEL 的保持帧早就故意绕过钳位（陷阱 #21），MIT 的保持帧现在对齐这个语义。
-          const double q_raw = jp.joint->prepare_frame_raw(*jp.hold_ours);
-          const double q_clamped = jp.joint->prepare_frame(*jp.hold_ours);
-          if (std::fabs(q_clamped - q_raw) > 1e-9) {
-            RCLCPP_WARN(get_logger(),
-              "关节 %s 使能时的位置落在**软限位之外**：保持目标（电机侧）钳位前 %.6f、"
-              "钳位后 %.6f，差 %.6f rad。本帧按**钳位前**发 —— 保持帧不该钳位"
-              "（钳了就等于命令它往限位里转，kp 大时还会拒发导致起不来）。"
-              "若这个差值经常很大，说明标定的软限位与实际停放姿态不符，该重新标定。",
-              jp.name.c_str(), q_raw, q_clamped, q_clamped - q_raw);
-          }
-          jp.joint->set_mit(jp.kp_hold, jp.kd_hold, *jp.hold_ours, 0.0,
-            gravity_ff_scale_ * jp.last_tau_ours, /*bypass_soft_limits=*/true);
-        }
-        RCLCPP_WARN(get_logger(),
-          "已使能 %zu 台（MIT + 重力前馈 scale=%.3f；保持目标 = 使能那一刻锁定的关节侧位置，"
-          "并已立刻补发真实保持帧关闭零增益窗口）", joints_.size(), gravity_ff_scale_);
-      } else {
-        RCLCPP_WARN(get_logger(),
-          "已使能 %zu 台（保持目标 = **使能那一刻锁定**的电机侧位置 + vlim %.2f）",
-          joints_.size(), kHoldVlim);
-      }
-    } else {
+    // 积分器/守卫是本轮运行的状态，别从上一次运行带过来
+    for (auto & r : rt_) {
+      r.tau_i = 0.0;
+      r.prev_q_ref_ours.reset();
+    }
+    guard_ = GravityGuard{};
+
+    if (!enable_on_activate_) {
       RCLCPP_WARN(get_logger(),
         "enable_on_activate=false：**只读** —— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态");
+      return CallbackReturn::SUCCESS;
+    }
+
+    for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
+    // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
+    // 为什么不每圈重读："读哪停哪"没有回复力，重力能把关节慢慢压走（陷阱 #38）。
+    for (std::size_t i = 0; i < joints_.size(); ++i) {
+      const auto st = bus_->get_state(joints_[i].cfg.motor_id);
+      if (!st.has_value()) {
+        throw std::runtime_error(
+          "关节 " + joints_[i].name + " 使能后仍没有实测位置，锁不住保持目标");
+      }
+      rt_[i].hold_pos = st->pos;
+      // 同一个保持目标的**关节侧**值：POS_VEL 的保持帧要电机侧（绕过换算=真保持），
+      // MIT 的保持帧要关节侧（set_mit 会自己换算回来）。两者是同一点，别混用。
+      rt_[i].hold_ours = joints_[i].joint->motor_to_joint(st->pos);
+    }
+
+    if (gravity_ff_) {
+      // ⚠️ MIT 下 `enable()` 发的是**零增益零前馈**保持帧（出力恒为 0）⇒ 到第一次 write()
+      //    之间机械臂是**自由下落**的。真机实测（2026-10-05）：j4 在这段窗口里掉了 0.104 rad，
+      //    直接把"位置残差守卫"顶爆 ⇒ tau_ff 被锁成 0，整轮前馈白废。
+      //    这里立刻补一帧**真实**的 MIT 保持帧，把窗口关掉。算不出来就抛（宁可起不来，也别掉臂）。
+      refresh_gravity_torque();
+      if (send_mit_frames() != return_type::OK) {
+        throw std::runtime_error("激活时补发真实 MIT 保持帧失败");
+      }
+      RCLCPP_WARN(get_logger(),
+        "已使能 %zu 台（MIT + 重力前馈 scale=%.3f；保持目标 = 使能那一刻锁定的关节侧位置，"
+        "并已立刻补发真实保持帧关闭零增益窗口）", joints_.size(), gravity_ff_scale_);
+    } else {
+      RCLCPP_WARN(get_logger(),
+        "已使能 %zu 台（保持目标 = **使能那一刻锁定**的电机侧位置 + vlim %.2f）",
+        joints_.size(), kHoldVlim);
     }
     return CallbackReturn::SUCCESS;
   } catch (const std::exception & e) {
@@ -497,7 +506,8 @@ CallbackReturn DmSystemInterface::on_error(const rclcpp_lifecycle::State &)
   return CallbackReturn::SUCCESS;
 }
 
-// ── 接口导出 ──
+// ══════════════════════════ 接口导出 ══════════════════════════
+
 std::vector<hardware_interface::StateInterface> DmSystemInterface::export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> out;
@@ -522,7 +532,8 @@ std::vector<hardware_interface::CommandInterface> DmSystemInterface::export_comm
   return out;
 }
 
-// ── 周期读写 ──
+// ══════════════════════════ 周期读 ══════════════════════════
+
 return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration &)
 {
   if (bus_ == nullptr || io_ == nullptr || !io_->is_open()) {return return_type::ERROR;}
@@ -530,23 +541,24 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
   bus_->poll();
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
+    JointRuntime & r = rt_[i];
     if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
-      if (++jp.missing_streak >= fail_streak_limit_) {
+      if (++r.missing_streak >= fail_streak_limit_) {
         if (enable_on_activate_) {
           RCLCPP_ERROR(get_logger(),
             "关节 %s（电机 %u）连续 %d 圈没有反馈 —— 报 ERROR（串口掉了 / 电机断电？）",
-            jp.name.c_str(), jp.cfg.motor_id, jp.missing_streak);
+            jp.name.c_str(), jp.cfg.motor_id, r.missing_streak);
           return return_type::ERROR;
         }
         // 只读模式：不致命，只提示一次（能看几台是几台）
-        if (jp.missing_streak == fail_streak_limit_) {
+        if (r.missing_streak == fail_streak_limit_) {
           RCLCPP_WARN(get_logger(), "只读模式：关节 %s（电机 %u）一直没有反馈 —— 跳过它",
             jp.name.c_str(), jp.cfg.motor_id);
         }
       }
       continue;
     }
-    jp.missing_streak = 0;
+    r.missing_streak = 0;
     const JointState st = jp.joint->get_state();      // q_ours
     hw_positions_[i] = ours_to_model(i, st.position);
     hw_velocities_[i] = static_cast<double>(jp.sign) * st.velocity;   // 矢量只乘 sign
@@ -563,14 +575,14 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
         return return_type::ERROR;
       }
       // 只读模式：报错但不中断（否则整条只读链被一台故障拖死，反而看不见其它关节）
-      if (jp.err_warned != st.err) {
-        jp.err_warned = st.err;
+      if (r.err_warned != st.err) {
+        r.err_warned = st.err;
         RCLCPP_ERROR(get_logger(),
           "只读模式：关节 %s 故障 ERR=%u（%s）—— 继续显示其它关节。ERR=13 锁存，需断电重上电",
           jp.name.c_str(), st.err, text != nullptr ? text : "未知错误码");
       }
     } else {
-      jp.err_warned = 0;
+      r.err_warned = 0;
     }
   }
   // 只读模式要主动问状态（电机不主动报）；使能后命令帧本身就带回包，不必再刷
@@ -580,170 +592,195 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
   return return_type::OK;
 }
 
+// ══════════════════════════ 周期写 ══════════════════════════
+
 return_type DmSystemInterface::write(const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   if (bus_ == nullptr) {return return_type::ERROR;}
   // ⚠️ 只读模式下 write() **什么都不发**：这是"不接真机也能先只看"的前提
   if (!enable_on_activate_) {return return_type::OK;}
   if (gravity_ff_) {return write_gravity_ff(time, period);}
+  return write_pos_vel();
+}
 
+return_type DmSystemInterface::write_pos_vel()
+{
   for (std::size_t i = 0; i < joints_.size(); ++i) {
-    JointParams & jp = joints_[i];
     if (std::isnan(hw_commands_[i])) {
       // 还没人写过命令（控制器没起 / 刚激活）：发保持帧 —— 目标是**使能那一刻锁定**的电机侧实测值，
       // 不换算不钳位、也不重读（重读=follow-me，没有回复力，见陷阱 #38）
-      if (!jp.hold_pos.has_value()) {
-        RCLCPP_ERROR(get_logger(), "关节 %s 没有锁定的保持目标，无法发保持帧", jp.name.c_str());
+      if (!rt_[i].hold_pos.has_value()) {
+        RCLCPP_ERROR(get_logger(), "关节 %s 没有锁定的保持目标，无法发保持帧", joints_[i].name.c_str());
         return return_type::ERROR;
       }
-      bus_->send_pos_vel(jp.cfg.motor_id, *jp.hold_pos, kHoldVlim);
+      bus_->send_pos_vel(joints_[i].cfg.motor_id, *rt_[i].hold_pos, kHoldVlim);
       continue;
     }
     try {
-      jp.joint->set_pos_vel(model_to_ours(i, hw_commands_[i]), vlim_);
+      joints_[i].joint->set_pos_vel(model_to_ours(i, hw_commands_[i]), vlim_);
     } catch (const std::exception & e) {
-      RCLCPP_ERROR(get_logger(), "关节 %s 拒发：%s", jp.name.c_str(), e.what());
+      RCLCPP_ERROR(get_logger(), "关节 %s 拒发：%s", joints_[i].name.c_str(), e.what());
       return return_type::ERROR;
     }
   }
   return return_type::OK;
 }
 
+// ══════════════════════════ 重力前馈（MIT）══════════════════════════
+
 return_type DmSystemInterface::write_gravity_ff(
   const rclcpp::Time & time, const rclcpp::Duration & period)
 {
-  // ── ① 用**实测姿态**算这一帧的重力项（hw_positions_ 就是模型坐标 q_urdf）──
+  refresh_gravity_torque();                     // ① 实测姿态 → tau_gravity（关节侧）
+  check_guard(time);                          // ② 残差守卫（可能锁存）
+  update_integrators(period);                 // ③ 宿主侧积分（ki_hold>0 才动）
+  return send_mit_frames();                   // ④ 逐关节发 MIT 帧
+}
+
+// ① 用**实测姿态**算这一帧的重力项。hw_positions_ 就是模型坐标 q_urdf。
+//    两条"算不出来"的路都**不抛**（除了参数/用法类硬错误），只是保留上一次的值：
+//      - 还没有实测位置（激活那一刻就是）：首次为 0 —— 此时 kp_hold 仍会把关节拉到保持点，
+//        到下一帧有位置了重力项就补上。**绝不能跳过不发帧**（500ms 看门狗，陷阱 #24/#25）；
+//      - 重力项算不出来（q 里有非有限数）：同理沿用上一次。
+//    真正的硬错误（关节名不对、模型没加载）在 on_configure 建模型时就报掉了，不在这里。
+void DmSystemInterface::refresh_gravity_torque()
+{
   bool have_q = true;
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     q_urdf_buf_[i] = hw_positions_[i];
     if (!std::isfinite(hw_positions_[i])) {have_q = false;}
   }
-  if (have_q) {
-    try {
-      gravity_->tau_ours(q_urdf_buf_.data(), tau_ours_buf_.data());
-      for (std::size_t i = 0; i < joints_.size(); ++i) {
-        joints_[i].last_tau_ours = tau_ours_buf_[i];
-      }
-    } catch (const std::exception & e) {
-      RCLCPP_ERROR_ONCE(get_logger(), "重力项算不出来（这一帧沿用上一次的值）：%s", e.what());
-    }
-  } else {
-    // ⚠️ 这一帧**绝不能跳过不发**：500ms 看门狗一超时就锁存 ERR=13，只能断电清（陷阱 #24/#25）
+  if (!have_q) {
     RCLCPP_WARN_ONCE(get_logger(),
       "还没有实测位置 ⇒ 重力项沿用上一次的值（首次为 0）；仍继续发帧喂狗");
+    return;
   }
-
-  // ── ② 残差守卫：越界就**锁存**并把 tau_ff 全部置 0（仍在 MIT + kp_hold 下，不失阻尼）──
-  if (!gravity_guard_tripped_) {
-    if (!gravity_guard_since_set_) {
-      gravity_guard_since_ = time;
-      gravity_guard_since_set_ = true;
-    }
-    const bool vel_checked = (time - gravity_guard_since_).seconds() >= kGravityGraceSec;
-
-    bool vel_over = false;
-    for (std::size_t i = 0; i < joints_.size(); ++i) {
-      const JointParams & jp = joints_[i];
-      if (!jp.hold_ours.has_value() || !std::isfinite(hw_positions_[i])) {continue;}
-      // 位置：即时判 —— 越界是**持续**的，而且它才是"真的跑偏了"的证据。
-      // ⚠️ 参照点要分两种语义，否则**一跑轨迹就误触发**（机械臂本来就要离开激活姿态）：
-      //    没命令（保持）⇒ 比"偏离激活时的保持点"，阈值 0.1 rad；
-      //    有命令        ⇒ 比"跟踪误差"（命令 − 实测），阈值放宽到 0.3 rad。
-      //                    它只负责抓"前馈方向错了导致跑飞"，正常滞后要放过。
-      const bool holding = std::isnan(hw_commands_[i]);
-      const double ref = holding ? ours_to_model(i, *jp.hold_ours) : hw_commands_[i];
-      const double lim = holding ? kGravityGuardRad : kGravityGuardTrackRad;
-      const double dev_pos = std::fabs(hw_positions_[i] - ref);
-      if (dev_pos > lim) {
-        gravity_guard_tripped_ = true;
-        RCLCPP_ERROR(get_logger(),
-          "‼ 残差守卫触发（%s）：关节 %s 偏差 %.3f rad（阈值 %.2f）"
-          " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
-          holding ? "偏离保持点" : "跟踪误差", jp.name.c_str(), dev_pos, lim);
-        break;
-      }
-      // 速度只在**保持**时查：跑轨迹时机械臂本来就以 ~1 rad/s 在动（阈值 0.5 会误触发，
-      //  真机实测过 —— 前馈被零掉、机械臂跟不上、只走到一半）。跑轨迹时由"跟踪误差"那一路兜底。
-      if (vel_checked && std::isnan(hw_commands_[i])) {
-        const double vel = std::isfinite(hw_velocities_[i]) ? hw_velocities_[i] : 0.0;
-        if (std::fabs(vel) > kGravityGuardRadPerS) {vel_over = true;}
-      }
-    }
-    // 速度：要**持续**越限才算 —— 使能到第一次 write 之间 MIT 是零增益的，那一瞬机械臂真的在掉
-    //（2026-10-05 实测 0.7~1.5 rad/s），一个采样就锁死会把整轮前馈白废掉。
-    if (!gravity_guard_tripped_) {
-      if (vel_over) {
-        if (!gravity_vel_over_) {
-          gravity_vel_over_ = true;
-          gravity_vel_over_since_ = time;
-        } else if ((time - gravity_vel_over_since_).seconds() >= kGravityVelDebounceSec) {
-          gravity_guard_tripped_ = true;
-          RCLCPP_ERROR(get_logger(),
-            "‼ 残差守卫触发（速度）：连续 %.2f s 有连接续超过 %.2f rad/s（位置偏差仍在阈值内）"
-            " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
-            kGravityVelDebounceSec, kGravityGuardRadPerS);
-        }
-      } else {
-        gravity_vel_over_ = false;
-      }
-    }
+  try {
+    gravity_->tau_ours(q_urdf_buf_.data(), tau_ours_buf_.data());
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR_ONCE(get_logger(), "重力项算不出来（这一帧沿用上一次的值）：%s", e.what());
+    return;
   }
-
-  // ── ③ 宿主侧积分（只有 ki_hold>0 才生效；默认 0 ⇒ τ_i 恒为 0，一个字节都不变）──
-  //    MIT 固件**没有积分**（τ = kp·Δp + kd·Δv + t_ff）⇒ 稳态误差被"不可重复扰动/kp"卡住
-  //    （真机 j3 在 kp=7 下差 0.134 rad，而 POS_VEL 是 0.0016 rad）。把 τ_i 加进 t_ff 积掉它。
-  //    三个保护：误差门控、抗饱和（钳 + 饱和时停积）、复位（见下）。
   for (std::size_t i = 0; i < joints_.size(); ++i) {
-    JointParams & jp = joints_[i];
-    if (gravity_guard_tripped_ || !(jp.ki_hold > 0.0) || !jp.cfg.torque_max.has_value() ||
-      !jp.hold_ours.has_value() || !std::isfinite(hw_positions_[i]))
+    rt_[i].tau_gravity = tau_ours_buf_[i];
+  }
+}
+
+// ② 残差守卫：越界就**锁存**并把 tau_ff 全部置 0（仍在 MIT + kp_hold 下，不失阻尼）。
+void DmSystemInterface::check_guard(const rclcpp::Time & time)
+{
+  if (guard_.tripped) {return;}
+  if (!guard_.since_set) {
+    guard_.since = time;
+    guard_.since_set = true;
+  }
+  // 宽限期内不查速度（使能瞬间机械臂真的在掉）
+  const bool vel_checked = (time - guard_.since).seconds() >= kGuardGraceSec;
+
+  bool vel_over = false;
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    if (!rt_[i].hold_ours.has_value() || !std::isfinite(hw_positions_[i])) {continue;}
+    const bool holding = std::isnan(hw_commands_[i]);
+    // 位置：即时判 —— 越界是**持续**的，而且它才是"真的跑偏了"的证据。
+    // 参照点分两种语义（否则**一跑轨迹就误触发**，机械臂本来就要离开激活姿态）：
+    //   保持 ⇒ 比"偏离激活时锁定的保持点"；有命令 ⇒ 比"跟踪误差"（命令 − 实测）。
+    const double ref = holding ? ours_to_model(i, *rt_[i].hold_ours) : hw_commands_[i];
+    const double lim = holding ? kGuardRad : kGuardTrackRad;
+    const double dev_pos = std::fabs(hw_positions_[i] - ref);
+    if (dev_pos > lim) {
+      guard_.tripped = true;
+      RCLCPP_ERROR(get_logger(),
+        "‼ 残差守卫触发（%s）：关节 %s 偏差 %.3f rad（阈值 %.2f）"
+        " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
+        holding ? "偏离保持点" : "跟踪误差", joints_[i].name.c_str(), dev_pos, lim);
+      break;
+    }
+    // 速度只在**保持**时查：跑轨迹时机械臂本来就以 ~1 rad/s 在动（阈值 0.5 会误触发，
+    //   真机实测过 —— 前馈被零掉、机械臂跟不上、只走到一半）。跑轨迹由"跟踪误差"兜底。
+    if (vel_checked && holding) {
+      const double vel = std::isfinite(hw_velocities_[i]) ? hw_velocities_[i] : 0.0;
+      if (std::fabs(vel) > kGuardRadPerS) {vel_over = true;}
+    }
+  }
+  if (guard_.tripped) {return;}
+  // 速度：要**持续**越限才算 —— 使能到第一次 write 之间 MIT 是零增益的，那一瞬机械臂真的在掉
+  //（2026-10-05 实测 0.7~1.5 rad/s），一个采样就锁死会把整轮前馈白废掉。
+  if (vel_over) {
+    if (!guard_.vel_over) {
+      guard_.vel_over = true;
+      guard_.vel_over_since = time;
+    } else if ((time - guard_.vel_over_since).seconds() >= kGuardVelDebounceSec) {
+      guard_.tripped = true;
+      RCLCPP_ERROR(get_logger(),
+        "‼ 残差守卫触发（速度）：连续 %.2f s 有连接续超过 %.2f rad/s（位置偏差仍在阈值内）"
+        " ⇒ **把 tau_ff 全部置 0**（仍在 MIT + kp_hold 下，不会失去阻尼）",
+        kGuardVelDebounceSec, kGuardRadPerS);
+    }
+  } else {
+    guard_.vel_over = false;
+  }
+}
+
+// ③ 宿主侧积分：只有 ki_hold>0 才动（默认 0 ⇒ τ_i 恒为 0，一个字节都不变）。
+//    MIT 固件**没有积分**（τ = kp·Δp + kd·Δv + t_ff）⇒ 稳态误差被"不可重复扰动/kp"卡住
+//    （真机 j3 在 kp=7 下差 0.134 rad，而 POS_VEL 是 0.0016 rad）。把 τ_i 加进 t_ff 积掉它。
+//    符号：q_ref − q（关节侧），正误差 ⇒ 正 τ_i。
+//    三个保护：误差门控、抗饱和（钳 + 饱和时停积）、复位（激活 / 命令跳变 / 守卫触发）。
+void DmSystemInterface::update_integrators(const rclcpp::Duration & period)
+{
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    const JointParams & jp = joints_[i];
+    JointRuntime & r = rt_[i];
+    if (guard_.tripped || !(jp.ki_hold > 0.0) || !jp.cfg.torque_max.has_value() ||
+      !r.hold_ours.has_value() || !std::isfinite(hw_positions_[i]))
     {
       // 复位条件：守卫触发 / ki=0 / 参数不全 / 没有实测
-      jp.tau_i = 0.0;
-      jp.prev_q_ref_ours.reset();
+      r.tau_i = 0.0;
+      r.prev_q_ref_ours.reset();
       continue;
     }
     const bool holding = std::isnan(hw_commands_[i]);
-    const double q_ref = holding ? *jp.hold_ours : model_to_ours(i, hw_commands_[i]);
-    // 复位条件：参考**单周期跳变**超过阈值（轨迹刚起步 / 从保持切到命令）⇒ 别把旧积分带过去
-    if (jp.prev_q_ref_ours.has_value() &&
-      std::fabs(q_ref - *jp.prev_q_ref_ours) > kGravityIntegResetRad)
+    const double q_ref = holding ? *r.hold_ours : model_to_ours(i, hw_commands_[i]);
+    // 参考**单周期跳变**超过阈值（轨迹刚起步 / 从保持切到命令）⇒ 别把旧积分带过去
+    if (r.prev_q_ref_ours.has_value() &&
+      std::fabs(q_ref - *r.prev_q_ref_ours) > kIntegResetRad)
     {
-      jp.tau_i = 0.0;
+      r.tau_i = 0.0;
     }
-    jp.prev_q_ref_ours = q_ref;
+    r.prev_q_ref_ours = q_ref;
 
     const double err = q_ref - model_to_ours(i, hw_positions_[i]);   // 关节侧
     const double dt = period.seconds();
-    if (std::fabs(err) < kGravityIntegGateRad && dt > 0.0) {          // 门控：大误差不积
-      const double limit = kGravityIntegFrac * (*jp.cfg.torque_max);
-      const double next = jp.tau_i + jp.ki_hold * err * dt;
+    if (std::fabs(err) < kIntegGateRad && dt > 0.0) {                 // 门控：大误差不积
+      const double limit = kIntegFrac * (*jp.cfg.torque_max);
+      const double next = r.tau_i + jp.ki_hold * err * dt;
       // 条件积分：已在饱和、误差还往同方向推 ⇒ 停积（否则松手时会"炸"一下）
       const bool pushing_further = (next > limit && err > 0.0) || (next < -limit && err < 0.0);
-      if (!pushing_further) {
-        jp.tau_i = std::max(-limit, std::min(limit, next));
-      } else {
-        jp.tau_i = std::max(-limit, std::min(limit, jp.tau_i));
-      }
+      r.tau_i = pushing_further ? std::max(-limit, std::min(limit, r.tau_i))
+                                : std::max(-limit, std::min(limit, next));
     }
   }
+}
 
-  // ── ④ 逐关节发 MIT 帧 ──
+// ④ 逐关节发 MIT 帧。
+return_type DmSystemInterface::send_mit_frames()
+{
   for (std::size_t i = 0; i < joints_.size(); ++i) {
     JointParams & jp = joints_[i];
+    JointRuntime & r = rt_[i];
     double q_cmd = 0.0;
     double dq_cmd = 0.0;
     // 保持帧要**绕过软限位钳位**（见 prepare_frame_raw）：它的语义是"待在你现在的位置"，
     // 钳了就会凭空造出 PD 项。真机踩过：激活时 j4 被钳 0.176 rad ⇒ kp=25 下 PD=4.4 > 3.5
     // ⇒ 拒发 ⇒ write() 返回 ERROR ⇒ CM 失能（= 掉臂）。轨迹命令则照常钳位。
     const bool bypass_limits = std::isnan(hw_commands_[i]);
-    if (std::isnan(hw_commands_[i])) {
+    if (bypass_limits) {
       // 控制器没起 / 刚激活 ⇒ 保持帧：目标是**使能那一刻锁定**的关节侧位置（陷阱 #38 的教训）
-      if (!jp.hold_ours.has_value()) {
+      if (!r.hold_ours.has_value()) {
         RCLCPP_ERROR(get_logger(), "关节 %s 没有锁定的保持目标，无法发 MIT 保持帧", jp.name.c_str());
         return return_type::ERROR;
       }
-      q_cmd = *jp.hold_ours;
+      q_cmd = *r.hold_ours;
     } else {
       q_cmd = model_to_ours(i, hw_commands_[i]);
       // 速度是矢量：模型坐标 → 关节侧只乘 sign（不加 zero_shift）
@@ -758,11 +795,11 @@ return_type DmSystemInterface::write_gravity_ff(
     //    单测也一起断言错了（编码了同一个错误假设），是真机测出来"残余摩擦增加了整整一个
     //    friction_c"才发现的（远端关节重复性 ±0.003，增加量 0.112/0.082/0.089 对 0.112/0.082/0.092）。
     double tau_fric = 0.0;
-    if (!std::isnan(hw_commands_[i]) && jp.friction_c > 0.0 && jp.friction_v_eps > 0.0) {
+    if (!bypass_limits && jp.friction_c > 0.0 && jp.friction_v_eps > 0.0) {
       tau_fric = jp.friction_c * std::tanh(dq_cmd / jp.friction_v_eps);
     }
-    const double tau = gravity_guard_tripped_ ? 0.0
-      : gravity_ff_scale_ * jp.last_tau_ours + jp.tau_i + tau_fric;
+    const double tau = guard_.tripped ? 0.0
+      : gravity_ff_scale_ * r.tau_gravity + r.tau_i + tau_fric;
     try {
       jp.joint->set_mit(jp.kp_hold, jp.kd_hold, q_cmd, dq_cmd, tau, bypass_limits);
     } catch (const std::exception & e) {
@@ -776,6 +813,4 @@ return_type DmSystemInterface::write_gravity_ff(
 }  // namespace motor_driver_hardware
 
 #include <pluginlib/class_list_macros.hpp>   // NOLINT
-#include <chrono>
-#include <thread>
 PLUGINLIB_EXPORT_CLASS(motor_driver_hardware::DmSystemInterface, hardware_interface::SystemInterface)
