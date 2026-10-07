@@ -53,6 +53,10 @@ GravityModel::GravityModel(const std::string & urdf_path,
 
 void GravityModel::tau_ours(const double * q_urdf, double * out)
 {
+  // 1. 检查输入有限
+  // 2. 写进预分配缓冲
+  // 3. Pinocchio 算
+  // 4. 乘 sign
   for (std::size_t k = 0; k < jidx_.size(); ++k) {
     if (!std::isfinite(q_urdf[k])) {
       throw std::invalid_argument(

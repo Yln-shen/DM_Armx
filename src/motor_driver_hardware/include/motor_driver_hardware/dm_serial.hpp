@@ -3,6 +3,7 @@
 // 边界：不解析帧、不判安全、不 sleep、不打屏、不知道电机是什么。
 // 分成 `SerialIo` 接口 + `SerialPort` 实现，是为了**测试能塞假串口**（内存字节流），
 // 不必真开设备 —— 与 Python 侧给 `bus.ser` 注入假对象是同一个套路。
+// 接口 + 实现 + 非阻塞
 #ifndef MOTOR_DRIVER_HARDWARE__DM_SERIAL_HPP_
 #define MOTOR_DRIVER_HARDWARE__DM_SERIAL_HPP_
 

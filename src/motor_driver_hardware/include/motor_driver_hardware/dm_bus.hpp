@@ -10,6 +10,29 @@
 //   - 寄存器回包与反馈帧共用 `CMD=0x11` ⇒ 一律先过 `is_reg_response()`（陷阱 #13/#26），
 //     否则寄存器回包会被当成反馈解出垃圾状态、污染缓存；
 //   - 陈旧回包会骗缓存 ⇒ 要"排空 + 主动刷新到安静"时用 `sync_states()`，别自己写（陷阱 #20/#23）。
+
+// 数据流（总线管理器，管理收发、缓存、注册）
+// 发送
+// 上层调 send_mit(id, ...)
+//     ↓
+// 调 mit_frame(...) 造帧（dm_frames）
+//     ↓
+// 调 send_frame(frame)  ← 唯一出口
+//     ↓
+// io_.write(字节)
+// 接收
+// io_.read_available(字节)
+//     ↓
+// rx_.feed(字节)
+//     ↓
+// rx_.drain() 切帧
+//     ↓
+// for 每帧：
+//     is_reg_response?  → 进 reg_queue_
+//     否则 → decode_feedback → 更新 motors_[id].state
+//     ↓
+// 返回解出的反馈帧数
+
 #ifndef MOTOR_DRIVER_HARDWARE__DM_BUS_HPP_
 #define MOTOR_DRIVER_HARDWARE__DM_BUS_HPP_
 

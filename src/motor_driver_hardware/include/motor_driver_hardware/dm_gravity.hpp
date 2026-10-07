@@ -9,6 +9,25 @@
 //
 // 关节顺序：调用方给的是**它自己的顺序**（插件里 `<ros2_control>` 的关节顺序未必等于 URDF 里
 //           关节的出现顺序）⇒ 内部一律按**名字**映射到 pinocchio 的 joint index。
+
+// 控制循环（100Hz）
+//     ↓
+// 读当前关节角度（模型坐标）
+//     ↓
+// 调 gravity.tau_ours(q_urdf, out)
+//     ↓
+// 内部：
+//     1. 把 q_urdf 写进预分配缓冲
+//     2. Pinocchio 算重力项
+//     3. 乘 sign（模型 → q_ours）
+//     4. 写入 out
+//     ↓
+// 得到每个关节的 tau_g（关节侧 N·m）
+//     ↓
+// 加到 MIT 帧的 tau_ff 里
+//     ↓
+// 发给电机
+
 #ifndef MOTOR_DRIVER_HARDWARE__DM_GRAVITY_HPP_
 #define MOTOR_DRIVER_HARDWARE__DM_GRAVITY_HPP_
 

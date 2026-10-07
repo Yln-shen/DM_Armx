@@ -16,6 +16,31 @@
 //
 // 改编自达妙官方 `C++例程/u2can/include/damiao.h`（已 vendored 到 src/third_party/C++例程/），
 // 去掉了打屏/usleep/param_map，并按 Python 侧的语义补齐了寄存器帧与回包分类。
+
+// 数据流（切帧拆帧造帧，“协议层”——负责“参数 ↔ 字节”的双向转换）
+// 发送方向
+// 上层调 mit_frame(参数)
+//     ↓
+// 定点映射（浮点 → 整数）
+//     ↓
+// 拼 8 字节数据段
+//     ↓
+// 拼 30 字节发送帧
+//     ↓
+// 返回 TxFrame
+// 接收方向
+// 串口收到字节流
+//     ↓
+// RxBuf.feed(字节)
+//     ↓
+// RxBuf.drain() 切出 16 字节帧
+//     ↓
+// is_reg_response() 判断类型
+//     ↓
+// decode_feedback() 或 decode_reg_response()
+//     ↓
+// 返回结构体
+
 #ifndef MOTOR_DRIVER_HARDWARE__DM_FRAMES_HPP_
 #define MOTOR_DRIVER_HARDWARE__DM_FRAMES_HPP_
 
