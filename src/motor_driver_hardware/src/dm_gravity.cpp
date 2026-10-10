@@ -1,4 +1,6 @@
 // dm_gravity.cpp —— 重力项实现（pinocchio 的 RNEA 静态特例：零速度、零加速度 ⇒ 只剩重力）。
+// 输入机械臂当前角度，输出每个关节的重力力矩
+
 #include "motor_driver_hardware/dm_gravity.hpp"
 
 #include <pinocchio/algorithm/rnea.hpp>

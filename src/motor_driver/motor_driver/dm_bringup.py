@@ -45,7 +45,7 @@
     pixi run python src/motor_driver/motor_driver/dm_bringup.py bandwidth --hz 500 --duration 30
     pixi run python src/motor_driver/motor_driver/dm_bringup.py bandwidth --hz 500 --duration 30 --enable --yes
 
-设计依据见 src/motor_driver/DESIGN.md §7（标定）/ §8（上电序列）/ §11.2（本脚本范围）。
+设计依据见 docs/DESIGN.md §7（标定）/ §8（上电序列）/ §11.2（本脚本范围）。
 """
 from __future__ import annotations
 
@@ -980,7 +980,7 @@ def cmd_bandwidth(args, DM_CAN, sdk_dir: Path):
                     rx_bytes += sum(len(c) for c in raw_sink)
                 if fb:
                     n_rx += len(fb)
-                    # 使能状态下每 0.5 秒查一次安危（DESIGN.md §9：POS_VEL 下上位机
+                    # 使能状态下每 0.5 秒查一次安危（DESIGN.md §2.2：POS_VEL 下上位机
                     # 唯一的力矩保护手段就是这种监控）
                     if args.enable:
                         n_check += 1
