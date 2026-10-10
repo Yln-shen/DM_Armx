@@ -1,7 +1,7 @@
 # AGENTS.md —— 给下一个 AI 的接手说明
 
 > 人看的入口是 [readme.md](readme.md)；本文是**精确状态 + 不变量 + 禁区**。
-> 维护约定：**改了代码就回来改这份文件**（它比 `docs/DESIGN.md` 新，因为 DESIGN 含大量历史段）。
+> 维护约定：**改了代码就回来改这份文件**（本文是"当前状态"的唯一真源；`docs/DESIGN.md` 只讲**为什么**）。
 
 ## 0. 硬性约束（先读这段，违反等于白干）
 
@@ -117,7 +117,8 @@ position_min/position_max/**sign/zero_shift**/**torque_max**/**kp_hold**/**kd_ho
 **每个函数只管一件事**（重构前是 163 行的一个函数；带**残差守卫**，见陷阱 #42））。
 ⚠️ 收臂**不在驱动层**：驱动层只做电机 I/O；`safe_park` 是 `arm_application/safe_park_node`（见 §2）。
 
-**未实现（别以为有）**：`arm_msgs` 之上的节点 · 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
+**未实现（别以为有）**：`arm_msgs` 之上的节点 · **运动接口层 `arm_motion`**（**已设计未实现**：
+   分层/接口契约/异常矩阵见 [docs/MOTION_ARCH.md](docs/MOTION_ARCH.md)，决策 D-M1…D-M8）· 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
 **C++ 侧的力位混控路径**（POS_VEL 与 MIT 两条都做了，够重力前馈用）·
 **摩擦前馈 / 宿主侧积分 / 逐关节 kp 标定**（见 §5 "重力补偿"那段末尾的"还差什么"）·
 **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；C++ 包的 `test/` 是唯一例外，见 §7）。
@@ -137,7 +138,8 @@ position_min/position_max/**sign/zero_shift**/**torque_max**/**kp_hold**/**kd_ho
 | **模型坐标下的关节限位**（应用层护栏 / URDF / MoveIt 都该用这一套） | **算出来的，不是手写的**：`joint.yaml` 的 `position_min/max` + `align.yaml` 的 `sign/zero_shift` ⇒ URDF 的 `<limit>`（xacro 里是**硬编码字面量**）与构建期生成的 `joint_limits.hpp`。**生成器逐条对拍两者**：改了真源没同步另一份就构建失败 |
 | **MIT 保持增益 + 摩擦前馈** | `src/arm_description/config/mit_gains.yaml`（2026-10-05 真机定：**kp j1~j3 25.0 / j4~j6 15.0、kd 0.8、ki 0.3；friction_c 0.378/0.406/0.525/0.112/0.082/0.092（= 恒速实测 ×0.7）、friction_v_eps 0.02**；不塞进 `joint.yaml` 是因为 `arm_config.py` 严格解析、多一个键就 TypeError） |
 | **这台实机的质量 / 质心（重力模型）** | `src/arm_description/config/gravity_identified.yaml`（2026-10-05 辨识，RMS 1.323→0.418；**上游 CAD 的惯量不可信**，见陷阱 #43） |
-| 设计意图 | `docs/DESIGN.md`（**部分历史段已过期**） |
+| 设计意图（电机驱动层） | `docs/DESIGN.md`（2026-10-07 精简为"设计意图与不变量"，明细值/进度/类图已删） |
+| 运动 / 应用 / 规划层设计 | `docs/MOTION_ARCH.md`（**已设计未实现**，决策 D-M1…D-M8） |
 
 ## 5. 关键事实表
 
@@ -386,7 +388,8 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 | `readme.md` | ✅ **2026-09-30 重写**（旧版描述了大量已移出工作区的文件） |
 | 本文 `AGENTS.md` | ✅ 与代码同步（改代码请回来改） |
 | `docs/TESTING.md`、`docs/LESSONS.md` | ✅ 有效真源（实测值 / 踩坑） |
-| `docs/DESIGN.md` | ⚠️ 设计意图有效，但 v0.12 与"当日工作区现状"等段落**已过期** |
+| `docs/DESIGN.md` | ✅ 电机驱动层的**设计意图与不变量**（2026-10-07 精简：明细值/进度表/类图已删，指向真源与 git 历史）。⚠️ 节号被代码引用（~25 处），**只能删内容不能改编号** |
+| `docs/MOTION_ARCH.md` | 🆕 **运动接口层 `arm_motion` 的架构设计**：分层 / `ExecuteMotion` 接口契约 / 应用层 / 规划层 / 视觉契约。⚠️ **未实现，只是设计**（决策编号 D-M1…D-M8） |
 | `docs/reading_guide.md`、`docs/architecture_notes.md` | 外部参考（reBot / PyArmX）导读，与当前代码无关 |
 
 **已移出工作区、但 git 历史里可取回**（`git show <commit>:<path>`）：旧版 `dm_registers.py`（605 行）、
@@ -396,7 +399,8 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
 
 ## 9. 接手后的第一件事
 
-1. 读 [readme.md](readme.md) → 本文 → `docs/TESTING.md`（实测值）→ `docs/DESIGN.md`（设计意图，跳过历史段）。
+1. 读 [readme.md](readme.md) → 本文 → `docs/TESTING.md`（实测值）→ `docs/DESIGN.md`（电机驱动层的设计意图与不变量）
+   → `docs/MOTION_ARCH.md`（**要动运动/应用层时先读它**：接口契约、异常矩阵、规划层接入）。
 2. **问用户三件事**：这轮要做哪一层（寄存器工具 / 整臂 / ROS2 / 夹爪）？是否允许新增文件/函数？改动范围到哪为止？
 3. 每处改动：**先读文件 → 说明改动清单 → 等批准 → 改 → 验证（贴证据）→ 自审**（错误处理 / 未定义行为 / 冗余 / 安全 / 真机影响）。
 4. 自审 checklist（用户会问）：

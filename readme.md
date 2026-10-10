@@ -126,7 +126,8 @@ DM_Armx/
 ├─ ARMWORK.md                   人机协作工作流（访谈→计划→实现→精修→归档）
 ├─ pixi.toml / pixi.lock        环境（robostack-jazzy + pyserial + pyyaml）
 ├─ docs/
-│  ├─ DESIGN.md                 设计文档（**最全**，但含已过期的历史段）
+│  ├─ DESIGN.md                 电机驱动层的设计意图与不变量（2026-10-07 精简；历史见 git）
+│  ├─ MOTION_ARCH.md            **运动接口层 arm_motion 架构设计**（⚠️ 未实现，只是设计）
 │  ├─ TESTING.md                实测数据（映射范围 / 摩擦 / 标定实测）—— 有效真源
 │  ├─ LESSONS.md                踩坑记录（SDK 四个坑 + 方法上的坑）—— 有效真源
 │  └─ reading_guide.md / architecture_notes.md   外部参考（reBot / PyArmX）导读
