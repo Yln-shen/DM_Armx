@@ -1161,6 +1161,29 @@ JTC 那边轨迹还挂着，**臂会自己走完**。修复前实测：`timeout_
 
 ---
 
+## 十九、M9.5 真机分级验收（2026-10-11）：管理层 + M9.4 总 launch
+
+**入口**：`ros2 launch arm_bringup arm_system.launch.py use_mock:=false use_rviz:=false`
+（默认 `enable_on_activate=false` ⇒ 只读；`arm_controller` 只装载不激活）。
+链停止姿态：折叠位（机械稳定点），模型坐标 `[1.47238, 0.01030, -0.01946, 0.01145, 0.00801, 0.01564]`。
+
+| 步 | 动作 | 实测结果 |
+|---|---|---|
+| ① | 只读起链 | 插件服务俱在（`ros2 service info /arm/set_enabled` ⇒ **Services count: 1**，mock 上是 0）；jsb `active` / `arm_controller` **inactive**；`/arm/status` = `READONLY`、`mode: POS_VEL`；`/arm/hardware_status` `armed: false`、`tx_calls 14172 / rx_calls 2368` |
+| ② | `arm_on(with_controller=false)` | `success=true, state=ARMED`；**零位移保持：六个关节逐位相同，max\|Δ\| = 0.00000 rad**；硬件 `err=[1,1,1,1,1,1]`（全部使能）、`guard_tripped=false` |
+| ③ | （零位移保持的复核） | 同 ② —— 没有额外动作，`/arm/status` 停在 `ARMED` |
+| ④ | `arm_on(with_controller=true)` | `success=true, state=ARMED_CONTROLLER`；`arm_controller` 变 **active**；`/arm/status` `hardware_armed=true / controller_active=true`。**M-3 顺序在真机成立**（控制器是在硬件使能之后才激活） |
+| ⑤ | 小动作：j1 +0.05 rad（3 s）再回原位 | 两个 goal 都 `SUCCEEDED`（"Goal successfully reached!"）；**实测往返残差 max 0.00076 rad（0.044°）** |
+| ⑥ | `safe_disarm(vlim=0.3, tol=0.05)` | `success=true, disarmed=true, max_residual=0.009118 rad, attempts=0` —— `attempts=0` 是因为**臂已在折叠位容差内 ⇒ 自动跳过收臂动作**（残留只是它与折叠位的距离）；控制器变 `inactive`；硬件 **`err=[0,0,0,0,0,0]`** |
+| ⑦ | `emergency_stop`（此时本来已失能） | `success=true, disarmed=true, failed=[]`，消息如实："已失能全部 6 台（ERR=0）"（幂等路径） |
+
+收尾 `/arm/status` = `READONLY / hardware_armed=false / controller_active=false`。
+
+**结论**：M9.2（插件级真机）、M9.3（管理层 mock）、M9.4（总 launch mock）、M9.5（管理层 + 总 launch **真机**）全绿。
+⚠️ 本次**没有**测：带载姿态下的 `safe_disarm`（要真的收臂）、重力前馈链（`gravity_ff:=true`）走管理层、急停打断正在跑的轨迹。
+
+---
+
 ## 附：`AGENTS §5` 精简时并入的零散实测（2026-10-11）
 
 > 下面几条原本写在 `AGENTS.md §5`，精简 AGENTS 时**先搬到这里**（不然就丢了）。

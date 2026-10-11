@@ -26,7 +26,7 @@
 | ROS2 控制 | [arm_bringup](src/arm_bringup) | ✅ [arm_system.launch.py](src/arm_bringup/launch/arm_system.launch.py)（**总 launch**，`use_mock` 贯穿 mock/真机；`arm_controller` 默认**只装载不激活**，交给管理层按 M-3 顺序激活）+ 两份控制器配置；`real_joint_states` 是**只读**镜像（模型核对用，绝不 enable）；`gravity_ff:=true` 为整链 MIT + 重力前馈（默认 false）。⚠️ 旧的 `real_control`/`mock_control`/`safe_park` 三份 launch **2026-10-11 已删** |
 | MoveIt | [arm_moveit_config](src/arm_moveit_config) | ✅ SRDF / KDL / OMPL / `move_group.launch.py`；**mock 与真机的 plan / plan+execute 都已跑通**（2026-10-05） |
 | 运动执行件 | [arm_motion](src/arm_motion) | ✅ `MotionClient`：给 JTC 发**单点轨迹**的非阻塞客户端（限位护栏 / 取消 / 残差验证）；2026-10-07 **M9.0** 从 `safe_park_node` 抽出、**行为逐条等价**（8 个 gtest + 端到端对拍全过）；`ExecuteMotion` action server 仍**待做** |
-| 管理层 | [arm_manage](src/arm_manage) | ✅ `arm_manage_node`：编排「控制器先 inactive → 硬件使能 → 校验 → 控制器 active」与「收臂到折叠位再失能」；3 个服务 + `/arm/status`。**mock 链 25 项断言全绿**（M9.3）；**M9.4 总 launch 上一条命令起全栈、三服务全绿**；真机验收待 **M9.5** |
+| 管理层 | [arm_manage](src/arm_manage) | ✅ `arm_manage_node`：编排「控制器先 inactive → 硬件使能 → 校验 → 控制器 active」与「收臂到折叠位再失能」；3 个服务 + `/arm/status`。**mock 链 25 项断言全绿**（M9.3）；**M9.4 总 launch 上一条命令起全栈、三服务全绿**；**真机 M9.5 已通过**（零位移使能 / M-3 顺序 / 往返残差 0.00076 rad） |
 | 应用层 | [arm_application](src/arm_application) | ✅ `safe_park_node`：把臂收到**折叠位**（走 JTC 的正常轨迹通路，不碰电机）；**真机已验**（残差 0.0015~0.031 rad；含"发目标前查限位"的护栏）。⚠️ 它自己的 `launch/` 已删（收臂改由管理层 `safe_disarm` 承担） |
 | 夹爪 | — | ❌ 本阶段不做；但 `arm_description` 已备好可切换的一路（`dyn_model:=arm_identified_gripper.urdf`，夹爪质量**未辨识**） |
 
