@@ -1,0 +1,17 @@
+# 管理层级（**对外**）：先收臂到折叠位，**再**失能（见 docs/MANAGE_ARCH.md §6.2）。
+#
+# 为什么这个顺序是安全的：折叠位就是失能后的自由稳定点（陷阱 #39：臂自己会塌回那儿），
+# 所以"到折叠位再失能"在运动学上是**零位移**的 —— 失能那一刻臂不会掉。
+#
+# 失败语义（M-8）：收臂超时/残差超差 ⇒ 重试 `max_retries` 次；仍失败 ⇒ **保持使能、停在原地**
+# 并报错 —— **不拿"收臂失败"当理由把臂扔掉**。
+float64 vlim            # 0 ⇒ 参数默认（保守）
+float64 tol_rad         # 0 ⇒ 参数默认
+float64 timeout_sec     # 0 ⇒ 参数默认
+uint8   max_retries     # 0 ⇒ 参数默认
+---
+bool success
+bool disarmed           # 只有**真的失能了**才是 true
+float64 max_residual    # 最好一次尝试的实测残差
+uint8   attempts
+string message          # 失败时明确写"臂仍使能、停在 X"

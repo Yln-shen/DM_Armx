@@ -1,6 +1,7 @@
 # ros2_control 管理层架构（arm_manage）
 
-> 状态：**架构设计 + 实现计划，未实现**。本文只定义分层、接口与语义；一行代码都还没写。
+> 状态：**架构设计 + 实现计划**。进度：**M9.0**（`arm_motion::MotionClient` 执行件，已落地并真机验证）、
+> **M9.1**（`arm_msgs` 的 5 srv + 1 msg，已落地）**已完成**；**M9.2 起未实现**（插件运行期使能、`arm_manage` 节点、总 launch）。
 > 与其它文档的分工：**状态与不变量**看 [AGENTS.md](../AGENTS.md)，**实测值**看 [TESTING.md](TESTING.md)，
 > **踩坑**看 [LESSONS.md](LESSONS.md)，**运动接口层**（`arm_motion`，未来）看 [MOTION_ARCH.md](MOTION_ARCH.md)，
 > **电机驱动层为什么**看 [DESIGN.md](DESIGN.md)。本文只讲**管理层**。
@@ -419,7 +420,7 @@ status_pub_      = node->create_publisher<arm_msgs::msg::HardwareStatus>("/arm/h
 | # | 内容 | 验收标准 |
 |---|---|---|
 | **M9.0** | 抽 `MotionClient` 到 `arm_motion`；`safe_park_node` 改用它（行为不变） | ① 假 action server 单测：正常到达 / 超时 / 取消确认 / 残差超差；② 与旧 `safe_park` 同参数下**发出的轨迹逐字段一致**；③ 真机回归残差与迁移前同量级 |
-| **M9.1** | `arm_msgs` 加 5 srv + 1 msg；扩展 `ArmStatus` | `ros2 interface show` 正确；`colcon build` 通过 |
+| **M9.1** | `arm_msgs` 加 5 srv + 1 msg；扩展 `ArmStatus` | ✅ **已落地（2026-10-11）**：10 个接口 `ros2 interface show` 全对、`colcon build` 通过；**无任何包依赖 `arm_msgs`** ⇒ 替换 `ArmStatus` 的老字段是安全的 |
 | **M9.2** | 插件：`armed_` + 使能 FSM + 状态发布 + 2 服务 | ① **只读模式仍一个控制帧都不发**（回归）；② 调 `SetEnabled(true)` ⇒ 断言帧序列（6×0x0A → 6 使能 → 6 真实 MIT）；③ 全臂使能时调用被拒；④ `EmergencyStop` 只发失能帧；⑤ 现有 14+ 单测全过 |
 | **M9.3** | `arm_manage` 节点（两个 Gate + 3 服务 + 聚合状态） | mock 链上跑通 `arm_on` / `safe_disarm` / `emergency_stop`，断言**调用顺序**（控制器先 inactive）与 `state_machine` 迁移 |
 | **M9.4** | 总 launch 取代三份 | 一条命令起全栈；`use_mock` 贯穿；mock/真机互斥；只起一个 RViz |

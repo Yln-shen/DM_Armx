@@ -38,7 +38,7 @@
 | [dm_bringup.py](src/motor_driver/motor_driver/dm_bringup.py) | 1169 | **单电机排障脚本**（2026-10-01 从 git 历史恢复，见 §8）：`read` / `monitor` / `jog [--mit]` / `bandwidth` 四条子命令，会把每条 CAN 帧摊开讲 | **刻意不 import 本包任何模块** —— 只依赖 vendored SDK + pyserial（价值就在这：排障时能分清"是我们的封装错"还是"链路本身错"）。默认**只读**、永不写寄存器/零位、使能必须 `--yes`、退出（含 Ctrl-C）必失能；**使能时 `--hz` 硬限制 ≥5Hz**（否则会撞 500ms 看门狗） |
 | [config/joint.yaml](src/motor_driver/config/joint.yaml) | — | 6 关节静态参数（**已按本项目标定**：offset / direction / 软限位） | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
 | [setup.py](src/motor_driver/setup.py) | 36 | 装 `share/motor_driver/config/joint.yaml`；**`data_files` 的源路径只能写相对路径**（colcon 的 ament_python task 会 assert 拒绝绝对路径） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` 指向 `motor_driver.*` |
-| [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus` + action `MoveToPose` | 只定义接口、无代码；夹爪本阶段不做 |
+| [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus`（内嵌 `HardwareStatus`）/ **`HardwareStatus`** + action `MoveToPose` + **5 个 srv**（`SetEnabled` / `HardwareEmergencyStop` 是**插件内部接口**；`ArmOn` / `SafeDisarm` / `ManageEmergencyStop` 是**管理层对外接口**） | 只定义接口、无代码；**目前无任何包依赖它、无代码消费者**（M9.1 已落地，等 M9.2/M9.3 用）；夹爪本阶段不做。字段与语义见 `docs/MANAGE_ARCH.md §4` |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + **`config/mit_gains.yaml`（MIT 保持增益）** + **`config/gravity_identified.yaml`（辨识出的质量/质心）** + `scripts/apply_identified_inertia.py` + **`scripts/gen_joint_limits_header.py`（构建期生成 `joint_limits.hpp`：模型坐标关节限位，给应用层当护栏；并与 URDF 的 `<limit>` 对拍、漂了就构建失败）** + 显示 launch。构建时生成**三份**动力学 URDF：`arm.urdf`（上游名义）、**`arm_identified.urdf`（辨识版、**空载**、前馈默认用）**、`arm_identified_gripper.urdf`（带夹爪；夹爪质量**未辨识**，见陷阱 #56） | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **`real_control.launch.py`**（真机 ros2_control，参数 `enable_on_activate` / `spawn_arm_controller` / `vlim` / **`gravity_ff`** / **`gravity_ff_scale`** / `mit_controllers`）+ **两份控制器配置** `config/ros2_controllers.yaml`（只 position）与 `ros2_controllers_mit.yaml`（position+velocity+constraints，见陷阱 #40） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
 | [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
@@ -394,6 +394,15 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   **假 JTC action server + 假 `/joint_states`**，用 `subprocess` 跑真实可执行文件，断言**轨迹逐字段**
   （关节名 / 1 个点 / 位置=折叠位 / 末端速度 0 / `duration == max(1, travel/vlim)`）、业务日志逐条、退出码 0。
   这比"只看编译过"强得多，且不新增文件。
+
+- ⚠️ **全量 `colcon test` 有 4 处**历史**失败（2026-10-11 定性；用户决定**先不改**）**：`arm_application` 的
+  `uncrustify`（5 处格式分歧）/ `flake8`(36) / `pep257`(3)，加 `motor_driver` 的 `pytest`
+  （`pluggy ... Plugin 'launch_testing' for hook 'pytest_pycollect_makemodule'` 是**插件环境错**）。
+  - **归属已用 A/B 定量证明不是新引入的**：把 `safe_park_node.cpp` 的 HEAD 版本与当前版本过**同一个** linter
+    ⇒ **迁移前 15 处分歧 → 现在 5 处**（M9.0 反而减了 10 处）；`flake8`/`pep257` 检查的是
+    `arm_application/launch/safe_park.launch.py`（M9.0 没碰过它）；`pytest` 那条与代码无关。
+  - ⇒ **看 `colcon test` 红之前先看是哪一条**：`arm_motion` / `motor_driver_hardware` / `arm_msgs` 的结果都干净，
+    别把这 4 处误当成"最近的改动弄坏了"。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
 

@@ -1,0 +1,13 @@
+# 插件级（**内部接口**）：运行期使能/失能硬件。正常只由 arm_manage 调用（见 docs/MANAGE_ARCH.md §4.1）。
+#
+# 为什么需要它：`enable_on_activate` 是硬件组件的 <param>（来自 robot_description，构建/launch 期定死），
+# CM 的 `set_hardware_component_state` **改不了已加载的参数** ⇒ 启动为只读之后想使能，只能走这个通道（M-1）。
+#
+# ⚠️ 插件的使能序列含 6 次 `0x0A` 寄存器写（每次约 150 ms 静默）⇒ 会先查"**全臂失能**"，
+#    有电机遇故障/使能中就拒绝（否则会在旧电机还被喂帧时开始写寄存器）。
+# ⚠️ 使能后必须**立刻补一帧真实 MIT 保持帧**（MIT 的 enable 是零增益帧，出力恒 0，见陷阱 #41）。
+bool enable
+---
+bool success
+bool now_armed
+string message      # 拒绝时说明原因（例如"当前有电机处于使能态" / "硬件组件未 active"）

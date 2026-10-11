@@ -15,9 +15,19 @@ find_package(builtin_interfaces REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/JointMotorCmd.msg"
   "msg/JointMotorState.msg"
+  "msg/HardwareStatus.msg"
   "msg/ArmStatus.msg"
   "action/MoveToPose.action"
-  DEPENDENCIES geometry_msgs
+  # ── 管理层（arm_manage）的对外接口；插件级两个是**内部接口**，正常只由 arm_manage 调用 ──
+  # 见 docs/MANAGE_ARCH.md §4.1：M-6（对外只有 3 个服务、不做状态查询服务）
+  "srv/SetEnabled.srv"              # 插件：运行期使能/失能（M-1，因为 enable_on_activate 是构建期参数）
+  "srv/HardwareEmergencyStop.srv"   # 插件：立即失能，不碰寄存器、不恢复（M-9）
+  "srv/ArmOn.srv"                   # 管理层：分级上电一步化（含控制器顺序，M-3）
+  "srv/SafeDisarm.srv"              # 管理层：先收臂到折叠位再失能（M-8 失败⇒保持使能）
+  "srv/ManageEmergencyStop.srv"     # 管理层：急停 = 取消目标 + 立即失能（与 SafeDisarm 语义相反）
+  # ⚠️ builtin_interfaces 是 HardwareStatus/ArmStatus 的 stamp 需要的（find_package 早就有，
+  #    但之前不在 DEPENDENCIES 里 ⇒ 用 builtin_interfaces/Time 就必须补）
+  DEPENDENCIES geometry_msgs builtin_interfaces
 )
 
 if(BUILD_TESTING)

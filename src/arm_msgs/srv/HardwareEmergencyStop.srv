@@ -1,0 +1,12 @@
+# 插件级（**内部接口**）：立即失能 — **不碰寄存器、永不抛、不做恢复**（见 docs/MANAGE_ARCH.md M-9）。
+#
+# 名字带 `Hardware` 是为了与管理层的 `ManageEmergencyStop` 区分：那个会先取消进行中的目标、
+# 再调这个；而这里只管"把 6 台的失能帧发出去"。
+#
+# ⚠️ ERR=13（通讯丢失）是**锁存的**，只能断电重上电清；本服务只报告，**不假装能恢复**
+#    （`enable(0xFC)`、连发帧、写回 `0x09=0` 都清不掉 —— 见 AGENTS 陷阱 #25）。
+---
+bool success        # 只要"尽力失能"这一轮没抛就是 true
+string[] disabled   # 成功失能的关节名
+string[] failed     # 失能失败的关节名（原因写进 message）
+string message      # 含"需要断电重启"这类明确结论

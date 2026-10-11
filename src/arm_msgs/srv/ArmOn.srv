@@ -1,0 +1,14 @@
+# 管理层级（**对外**）：分级上电一步化（见 docs/MANAGE_ARCH.md §6.1）。
+#
+# 顺序由 arm_manage 保证 —— 这是管理层唯一不可替代的价值（M-3）：
+#   ① 控制器先 inactive（若它 active）→ ② 硬件使能（含 6×`0x0A` 写，约 0.9 s 的 update 空档）
+#   → ③ 校验 /joint_states 有 6 关节且 ERR ∈ {0,1} → ④（可选）控制器 activate
+#
+# ⚠️ "只读 ↔ 使能"**不是**运行期能切的（`enable_on_activate` 是 robot_description 参数，见 M-1）；
+#    本服务能切的是"硬件 activate/deactivate"与"控制器 active"这两件。
+bool with_controller    # true ⇒ 顺带激活 arm_controller（可发轨迹）；false ⇒ 只使能
+float64 timeout_sec     # 0 ⇒ 用参数默认
+---
+bool success
+string state            # READONLY / ARMING / ARMED / ARMED_CONTROLLER / FAULT（见 MANAGE_ARCH §4.3）
+string message
