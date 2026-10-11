@@ -21,10 +21,13 @@ find_package(sensor_msgs REQUIRED)
 # joint.yaml + align.yaml 生成并导出（JTC **不校验限位**，见 gen_joint_limits_header.py）
 # arm_description 提供 INTERFACE 库（只有头文件 + 限位常量）
 find_package(arm_description REQUIRED)
+# 运动执行件：给 JTC 发单点轨迹的非阻塞客户端（2026-10-07 M9.0 从本包的 safe_park_node 抽出）
+find_package(arm_motion REQUIRED)
 
 add_executable(safe_park_node src/safe_park_node.cpp)
 target_link_libraries(safe_park_node
   arm_description::arm_description
+  arm_motion::arm_motion
   rclcpp::rclcpp
   rclcpp_action::rclcpp_action
   ${action_msgs_TARGETS}

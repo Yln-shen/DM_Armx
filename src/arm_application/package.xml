@@ -12,6 +12,8 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>arm_description</depend>
+  <!-- 运动执行件：给 JTC 发单点轨迹的非阻塞客户端（2026-10-07 M9.0 从本包的 safe_park_node 抽出） -->
+  <depend>arm_motion</depend>
   <depend>action_msgs</depend>
   <depend>control_msgs</depend>
   <depend>trajectory_msgs</depend>
