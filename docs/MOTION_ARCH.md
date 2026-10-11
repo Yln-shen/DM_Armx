@@ -534,40 +534,38 @@ DetectedObject[] objects
 
 ### 11.1 一个总 launch
 
-现状是**三份独立 launch**：`arm_bringup/real_control.launch.py`（真机 ros2_control）、
-`arm_bringup/mock_control.launch.py`（mock）、`arm_moveit_config/move_group.launch.py`
-（`use_mock:=true` 时**自带** mock 的 CM + 控制器）。拼装时必须避开两个坑：
+`arm_bringup/launch/arm_system.launch.py`（**M9.4 已落地，2026-10-11**）取代了原来的三份
+（`real_control` / `mock_control` / `safe_park`，同日**已删除**）。它起：`ros2_control_node`（硬件按 `use_mock` 选）
+→ `robot_state_publisher` → `joint_state_broadcaster` → `arm_controller`（**默认 `spawner --inactive`**：
+只装载不激活）→ `arm_manage_node` → **一个** RViz。
+
+拼装时避开的三个坑：
 
 - **mock 与真机互斥**（陷阱 #35）：真机那套开着时起 mock，mock 的 CM 会从共享话题
   `/robot_description` 订阅到**真机的 URDF** ⇒ 加载 `DmSystemInterface`、开真机串口、
   把 6 台使能了（真机踩过：`joint1 ERR=13` 锁存）。所以总 launch 用**一个** `use_mock`
-  贯穿，绝不允许两条分支同时为真；
-- **只会起一个 RViz**：`real_control.launch.py` 起 `display.rviz`，`move_group.launch.py`
-  起 `moveit.rviz`，都默认 `use_rviz:=true` ⇒ 总 launch 必须只让一个为真。
-
-拟新增 `arm_bringup/launch/arm_system.launch.py`：
-
-```
-arm_system.launch.py
-  use_mock=true  : move_group.launch.py(use_mock:=true, use_rviz)   # 自带 CM+控制器
-  use_mock=false : real_control.launch.py(use_rviz:=false, ...)      # 真机硬件
-                   move_group.launch.py(use_mock:=false, use_rviz)
-  总是           : arm_motion 的 motion_server 节点
-```
+  贯穿、**只起一套**；
+- **只起一个 RViz**：`arm_system.launch.py` 是唯一该起 RViz 的地方（旧的 `real_control` 起 `display.rviz`、
+  `move_group.launch.py` 起 `moveit.rviz`，两个都默认 `use_rviz:=true` 就会打架）；
+- ⚠️ **刻意不把 `move_group.launch.py` 拉进来**：它 `use_mock:=true` 时**自带**一套
+  `ros2_control_node` + spawner ⇒ 与总 launch **双开**（正是上面第 1 条的形状）。MoveIt 仍单独起，
+  且**先确认总 launch 没在跑**。
 
 ### 11.2 参数表（总 launch）
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `use_mock` | `true` | 贯穿两个 launch；**mock/真机互斥开关** |
-| `enable_on_activate` | `false` | 真机使能开关；默认只读（现有语义不变） |
-| `spawn_arm_controller` | `true` | 总 launch 需要 JTC 存在（`arm_motion` 要发目标） |
-| `gravity_ff` / `gravity_ff_scale` | `false` / `1.0` | 透传给 `real_control.launch.py` |
-| `mit_controllers` | `false` | 同上 |
+| `use_mock` | `true` | 贯穿到 xacro；**mock/真机互斥开关**（mock 是安全默认） |
+| `use_rviz` | `true` | 只在本 launch 里起作用 |
+| `start_arm_manage` | `true` | 起管理层（3 个服务 + `/arm/status`） |
+| `enable_on_activate` | `false` | 真机使能开关；**默认只读**（现有语义不变） |
+| `spawn_arm_controller` | `true` | 是否装载 JTC |
+| `arm_controller_inactive` | `true` | **装载但不激活**（激活交给 `arm_manage`，保证 M-3 顺序） |
+| `gravity_ff` / `gravity_ff_scale` | `false` / `1.0` | 透传；`gravity_ff:=true` 时**自动**改用 MIT 版控制器配置 |
+| `mit_controllers` | `false` | 手动选 MIT 版控制器配置（多声索 velocity） |
 | `vlim` | `1.0` | POS_VEL 速度上限（透传） |
-| `use_rviz` | `true` | 只作用在**一个** launch 上 |
-| `plan_only` | `false` | `arm_motion` 只规划不执行（只读硬件下做规划验证用，见 §11.3） |
-| `motion_params` / `named_targets` | 包内默认 | 可覆盖 |
+| `use_gripper` | `false` | 模型是否带夹爪几何 |
+| `plan_only` / `motion_params` / `named_targets` | — | ⏳ **属于将来的 `arm_motion` 节点**（M8 未实现）：总 launch 现在**没有**这些参数 |
 
 ### 11.3 `plan_only` 与只读模式
 

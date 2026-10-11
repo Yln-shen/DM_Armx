@@ -30,7 +30,7 @@
     PYTHONPATH=src/motor_driver/motor_driver pixi run python \
         src/motor_driver/motor_driver/gravity_teach.py --run --yes --scale 1.0 --ramp 20
 
-⚠️ 与 `arm_bringup/real_control.launch.py` **互斥**（两边都独占 /dev/dm_can，且都驱动同一组电机）。
+⚠️ 与 `arm_bringup/launch/arm_system.launch.py`（真机链）**互斥**（两边都独占 /dev/dm_can，且都驱动同一组电机）。
 ⚠️ 本脚本**不写任何寄存器**（包括 0x0A）；模式不对就拒绝启动，改模式请用 `dm_registers` 并另行确认。
 """
 from __future__ import annotations

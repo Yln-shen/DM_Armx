@@ -23,11 +23,11 @@
 | ROS2 接口包 | [arm_msgs](src/arm_msgs) | ✅ 4 个 msg（`JointMotorCmd` / `JointMotorState` / `ArmStatus` / **`HardwareStatus`**）+ 1 个 action（`MoveToPose`）+ **5 个 srv**（`SetEnabled`/`HardwareEmergencyStop` **已给插件用上**；`ArmOn`/`SafeDisarm`/`ManageEmergencyStop` 给管理层，见 [docs/MANAGE_ARCH.md](docs/MANAGE_ARCH.md)）；夹爪本阶段不做 |
 | 机器人描述 | [arm_description](src/arm_description) | ✅ URDF/xacro（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **[config/align.yaml](src/arm_description/config/align.yaml)（模型对齐，2026-10-04 M1b 实测）**；joint limit 已换算成本项目标定值 |
 | C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位）+ `dm_gravity`（pinocchio 重力项）+ **`DmSystemInterface`（ros2_control 插件：POS_VEL / MIT + 重力前馈 / 残差守卫）**；**与 Python 三份实现逐字节/逐数值对拍**（36 用例全过） |
-| ROS2 控制 | [arm_bringup](src/arm_bringup) | ✅ [real_control.launch.py](src/arm_bringup/launch/real_control.launch.py)（真机 ros2_control）+ 两份控制器配置；`real_joint_states` 是**只读**镜像（模型核对用，绝不 enable）；**真机三步验收已过**（只读 / 保持 / 小动作，2026-10-05）；`gravity_ff:=true` 为整链 MIT + 重力前馈（默认 false） |
+| ROS2 控制 | [arm_bringup](src/arm_bringup) | ✅ [arm_system.launch.py](src/arm_bringup/launch/arm_system.launch.py)（**总 launch**，`use_mock` 贯穿 mock/真机；`arm_controller` 默认**只装载不激活**，交给管理层按 M-3 顺序激活）+ 两份控制器配置；`real_joint_states` 是**只读**镜像（模型核对用，绝不 enable）；`gravity_ff:=true` 为整链 MIT + 重力前馈（默认 false）。⚠️ 旧的 `real_control`/`mock_control`/`safe_park` 三份 launch **2026-10-11 已删** |
 | MoveIt | [arm_moveit_config](src/arm_moveit_config) | ✅ SRDF / KDL / OMPL / `move_group.launch.py`；**mock 与真机的 plan / plan+execute 都已跑通**（2026-10-05） |
 | 运动执行件 | [arm_motion](src/arm_motion) | ✅ `MotionClient`：给 JTC 发**单点轨迹**的非阻塞客户端（限位护栏 / 取消 / 残差验证）；2026-10-07 **M9.0** 从 `safe_park_node` 抽出、**行为逐条等价**（8 个 gtest + 端到端对拍全过）；`ExecuteMotion` action server 仍**待做** |
-| 管理层 | [arm_manage](src/arm_manage) | ✅ `arm_manage_node`：编排「控制器先 inactive → 硬件使能 → 校验 → 控制器 active」与「收臂到折叠位再失能」；3 个服务 + `/arm/status`。**mock 链 25 项断言全绿**（M9.3）；真机验收待 M9.5 |
-| 应用层 | [arm_application](src/arm_application) | ✅ `safe_park_node`：把臂收到**折叠位**（走 JTC 的正常轨迹通路，不碰电机）；**真机已验**（残差 0.0015~0.031 rad；含"发目标前查限位"的护栏） |
+| 管理层 | [arm_manage](src/arm_manage) | ✅ `arm_manage_node`：编排「控制器先 inactive → 硬件使能 → 校验 → 控制器 active」与「收臂到折叠位再失能」；3 个服务 + `/arm/status`。**mock 链 25 项断言全绿**（M9.3）；**M9.4 总 launch 上一条命令起全栈、三服务全绿**；真机验收待 **M9.5** |
+| 应用层 | [arm_application](src/arm_application) | ✅ `safe_park_node`：把臂收到**折叠位**（走 JTC 的正常轨迹通路，不碰电机）；**真机已验**（残差 0.0015~0.031 rad；含"发目标前查限位"的护栏）。⚠️ 它自己的 `launch/` 已删（收臂改由管理层 `safe_disarm` 承担） |
 | 夹爪 | — | ❌ 本阶段不做；但 `arm_description` 已备好可切换的一路（`dyn_model:=arm_identified_gripper.urdf`，夹爪质量**未辨识**） |
 
 > ✅ **整臂能动了**：控制循环由 `ros2_control` 的 update 驱动（**不自搭**），IK / 轨迹由 MoveIt 出。
@@ -165,7 +165,8 @@ DM_Armx/
   **M6 MoveIt**（SRDF / kinematics / ompl，mock 与真机 plan+execute 都跑通）；
   **应用层 `safe_park`**（收臂 + 发目标前查限位）。
 - **没做的**：夹爪（含质量辨识）、带载标定、安全认证层、碰撞检测、`arm_msgs` 之上的节点。
-- 每次上真机的入口：`ros2 launch arm_bringup real_control.launch.py`（默认**只读**，
-  加 `enable_on_activate:=true spawn_arm_controller:=true` 才会动）。
+- 每次上真机的入口：`ros2 launch arm_bringup arm_system.launch.py use_mock:=false`（默认**只读**、
+  `enable_on_activate=false`）；要动就 `ros2 service call /arm_manage/arm_on arm_msgs/srv/ArmOn "{with_controller: true}"`，
+  收臂 `safe_disarm`、急停 `emergency_stop`。
 
 细节看 [AGENTS.md](AGENTS.md)（精确到方法的状态与不变量）与 [docs/DESIGN.md](docs/DESIGN.md)（设计意图）。

@@ -1,5 +1,5 @@
 # M2：mock 硬件上的 ros2_control 配置（**不接真机**）。
-# 用法见 launch/mock_control.launch.py。
+# 用法见 launch/arm_system.launch.py（总 launch；默认 use_mock:=true 就是这份配置）。
 #
 # 真机版本（M5）会另起一份：把硬件接口换成 motor_driver_hardware/DmSystemInterface，
 # 控制器本身不用改（命令接口仍是 position，背后走 POS_VEL）。

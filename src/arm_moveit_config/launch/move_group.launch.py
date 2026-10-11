@@ -4,11 +4,11 @@
   ros2 launch arm_moveit_config move_group.launch.py
 
   # ② 再对真机跑：另开终端先把真机那套起起来，再加 use_mock:=false
-  ros2 launch arm_bringup real_control.launch.py enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5
+  ros2 launch arm_bringup arm_system.launch.py use_mock:=false spawn_arm_controller:=true vlim:=0.5
   ros2 launch arm_moveit_config move_group.launch.py use_mock:=false
 
 ⚠️ 一次只起一套：`use_mock:=true` 会自己起 controller_manager + 控制器，
-   与 `real_control.launch.py` **不能同时开**（两个 CM 抢同名控制器；而且 CM 会从共享话题
+   与 `arm_system.launch.py` **不能同时开**（两个 CM 抢同名控制器；而且 CM 会从共享话题
    `/robot_description` 订阅到对方的 URDF —— 见 AGENTS 陷阱 #35）。
 
 📌 参数为什么用 moveit_configs_utils：手拼 `{"ompl": {...}}`（嵌套）与扁平 `ompl.planning_plugin`
@@ -80,7 +80,7 @@ def generate_launch_description():
                     moveit_config.robot_description_kinematics],
         condition=IfCondition(LaunchConfiguration("use_rviz")), output="both")
 
-    # mock 那套（与 arm_bringup 的 mock_control.launch.py 等价）：只在 use_mock 为真时起
+    # mock 那套（自带的 CM + 控制器）：只在 use_mock 为真时起。⚠️ 与 arm_system.launch.py 双开就是陷阱 #35
     use_mock_if = IfCondition(LaunchConfiguration("use_mock"))
     controllers_file = os.path.join(bringup, "config", "ros2_controllers.yaml")
     mock_nodes = [

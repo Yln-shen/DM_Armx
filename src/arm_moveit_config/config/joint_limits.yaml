@@ -2,7 +2,7 @@
 # ⚠️ **必须显式给速度限位**：TOTP（AddTimeOptimalParameterization）靠它算 time_from_start；
 #    速度上限为 0 / 缺失 ⇒ "failed to generate a trajectory" ⇒ 整条 plan 被判 ABORTED（2026-10-05 踩过）。
 # 数值 = motor_driver/config/joint.yaml 的 limit[1]（电机 VMAX，就是输出轴 rad/s；j1~j3 4340P→10、j4~j6 4310→30）。
-# 真机实际执行速度另受插件 vlim 限制（real_control.launch.py 的 vlim）。位置限位不覆盖 ⇒ 仍以 URDF 为准。
+# 真机实际执行速度另受插件 vlim 限制（arm_system.launch.py 的 vlim）。位置限位不覆盖 ⇒ 仍以 URDF 为准。
 joint_limits:
   joint1: {has_velocity_limits: true, max_velocity: 10.0, has_acceleration_limits: true, max_acceleration: 5.0}
   joint2: {has_velocity_limits: true, max_velocity: 10.0, has_acceleration_limits: true, max_acceleration: 5.0}

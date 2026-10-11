@@ -35,7 +35,8 @@ target_link_libraries(safe_park_node
   ${trajectory_msgs_TARGETS}
   ${sensor_msgs_TARGETS})
 install(TARGETS safe_park_node DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+# （原来还有 `install(DIRECTORY launch ...)`：2026-10-11 本包的 launch 已删 —— 收臂改由
+#   管理层的 `safe_disarm` 承担，链路由 `arm_bringup/launch/arm_system.launch.py` 起）
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

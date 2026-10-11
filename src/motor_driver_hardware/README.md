@@ -27,11 +27,12 @@
 ```bash
 colcon build --symlink-install && source install/setup.bash
 # ① 只读：不使能、不发控制帧，只发 0x7FF 刷新帧读状态（默认就是这一步）
-ros2 launch arm_bringup real_control.launch.py
-# ② 使能保持：零位移（保持帧 = 电机侧实测位置 + vlim 0.1）
-ros2 launch arm_bringup real_control.launch.py enable_on_activate:=true
-# ③ 可以发轨迹（先给慢速）
-ros2 launch arm_bringup real_control.launch.py enable_on_activate:=true spawn_arm_controller:=true vlim:=0.5
+ros2 launch arm_bringup arm_system.launch.py use_mock:=false
+# ② 使能保持：零位移（保持帧 = 电机侧实测位置 + vlim）—— 交给管理层一步化
+ros2 service call /arm_manage/arm_on arm_msgs/srv/ArmOn "{with_controller: true}"
+# ③ 管理层的另外两个：收臂到折叠位再失能 / 急停
+ros2 service call /arm_manage/safe_disarm arm_msgs/srv/SafeDisarm "{}"
+ros2 service call /arm_manage/emergency_stop arm_msgs/srv/ManageEmergencyStop "{}"
 ```
 
 测试：`colcon test --packages-select motor_driver_hardware`（27 个用例：协议/总线/关节/插件）。

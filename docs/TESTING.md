@@ -2,6 +2,10 @@
 
 > 编号沿用全局编号（见 [`DESIGN.md`](DESIGN.md) 开头的索引表）。
 > **这里只放"测到了什么"** —— 设计决策在 `DESIGN.md`，教训在 `LESSONS.md`。
+>
+> ⚠️ **2026-10-11 起** `real_control.launch.py` / `mock_control.launch.py` / `safe_park.launch.py`
+> **已删除**，统一用 `arm_bringup/launch/arm_system.launch.py`（总 launch，`use_mock` 贯穿）。
+> **下文记录里出现的旧文件名是当时的事实**（不改写历史）；要照做就把命令换成总 launch 的等价写法。
 
 > ⚠️ **台架边界，读任何数字前先记住**：
 > 已测的全部是**单电机、裸电机空载**（4310 与 4340P 各一只）。
