@@ -282,6 +282,7 @@ j4 `[-0.157540, +0.938132]` · j5 `[-0.970641, +0.913381]` · j6 `[-1.359002, +4
 | 61 | **`ros2 service list` 会列出"只有客户端"的名字** | 用 `ros2 service info X` 看 **Services count**：**0 = 没有服务端**（只是某个节点的 client 端点）。2026-10-11 我据此误判"mock 链里有插件服务"、绕了一大圈 |
 | 62 | **`pkill -f <pattern>` 会匹配到自己所在 shell 的命令行**（命令文本含该 pattern 时）⇒ **自杀** | 表现是那条命令**自己被杀**、后续步骤全没跑（假插件因此根本没起来）。先 `pgrep` 确认、或把 pattern 收紧（如 `pkill -f 'python3 .*xxx'`） |
 | 63 | **状态机等异步结果必须自带超时** —— 对面服务"在但不答"时，**服务调用方的超时救不了 FSM** | 调用方最多等 `timeout+10 s` 就报错，但 FSM 会**永久停在过渡态**、之后所有操作被"忙"拒掉。`arm_manage` 已加 **3 s/步**（`kAsyncWaitTicksMax`）并如实报"没回 set_enabled（3 s）" |
+| 64 | **杀链不一定带走 `robot_state_publisher`**：残留 RSP 继续用 **latched** 的 `/robot_description` 发**上一套** URDF ⇒ 新 CM 订到旧描述、插件按**旧配置**加载（实测：默认起的链却进了 `MIT + scale 0.2`，**不报任何错**） | 开链前先看 `ros2 topic info /robot_description --verbose` ⇒ **Publisher count 必须是 1**；杀链要**连 RSP 一起**杀（`ps -eo pid,args | grep robot_state_publisher`）；起链后核对 `/arm/hardware_status` 的 `mode`/`gravity_ff` 与你给的参数一致 |
 
 ## 7. 怎么验证（没有硬件时）
 

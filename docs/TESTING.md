@@ -1182,6 +1182,31 @@ JTC 那边轨迹还挂着，**臂会自己走完**。修复前实测：`timeout_
 **结论**：M9.2（插件级真机）、M9.3（管理层 mock）、M9.4（总 launch mock）、M9.5（管理层 + 总 launch **真机**）全绿。
 ⚠️ 本次**没有**测：带载姿态下的 `safe_disarm`（要真的收臂）、重力前馈链（`gravity_ff:=true`）走管理层、急停打断正在跑的轨迹。
 
+### 十九之二、M9.5 补测：`gravity_ff` 走管理层 / 急停打断轨迹（2026-10-11）
+
+**A. `gravity_ff:=true gravity_ff_scale:=0.2`（分级上电）走管理层**
+- 起链后 `/arm/hardware_status`：**`mode: MIT`**、`gravity_ff: true`、`gravity_ff_scale: 0.2`、`guard_tripped: false`；
+  控制器自动改用 `ros2_controllers_mit.yaml`（多声索 velocity）。
+- `arm_on(false)`：`state=ARMED`、硬件 `err=[1×6]`、**使能零位移 max|Δ| = 0.00038 rad（0.022°）**（MIT 保持帧 + 20% 重力前馈）。
+- `arm_on(true)` ⇒ `ARMED_CONTROLLER`；j1 目标 +0.05 rad（4 s）⇒ goal `SUCCEEDED`，但**实测只走到目标前 0.0367 rad**
+  （去程 1.4857 / 目标 1.5224），往返残差 max **0.01297 rad**。
+  ⚠️ **这不是 bug，是 MIT 的固有静差**：`|e| ≈ 摩擦/kp = 0.62/25 ≈ 0.025 rad`（D5b 早就写明）⇒
+  **现场证据：要静态精度用 POS_VEL、要力矩才用 MIT**。守卫阈值 0.3 rad 未触发是对的。
+- `effort` 实测 `[0.95, −0.28, −0.87, −0.15, −0.017, −0.017] N·m`（重力项 + 20% 前馈在起作用）。
+- `safe_disarm` ⇒ `disarmed=true`、`max_residual=0.012950`、`attempts=0`（已在折叠位容差内 ⇒ 跳过收臂）；失能后 `err=[0×6]`。
+
+**B. 急停打断**正在跑的**轨迹（POS_VEL 链，j1 12 s / +0.10 rad）
+- 轨迹进行中（j1 = 1.5533，去程中）调 `emergency_stop` ⇒ `success=true, disarmed=true, failed=[]`，
+  消息"已立即失能…已失能全部 6 台（ERR=0）"（含 CLI 启动共 2.0 s）。
+- 实测位置：急停后 1.56699，**3 s 后逐位相同** ⇒ **真的停住了**（臂在折叠位附近，没有塌）。
+- 控制器 → `inactive`；`err=[0×6]`；`/arm/status` = `READONLY / hardware_armed=false / controller_active=false`。
+- **JTC 侧如实报**：`error_code: -1`、`error_string: "Current goal cancelled during deactivate transition."`、
+  `Goal finished with status: ABORTED` ⇒ 失能确实把挂在跑的目标**打断**了（不是悄悄走完，对比陷阱 #60）。
+
+**另外又踩到一个新陷阱（#64，已记进 AGENTS）**：杀链**没连 `robot_state_publisher` 一起杀** ⇒ 残留 RSP 用 latched
+`/robot_description` 把**上一套 URDF** 喂给新 CM（实测：默认参数起的链却进了 `MIT + scale 0.2`，**零报错**）。
+判据：`ros2 topic info /robot_description --verbose` 的 **Publisher count 必须是 1**。
+
 ---
 
 ## 附：`AGENTS §5` 精简时并入的零散实测（2026-10-11）
