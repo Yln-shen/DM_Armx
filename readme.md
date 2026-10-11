@@ -25,6 +25,7 @@
 | C++ 侧 | [motor_driver_hardware](src/motor_driver_hardware) | ✅ `dm_frames`（协议）+ `dm_serial`（非阻塞串口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位）+ `dm_gravity`（pinocchio 重力项）+ **`DmSystemInterface`（ros2_control 插件：POS_VEL / MIT + 重力前馈 / 残差守卫）**；**与 Python 三份实现逐字节/逐数值对拍**（36 用例全过） |
 | ROS2 控制 | [arm_bringup](src/arm_bringup) | ✅ [real_control.launch.py](src/arm_bringup/launch/real_control.launch.py)（真机 ros2_control）+ 两份控制器配置；`real_joint_states` 是**只读**镜像（模型核对用，绝不 enable）；**真机三步验收已过**（只读 / 保持 / 小动作，2026-10-05）；`gravity_ff:=true` 为整链 MIT + 重力前馈（默认 false） |
 | MoveIt | [arm_moveit_config](src/arm_moveit_config) | ✅ SRDF / KDL / OMPL / `move_group.launch.py`；**mock 与真机的 plan / plan+execute 都已跑通**（2026-10-05） |
+| 运动执行件 | [arm_motion](src/arm_motion) | ✅ `MotionClient`：给 JTC 发**单点轨迹**的非阻塞客户端（限位护栏 / 取消 / 残差验证）；2026-10-07 **M9.0** 从 `safe_park_node` 抽出、**行为逐条等价**（8 个 gtest + 端到端对拍全过）；`ExecuteMotion` action server 仍**待做** |
 | 应用层 | [arm_application](src/arm_application) | ✅ `safe_park_node`：把臂收到**折叠位**（走 JTC 的正常轨迹通路，不碰电机）；**真机已验**（残差 0.0015~0.031 rad；含"发目标前查限位"的护栏） |
 | 夹爪 | — | ❌ 本阶段不做；但 `arm_description` 已备好可切换的一路（`dyn_model:=arm_identified_gripper.urdf`，夹爪质量**未辨识**） |
 
@@ -147,6 +148,7 @@ DM_Armx/
    │  └─ launch/ rviz/ meshes/(73M) reference/
    ├─ arm_bringup/              ROS2 胶水层（`real_joint_states`：只读真机 → /joint_states；真机 ros2_control launch）
    ├─ arm_moveit_config/        MoveIt 配置（SRDF / KDL / OMPL / move_group.launch.py / rviz）
+   ├─ arm_motion/               **运动执行件**（`MotionClient`：给 JTC 发单点轨迹的非阻塞客户端；8 个 gtest）
    ├─ arm_application/          **应用层**（`safe_park_node`：走 JTC 把臂收进折叠位；不碰电机）
    ├─ motor_driver_hardware/    C++ 侧协议层 + ros2_control 插件（与 Python 逐字节对拍）
    └─ third_party/              厂商 SDK（Python 例程 + C++ 例程 u2can）

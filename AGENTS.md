@@ -8,6 +8,7 @@
 1. **未经用户明确批准，不许写任何代码**；不许"顺手"改无关文件、加函数、加参数、加常量、加文件。
 2. **每一处最小改动都先说明、等批准、再动手**（用户会逐条回复）。改动后要**验证并自审**（checklist 见 §9）。
 3. **禁止生成本仓库的测试文件**（策略）。验证一律用**进程内 heredoc 假 bus**，不落盘。
+   **两处例外**（用户明确批准过）：`motor_driver_hardware/test/` 与 `arm_motion/test/`（C++ / gtest）。
 4. **不许做多余的事**：不装依赖、不跑 `pixi install`、不启动服务、不删文件（删/移动前须给出解析后的**绝对路径**并二次确认）。
 5. 改文件前先用 read 工具读它（文件策略要求）；改完把关键证据（命令 + 输出）贴给用户。
 6. 注释/文档风格参照 `~/elc25e`（用户的风格）：简洁中文、不堆框线 emoji。**不要**照抄 `dm_bus.py` 那种长篇 docstring 风格。
@@ -41,6 +42,7 @@
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + **`config/mit_gains.yaml`（MIT 保持增益）** + **`config/gravity_identified.yaml`（辨识出的质量/质心）** + `scripts/apply_identified_inertia.py` + **`scripts/gen_joint_limits_header.py`（构建期生成 `joint_limits.hpp`：模型坐标关节限位，给应用层当护栏；并与 URDF 的 `<limit>` 对拍、漂了就构建失败）** + 显示 launch。构建时生成**三份**动力学 URDF：`arm.urdf`（上游名义）、**`arm_identified.urdf`（辨识版、**空载**、前馈默认用）**、`arm_identified_gripper.urdf`（带夹爪；夹爪质量**未辨识**，见陷阱 #56） | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
 | [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **`real_control.launch.py`**（真机 ros2_control，参数 `enable_on_activate` / `spawn_arm_controller` / `vlim` / **`gravity_ff`** / **`gravity_ff_scale`** / `mit_controllers`）+ **两份控制器配置** `config/ros2_controllers.yaml`（只 position）与 `ros2_controllers_mit.yaml`（position+velocity+constraints，见陷阱 #40） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
 | [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
+| [arm_motion](src/arm_motion) | — | **运动执行件**（ament_cmake，C++ 库）：`MotionClient` —— 给 JTC 发**单点轨迹**的非阻塞客户端（限位护栏 / 非阻塞 / `async_cancel_goal` / 残差验证），2026-10-07 **M9.0** 从 `safe_park_node` 抽出、**行为逐条等价** | 不拥有线程、不 sleep、**自己不打任何日志**（只产出**事件队列**，措辞与严重级由调用方决定 —— 日志措辞是业务的）、不碰协议/串口/寄存器；将来 `ExecuteMotion` action server 也落在本包（见 `docs/MOTION_ARCH.md`） |
 | [arm_application](src/arm_application) | — | **应用层**（ament_cmake，C++）：`safe_park_node`（+ `launch/safe_park.launch.py`）—— 收臂到**折叠位**（模型坐标；参数 `vlim`/`tol_rad`/`timeout_sec`/`state_wait_sec`，`park_pose` 走 `ros2 run` 覆盖）。走 ros2_control 的**正常轨迹通路**：本节点 → `/arm_controller/follow_joint_trajectory`(JTC) → position 接口 → 插件 | **不碰协议/串口/电机**；收完臂臂**仍使能**（硬件停在 ACTIVE、插件继续发保持帧）——真正失能靠 `ros2_control_node` 正常退出时的 `on_deactivate()`。**✅ 真机已验（2026-10-07：空程 0.0015 rad；大行程 0.68 rad 双向残差 0.025~0.031 rad；POS_VEL 与 MIT+重力前馈两条都跑过，守卫 0 次。见陷阱 #57/#58 与 `TESTING.md` §18.9）** |
 | [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/只走 POS_VEL 的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、锁定保持目标、ERR 检查）** | `dm_hardware` **不依赖 rclcpp**（只有插件那层依赖）；`dm_joint` **只做 mode 2**；默认 `enable_on_activate=false`（**只读**，不发控制帧）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
 
@@ -117,11 +119,10 @@ position_min/position_max/**sign/zero_shift**/**torque_max**/**kp_hold**/**kd_ho
 **每个函数只管一件事**（重构前是 163 行的一个函数；带**残差守卫**，见陷阱 #42））。
 ⚠️ 收臂**不在驱动层**：驱动层只做电机 I/O；`safe_park` 是 `arm_application/safe_park_node`（见 §2）。
 
-**未实现（别以为有）**：`arm_msgs` 之上的节点 · **运动接口层 `arm_motion`**（**已设计未实现**：
-   分层/接口契约/异常矩阵见 [docs/MOTION_ARCH.md](docs/MOTION_ARCH.md)，决策 D-M1…D-M8）· 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
+**未实现（别以为有）**：`arm_msgs` 之上的节点 · **运动接口层 `arm_motion` 的 action server / IK / 规划 / 命名目标**（⚠️ 其中**执行件 `MotionClient` 已落地**（M9.0，8 个 gtest 全过 + 端到端行为等价已验证）；分层/接口契约/异常矩阵见 [docs/MOTION_ARCH.md](docs/MOTION_ARCH.md)，决策 D-M1…D-M8）· **`arm_manage` 管理层**（设计见 [docs/MANAGE_ARCH.md](docs/MANAGE_ARCH.md)，未实现）· 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
 **C++ 侧的力位混控路径**（POS_VEL 与 MIT 两条都做了，够重力前馈用）·
 **摩擦前馈 / 宿主侧积分 / 逐关节 kp 标定**（见 §5 "重力补偿"那段末尾的"还差什么"）·
-**`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；C++ 包的 `test/` 是唯一例外，见 §7）。
+**`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；`test/` 只存在于 C++ 包：`motor_driver_hardware/test/` 与 `arm_motion/test/`，见 §7）。
 真机上的 **ros2_control 三步验收**、**MoveIt 规划 + 执行**、**MIT + 重力前馈整链**都**已通过**（2026-10-05）。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
@@ -378,6 +379,21 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   `./build/motor_driver_hardware/test_dm_gravity` 会报 `libpinocchio_parsers.so.4.1.0: cannot open shared
   object file`（pixi 激活只设 `LIBRARY_PATH`、**不设 `LD_LIBRARY_PATH`**，同陷阱 #49）。最省事是
   `export LD_LIBRARY_PATH=$PWD/.pixi/envs/default/lib:$LD_LIBRARY_PATH` 再跑。
+- **`arm_motion` 的 gtest**（`src/arm_motion/test/test_motion_client.cpp`，**8** 个用例）：进程内**假 action server**
+  + 假 `/joint_states`（QoS 必须 RELIABLE + TRANSIENT_LOCAL），覆盖：越界/名字错 ⇒ 当场拒绝（一帧不发）、
+  "全 0 目标"也越界（j1 限位是 `[1.392202, 1.626143]`）、正常到达残差≈0、JTC 报成功但没动 ⇒ 残差超差、
+  **执行超时 ⇒ 真的取消并等到确认**、没有 action server / 没有 `/joint_states` ⇒ 超时报错。
+  ⚠️ 跑它要**两个**环境变量：`LD_LIBRARY_PATH`（同上）**和可写的 `ROS_LOG_DIR`**
+  （沙箱/只读 `$HOME` 下 rclcpp 建日志文件会抛 `spdlog_ex ... Read-only file system`）：
+  ```bash
+  export LD_LIBRARY_PATH=$PWD/.pixi/envs/default/lib:$LD_LIBRARY_PATH
+  export ROS_LOG_DIR=$PWD/build/ros_log && mkdir -p "$ROS_LOG_DIR"
+  pixi run colcon test --packages-select arm_motion
+  ```
+- **`safe_park_node` 的端到端行为等价**（M9.0 抽 `MotionClient` 时用的手法，不落盘）：进程内 Python 起
+  **假 JTC action server + 假 `/joint_states`**，用 `subprocess` 跑真实可执行文件，断言**轨迹逐字段**
+  （关节名 / 1 个点 / 位置=折叠位 / 末端速度 0 / `duration == max(1, travel/vlim)`）、业务日志逐条、退出码 0。
+  这比"只看编译过"强得多，且不新增文件。
 
 **真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
 

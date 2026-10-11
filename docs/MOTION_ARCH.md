@@ -454,19 +454,21 @@ main(): rclcpp::spin(node)
 
 **不许**在回调里 `sleep` / `spin_until_future_complete`（陷阱 #57）。
 
-### 9.2 `safe_park_node` 的迁移路径
+### 9.2 `safe_park_node` 的迁移路径（2026-10-07 已走完第 1 步）
 
-`safe_park` 现在**绕过 MoveIt** 直发 JTC 单点轨迹，并且**已真机验收通过**
-（空程残差 0.0015 rad、大行程 0.025~0.031 rad）。迁移要**行为不变**，分三步：
+`safe_park` **绕过 MoveIt** 直发 JTC 单点轨迹，**已真机验收通过**
+（空程残差 0.0015 rad、大行程 0.025~0.031 rad）。
 
-| 步 | 动作 | 验收 |
+| 步 | 动作 | 状态 |
 |---|---|---|
-| 1 | 加一个参数 `motion_backend:=direct\|arm_motion`，保持默认 `direct`（现状） | 真机回归：与迁移前逐项一致（同一 `park_pose`、同一 `vlim`、残差同量级） |
-| 2 | 切 `arm_motion`，`park_pose` 改从 `named_targets.yaml` 的 `park` 读 | mock 先过；再真机跑，与第 1 步的日志逐项对拍 |
-| 3 | 删掉 `direct` 分支与硬编码 `kDefaultParkPose` | `named_targets.yaml` 成为折叠位唯一真源（§5.3） |
+| 1 | **把状态机抽成 `arm_motion::MotionClient`（库）**：非阻塞六阶段 + 限位护栏 + `async_cancel_goal` + 残差验证 + QoS；`safe_park_node` 退化成"参数 + 业务日志"，**行为逐条等价** | ✅ **已落地（M9.0）**：8 个 gtest + 进程内假 JTC 的端到端对拍（轨迹逐字段、日志逐条、退出码 0）全过 |
+| 2 | ~~加参数 `motion_backend:=direct\|arm_motion` 做双后端~~ | ❌ **不需要了**：抽出来的是**同一份实现**（不是两套），`MotionClient` 就是 `safe_park` 原来那段逻辑；双后端只会制造两份真源 |
+| 3 | `park_pose` 改从命名位姿表读 | ⏸ **推迟**（MANAGE_ARCH 的 M-10）：折叠位**只有"安全失能前收臂"这一个消费者**，现在建通用表是过度设计。等 `arm_motion` 的 `TARGET_NAMED` 落地时一次搬（届时 `arm_manage` 必须读**同一份**） |
+| 4 | （新增）"收臂后失能"由 `arm_manage` 的 `SafeDisarm` 负责 | ⏸ 见 [MANAGE_ARCH.md](MANAGE_ARCH.md)（管理层**未实现**） |
 
-⚠️ 第 3 步是**删代码**，要单独确认。⚠️ 迁移后 `safe_park` 的"臂仍使能"语义**不能变**
-（收臂不负责失能，见 AGENTS §2 陷阱 #55 的澄清）。
+⚠️ 迁移后 `safe_park` 的"臂仍使能"语义**不能变**（收臂不负责失能，见 AGENTS §2 陷阱 #55 的澄清）。
+⚠️ 抽出来时唯一的结构性变化：**`MotionClient` 自己不打日志**，只产出**事件队列**（含严重级），
+措辞与 `safe_park：` 前缀由调用方决定 —— 因为日志用词是**业务**的（"折叠位"这类词只属于调用方）。
 
 ### 9.3 未来的 `pick_place_node`（本轮只定位，不设计）
 
