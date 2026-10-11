@@ -42,6 +42,9 @@ find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+# 运行期使能接口（/arm/set_enabled、/arm/emergency_stop）与状态话题（/arm/hardware_status）
+# 用本项目的接口包。**只有插件这一层依赖它**（dm_hardware 核仍然不碰 ROS）。
+find_package(arm_msgs REQUIRED)
 
 # ⚠️ robostack 环境里 rclcpp 的传递依赖（-lcap / -llttng-ust / -llttng-ust-common）在
 #    $CONDA_PREFIX/lib 下，而 pixi 的激活**没有设置 LIBRARY_PATH** ⇒ 链接可执行文件（不是 .so）
@@ -61,7 +64,8 @@ target_link_libraries(dm_system_interface PUBLIC
   hardware_interface::hardware_interface
   pluginlib::pluginlib
   rclcpp::rclcpp
-  rclcpp_lifecycle::rclcpp_lifecycle)
+  rclcpp_lifecycle::rclcpp_lifecycle
+  arm_msgs::arm_msgs)
 
 # 插件描述文件装进 share/<pkg> 并注册到 hardware_interface 的 pluginlib 导出组
 pluginlib_export_plugin_description_file(hardware_interface motor_driver_hardware.xml)

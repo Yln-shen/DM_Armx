@@ -5,6 +5,9 @@
 // 这样"命令换算 → 发帧 → 状态回读"整条链都能在测试里跑通。
 #include <gtest/gtest.h>
 
+#include <arm_msgs/msg/hardware_status.hpp>
+#include <arm_msgs/srv/hardware_emergency_stop.hpp>
+#include <arm_msgs/srv/set_enabled.hpp>
 #include <hardware_interface/component_parser.hpp>
 #include <hardware_interface/types/hardware_component_interface_params.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
@@ -78,6 +81,9 @@ public:
     const std::size_t n = rx.size();
     out.insert(out.end(), rx.begin(), rx.end());
     rx.clear();
+    // 与真串口一致地统计 rx（状态话题要报它；**它停滞 = 电机没在回包**，是最有用的诊断量）
+    stats_.rx_calls += 1;
+    stats_.rx_bytes += n;
     return n;
   }
   std::size_t bytes_available() const override {return rx.size();}
@@ -848,6 +854,291 @@ TEST(DmSystemInterface, GravityFfAddsCoulombFriction)
   set_vel_command(iface, "joint2", 0.0);
   const double tau_zero = tau_j2(0.04);
   EXPECT_NEAR(tau_zero, tau_hold, 3 * lsb) << "速度 0 时不该有摩擦项";
+}
+
+// ══════════════════ M9.2：运行期使能（服务回调 + write() 里的状态机）══════════════════
+// 单测里**没有节点**（`get_node()` 为空 ⇒ 服务/话题建不起来），所以直接调服务回调用的那两个
+// 入口（`request_enable` / `wait_enable_done`）与状态机（由 `write()` 逐周期推进）。
+// 最后一个用例注入一个真节点，把"服务/话题真的注册上了、状态消息字段真的填了"也测掉。
+
+namespace
+{
+// 数一下 tx 流里的"广播寄存器写"帧（0x0A / PID）——用来断言"写寄存器期间不发控制帧"
+int count_reg_writes(const std::vector<uint8_t> & tx)
+{
+  int n = 0;
+  for (std::size_t i = 0; i + md::kTxFrameLen <= tx.size(); i += md::kTxFrameLen) {
+    const uint16_t can_id = static_cast<uint16_t>(tx[i + 13] | (tx[i + 14] << 8));
+    if (can_id == md::kCanIdBroadcast && tx[i + 23] == md::kRegCmdWrite) {++n;}
+  }
+  return n;
+}
+
+// 断言：这一批 tx 里**只**有广播帧（0x7FF = 刷新/寄存器）——失能后的 read() 就该这样（M-5）
+void expect_only_broadcast(const std::vector<uint8_t> & tx)
+{
+  for (std::size_t i = 0; i + md::kTxFrameLen <= tx.size(); i += md::kTxFrameLen) {
+    const uint16_t can_id = static_cast<uint16_t>(tx[i + 13] | (tx[i + 14] << 8));
+    EXPECT_EQ(can_id, md::kCanIdBroadcast) << "失能后只允许 0x7FF（刷新/寄存器）帧";
+  }
+}
+
+// 测试用：注入一个真节点（生产环境由 CM 注入）⇒ 才测得到服务与状态话题
+class NodeInjectedIface : public md::DmSystemInterface
+{
+public:
+  using md::DmSystemInterface::DmSystemInterface;
+  void set_test_node(rclcpp::Node::SharedPtr n) {node_ = std::move(n);}
+  rclcpp::Node::SharedPtr get_node() const override {return node_;}
+
+private:
+  rclcpp::Node::SharedPtr node_;
+};
+}  // namespace
+
+// ② 运行期使能：**先逐台写 0x0A（每周期一台、期间不发控制帧）**，再全部使能 + 锁保持目标
+TEST(DmSystemInterface, RuntimeEnableWritesModeThenEnablesAndLatches)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  const auto info = make_info(false);              // 只读启动（旧验收方式不变）
+  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+  ASSERT_FALSE(iface.armed());
+  // ⚠️ 激活时**只读也会逐台写 0x0A**（模式是 RAM，不写的话后面使能就会用错模式的帧去使能；
+  //    它不是控制帧）⇒ 基线是"每台一次"，不是 0。这里只关心**状态机**又加了多少。
+  const int base = count_reg_writes(io.tx);
+  EXPECT_EQ(base, 2) << "激活时每台写一次 0x0A（只读也写，这是**原有行为**）";
+  EXPECT_TRUE(io.control_frames.empty()) << "只读激活不许有控制帧";
+  EXPECT_TRUE(io.enable_frames.empty()) << "只读激活不许使能";
+  const std::size_t tx0 = io.tx.size();
+
+  std::string why;
+  ASSERT_TRUE(iface.request_enable(true, &why)) << why;
+  EXPECT_EQ(io.tx.size(), tx0) << "受理请求本身不该发帧";
+
+  // 第 1 周期：只起个头（Idle → WriteMode），不发帧
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_EQ(io.tx.size(), tx0) << "状态机起步那周期不该发帧";
+  EXPECT_FALSE(iface.armed()) << "还没写寄存器就不该算使能了";
+
+  // 第 2、3 周期：各写一台（2 关节）——**这期间一个控制帧都不许有**
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_EQ(count_reg_writes(io.tx), base + 1);
+  EXPECT_TRUE(io.control_frames.empty());
+  EXPECT_TRUE(io.mit_frames.empty()) << "写寄存器期间不许发任何控制帧";
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_EQ(count_reg_writes(io.tx), base + 2) << "6 关节真机上是 6 台 × 1 次";
+  EXPECT_TRUE(io.enable_frames.empty()) << "模式还没写完就先使能 = 用错模式的帧去使能";
+  EXPECT_FALSE(iface.armed());
+
+  // 第 4 周期：全部使能 + 锁保持目标（POS_VEL 下 Joint::enable() 自己补保持帧）
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_TRUE(iface.armed());
+  EXPECT_EQ(io.enable_frames.size(), 2u) << "两台都该收到使能帧";
+  EXPECT_EQ(io.control_frames.size(), 2u) << "使能时各自补一帧保持";
+  EXPECT_TRUE(iface.wait_enable_done(0.1, &why)) << why;
+
+  // 之后每周期都是正常的 POS_VEL 保持帧（keep-alive，撞不上 500ms 看门狗）
+  const std::size_t before = io.control_frames.size();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_EQ(io.control_frames.size(), before + 2);
+
+  // 顺序断言：最后一个寄存器写必须**早于**第一个使能帧（用字节偏移，别只看计数）
+  const auto first_enable_at = [&io]() -> std::size_t {
+      for (std::size_t i = 0; i + md::kTxFrameLen <= io.tx.size(); i += md::kTxFrameLen) {
+        const uint16_t id = static_cast<uint16_t>(io.tx[i + 13] | (io.tx[i + 14] << 8));
+        if (id < 1 || id > 6) {continue;}
+        bool all_ff = true;
+        for (std::size_t k = 21; k <= 27; ++k) {if (io.tx[i + k] != 0xFF) {all_ff = false;}}
+        if (all_ff) {return i;}
+      }
+      return std::string::npos;
+    }();
+  std::size_t last_reg_at = std::string::npos;
+  for (std::size_t i = 0; i + md::kTxFrameLen <= io.tx.size(); i += md::kTxFrameLen) {
+    const uint16_t id = static_cast<uint16_t>(io.tx[i + 13] | (io.tx[i + 14] << 8));
+    if (id == md::kCanIdBroadcast && io.tx[i + 23] == md::kRegCmdWrite) {last_reg_at = i;}
+  }
+  ASSERT_NE(first_enable_at, std::string::npos);
+  ASSERT_NE(last_reg_at, std::string::npos);
+  EXPECT_LT(last_reg_at, first_enable_at) << "必须先写完模式寄存器再使能";
+}
+
+// ③ 前提检查：有电机不是失能态（ERR≠0）⇒ **拒绝使能**（不许"使能一半的臂"）
+TEST(DmSystemInterface, RuntimeEnableRefusedWhenAnyMotorNotDisarmed)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(false)), CallbackReturn::SUCCESS);
+
+  io.err[6] = 0x1;                       // 假装 joint6 已经在使能态
+  io.push_feedback(6);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);    // 读进缓存
+  io.tx.clear();
+
+  std::string why;
+  EXPECT_FALSE(iface.request_enable(true, &why));
+  EXPECT_NE(why.find("拒绝使能"), std::string::npos) << why;
+  EXPECT_NE(why.find("joint6"), std::string::npos) << why;
+  EXPECT_FALSE(iface.armed());
+  EXPECT_TRUE(io.tx.empty()) << "拒绝路径一个字节都不该发";
+
+  // 反例：ERR=13（通讯丢失）同样拒，且提示"只能断电清"
+  io.err[6] = 0xD;
+  io.push_feedback(6);
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  EXPECT_FALSE(iface.request_enable(true, &why));
+  EXPECT_NE(why.find("ERR=13"), std::string::npos) << why;
+}
+
+// ④ 运行期失能：只发失能帧（不碰寄存器、不发控制帧），之后 read() 回到"只发刷新帧"
+TEST(DmSystemInterface, RuntimeDisableSendsOnlyDisableFramesThenGoesReadOnly)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true)), CallbackReturn::SUCCESS);   // 使能启动
+  ASSERT_TRUE(iface.armed());
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  io.tx.clear();
+  io.control_frames.clear();
+  io.mit_frames.clear();
+  io.enable_frames.clear();
+
+  std::string why;
+  ASSERT_TRUE(iface.request_enable(false, &why)) << why;
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);      // 失能一个周期做完
+  EXPECT_FALSE(iface.armed());
+  EXPECT_EQ(io.enable_frames.size(), 2u) << "两台都该收到失能帧";
+  EXPECT_EQ(io.enable_frames[0][28], md::kCmdDisable);
+  EXPECT_EQ(io.enable_frames[1][28], md::kCmdDisable);
+  EXPECT_TRUE(io.control_frames.empty()) << "失能路径不许发控制帧";
+  EXPECT_TRUE(io.mit_frames.empty());
+  EXPECT_EQ(count_reg_writes(io.tx), 0) << "失能**不碰寄存器**（0x0A 掉了就掉了）";
+  EXPECT_TRUE(iface.wait_enable_done(0.1, &why)) << why;
+
+  // 失能后：write() 一个控制帧都不发；read() 主动发 0x7FF 刷新帧（M-5 想要的行为）
+  io.tx.clear();
+  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
+  EXPECT_TRUE(io.tx.empty()) << "失能后 write() 该什么都不发";
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+  EXPECT_FALSE(io.tx.empty()) << "失能后 read() 该主动刷新状态";
+  expect_only_broadcast(io.tx);
+}
+
+// ⑤ 幂等：已经是想要的状态 ⇒ 成功且**一帧不发**（别把"重复调用"变成动作）
+TEST(DmSystemInterface, RuntimeEnableIsIdempotent)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true)), CallbackReturn::SUCCESS);   // 已使能
+  ASSERT_TRUE(iface.armed());
+  io.tx.clear();
+  io.control_frames.clear();
+  io.mit_frames.clear();
+  io.enable_frames.clear();
+
+  std::string why;
+  EXPECT_TRUE(iface.request_enable(true, &why)) << why;
+  EXPECT_TRUE(iface.armed());
+  EXPECT_TRUE(io.tx.empty()) << "幂等请求不该发任何帧";
+  EXPECT_TRUE(io.enable_frames.empty());
+  EXPECT_TRUE(iface.wait_enable_done(0.1, &why)) << why;   // 结果已置好，不该等
+
+  // 只读时请求"失能"也是幂等成功
+  FakeMotorBusIo io2;
+  md::DmSystemInterface iface2(&io2);
+  ASSERT_EQ(init_and_activate(iface2, make_info(false)), CallbackReturn::SUCCESS);
+  io2.tx.clear();
+  EXPECT_TRUE(iface2.request_enable(false, &why)) << why;
+  EXPECT_TRUE(io2.tx.empty());
+}
+
+// ⑥ 急停（本来就是失能态）：幂等成功，逐关节列表如实填（以缓存 ERR 为准）
+TEST(DmSystemInterface, EmergencyStopOnDisarmedArmReportsAllDisabled)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(false)), CallbackReturn::SUCCESS);
+  io.tx.clear();
+
+  auto res = std::make_shared<arm_msgs::srv::HardwareEmergencyStop::Response>();
+  iface.handle_emergency_stop(res);
+  EXPECT_TRUE(res->success) << res->message;
+  EXPECT_EQ(res->disabled.size(), 2u);
+  EXPECT_TRUE(res->failed.empty());
+  EXPECT_TRUE(io.tx.empty()) << "本来就失能 ⇒ 不该发帧";
+}
+
+// ⑦ 急停（已使能但 update 停了）：**如实报失败**，不许假装失能成功
+TEST(DmSystemInterface, EmergencyStopReportsFailureWhenUpdateStalled)
+{
+  FakeMotorBusIo io;
+  md::DmSystemInterface iface(&io);
+  ASSERT_EQ(init_and_activate(iface, make_info(true)), CallbackReturn::SUCCESS);
+  ASSERT_TRUE(iface.armed());
+  ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);       // 缓存里是 ERR=1（使能）
+
+  // 故意**不调用 write()**（模拟 CM 的 update 停了）⇒ 状态机推不动 ⇒ 2 s 后超时
+  auto res = std::make_shared<arm_msgs::srv::HardwareEmergencyStop::Response>();
+  iface.handle_emergency_stop(res);
+  EXPECT_FALSE(res->success) << "推不动状态机还报成功 = 骗调用方";
+  EXPECT_EQ(res->failed.size(), 2u) << "该如实报「两台都还没失能」";
+  EXPECT_NE(res->message.find("状态机"), std::string::npos) << res->message;
+  EXPECT_TRUE(iface.armed()) << "没真失能就不许把状态改成失能";
+}
+
+// ⑧ 注入真节点：服务/话题真的注册上了；状态消息的字段真的填了（含串口统计）
+TEST(DmSystemInterface, RosInterfacesRegisteredAndStatusMessageFilled)
+{
+  auto node = std::make_shared<rclcpp::Node>("dm_iface_test_node");
+  FakeMotorBusIo io;
+  NodeInjectedIface iface(&io);
+  iface.set_test_node(node);
+  ASSERT_EQ(init_and_activate(iface, make_info(false)), CallbackReturn::SUCCESS);
+
+  // 图发现要走一下 spin（不是立刻可见的）
+  for (int i = 0; i < 50 && node->count_services("/arm/set_enabled") == 0; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_EQ(node->count_services("/arm/set_enabled"), 1u);
+  EXPECT_EQ(node->count_services("/arm/emergency_stop"), 1u);
+  EXPECT_GE(node->count_publishers("/arm/hardware_status"), 1u);
+
+  // 订阅（同 QoS）后推 10 圈 read() ⇒ 插件发一份状态
+  arm_msgs::msg::HardwareStatus got;
+  bool received = false;
+  auto sub = node->create_subscription<arm_msgs::msg::HardwareStatus>(
+    "/arm/hardware_status", rclcpp::QoS(1).transient_local(),
+    [&got, &received](arm_msgs::msg::HardwareStatus::ConstSharedPtr m) {
+      got = *m;
+      received = true;
+    });
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_EQ(iface.read(kT0, kDt), return_type::OK);
+    rclcpp::spin_some(node);
+  }
+  for (int i = 0; i < 50 && !received; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_TRUE(received) << "10 圈 read() 之后该收到一份 /arm/hardware_status";
+
+  EXPECT_EQ(got.joint_names.size(), 2u);
+  ASSERT_EQ(got.err.size(), 2u);
+  ASSERT_EQ(got.temp_mos.size(), 2u);
+  ASSERT_EQ(got.armed.size(), 2u);
+  EXPECT_EQ(got.mode, "POS_VEL") << "声明值（gravity_ff=false）";
+  EXPECT_FALSE(got.gravity_ff);
+  EXPECT_FALSE(got.guard_tripped);
+  for (std::size_t i = 0; i < got.err.size(); ++i) {
+    EXPECT_EQ(got.err[i], 0) << "失能态 ⇒ ERR=0";
+    EXPECT_FALSE(got.armed[i]);
+    EXPECT_GT(got.temp_mos[i], 0.0) << "反馈帧里的 D[6] 就是摄氏度";
+  }
+  EXPECT_GT(got.tx_calls, 0u) << "串口统计该有值（它停滞就说明串口/电机没在回包）";
+  EXPECT_GT(got.rx_bytes, 0u);
+  EXPECT_EQ(sub->get_publisher_count(), 1u);
 }
 
 int main(int argc, char ** argv)

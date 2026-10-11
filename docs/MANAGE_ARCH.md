@@ -1,7 +1,7 @@
 # ros2_control 管理层架构（arm_manage）
 
 > 状态：**架构设计 + 实现计划**。进度：**M9.0**（`arm_motion::MotionClient` 执行件，已落地并真机验证）、
-> **M9.1**（`arm_msgs` 的 5 srv + 1 msg，已落地）**已完成**；**M9.2 起未实现**（插件运行期使能、`arm_manage` 节点、总 launch）。
+> **M9.1**（`arm_msgs` 的 5 srv + 1 msg）、**M9.2**（插件运行期使能 + 状态话题，**已真机验过**）**已完成**；**M9.3 起未实现**（`arm_manage` 节点、总 launch）。
 > 与其它文档的分工：**状态与不变量**看 [AGENTS.md](../AGENTS.md)，**实测值**看 [TESTING.md](TESTING.md)，
 > **踩坑**看 [LESSONS.md](LESSONS.md)，**运动接口层**（`arm_motion`，未来）看 [MOTION_ARCH.md](MOTION_ARCH.md)，
 > **电机驱动层为什么**看 [DESIGN.md](DESIGN.md)。本文只讲**管理层**。
@@ -64,7 +64,7 @@
 |---|---|---|
 | **M-1** | 插件新增**运行期使能/失能**通道（`get_node()` 起服务与发布者），因为 `enable_on_activate` 是构建期参数 | §1.3 / §五 |
 | **M-2** | 管理层 = **一个节点** + 两个内部模块 `ControllerGate` / `HardwareGate`（顺序必须在一个状态机里，不能拆进程） | §3.1 |
-| **M-3** | **控制器必须先 inactive 才能碰硬件**：寄存器 I/O 会让 `update()` 掉帧约 0.9 s | §3.2 |
+| **M-3** | **控制器必须先 inactive 才能碰硬件**：寄存器 I/O 会让 `update()` 掉几帧（**实测约 70 ms**，2026-10-11） | §3.2 |
 | **M-4** | 使能序列在 `write()` 里按**状态机逐周期推进**（每周期最多一次寄存器 I/O），期间**不发任何控制帧** | §5.2 |
 | **M-5** | 失能之后**只发 `0x7FF` 刷新帧**（回到"只读"语义），不给已失能的电机发控制帧 | §5.3 |
 | **M-6** | 对外只有 **3 个服务**（`arm_on` / `safe_disarm` / `emergency_stop`），**不做状态查询服务**；插件那 2 个是**内部接口** | §4.1 |
@@ -100,14 +100,14 @@
 ```
   ① ControllerGate.deactivate()          控制器先停：没人再往 JTC 发目标
         ↓
-  ② HardwareGate.enable()                插件状态机：写 0x0A（6×~150ms）→ 使能帧 → 真实 MIT 保持帧
-        ↓                                ⚠️ 这段约 0.9 s 里 CM 的 update() 会掉帧
+  ② HardwareGate.enable()                插件状态机：写 0x0A（逐台，**实测整段约 70 ms**）→ 使能帧 → 真实 MIT 保持帧
+        ↓                                ⚠️ 这段里 CM 的 update() 会掉几帧（实测 ~70 ms）
   ③ 校验 /joint_states 有 6 关节、ERR ∈ {0,1}
         ↓
   ④ ControllerGate.activate()            现在才允许发轨迹
 ```
 
-**为什么不能颠倒**：②的寄存器 I/O 会让 `update()` 空档约 0.9 s；此时若 JTC 还 active，
+**为什么不能颠倒**：②的寄存器 I/O 会让 `update()` 空档约 70 ms；此时若 JTC 还 active，
 它会看到"更新中断"，行为取决于它的容差判据（[陷阱 #40](AGENTS.md)：JTC 的 `goal_time=0` 时
 超时分支走不到 ⇒ 会无限挂住而不是干脆 ABORT）。
 
@@ -276,7 +276,8 @@ read() 里三处判据也要从 enable_on_activate_ 改成 armed_：
 
 请求使能（enable_req_=1）：
   前置：**所有关节都处于失能态**（err==0），否则由服务回调直接拒绝
-  ① WriteMode  ：逐台写 0x0A（1 台/周期，每台约 150 ms；6 台约 0.9 s）
+  ① WriteMode  ：逐台写 0x0A（1 台/周期；**实测整段 ~70 ms**，即每台 ~12 ms ——
+                 早先文档写的『每台 150 ms』是 Python 寄存器工具**自己轮询节拍**的开销，不是这条链的往返延迟）
   ② SendEnable ：逐台发使能帧
   ③ SendHold   ：逐台补**真实 MIT 保持帧**，并把 hold_pos 锁在那一刻
                  ⚠️ 陷阱 #41：MIT 的 enable 是零增益帧（出力恒 0），这一段窗口臂真的在掉
@@ -330,7 +331,7 @@ status_pub_      = node->create_publisher<arm_msgs::msg::HardwareStatus>("/arm/h
 ```
 ① 幂等：若已在目标状态 ⇒ 直接成功返回（state 回填当前值）
 ② 若 with_controller：ControllerGate.deactivate("arm_controller")（若它 active）
-③ HardwareGate.enable()  → 调 /arm/set_enabled{enable:true}，等状态机走完（约 0.9 s + 120 ms）
+③ HardwareGate.enable()  → 调 /arm/set_enabled{enable:true}，等状态机走完（**实测 ~70 ms**）
 ④ 校验：/joint_states 有 6 个关节、ERR ∈ {0,1}
 ⑤ 若 with_controller：ControllerGate.activate("arm_controller")
 ⑥ state = ARMED / ARMED_CONTROLLER；发一次 /arm/status
@@ -421,7 +422,7 @@ status_pub_      = node->create_publisher<arm_msgs::msg::HardwareStatus>("/arm/h
 |---|---|---|
 | **M9.0** | 抽 `MotionClient` 到 `arm_motion`；`safe_park_node` 改用它（行为不变） | ① 假 action server 单测：正常到达 / 超时 / 取消确认 / 残差超差；② 与旧 `safe_park` 同参数下**发出的轨迹逐字段一致**；③ 真机回归残差与迁移前同量级 |
 | **M9.1** | `arm_msgs` 加 5 srv + 1 msg；扩展 `ArmStatus` | ✅ **已落地（2026-10-11）**：10 个接口 `ros2 interface show` 全对、`colcon build` 通过；**无任何包依赖 `arm_msgs`** ⇒ 替换 `ArmStatus` 的老字段是安全的 |
-| **M9.2** | 插件：`armed_` + 使能 FSM + 状态发布 + 2 服务 | ① **只读模式仍一个控制帧都不发**（回归）；② 调 `SetEnabled(true)` ⇒ 断言帧序列（6×0x0A → 6 使能 → 6 真实 MIT）；③ 全臂使能时调用被拒；④ `EmergencyStop` 只发失能帧；⑤ 现有 14+ 单测全过 |
+| **M9.2** | 插件：`armed_` + 使能 FSM + 状态发布 + 2 服务 | ✅ **已落地（2026-10-11）**：21 个插件单测全过（14 原有 + 7 新）；真机上**只读启动**下 `/arm/set_enabled`/`/arm/emergency_stop` 注册成功、`/arm/hardware_status` **10.0 Hz** 内容正确；`SetEnabled(true)` ⇒ `success=True`、`err` 全 1、**`/joint_states` 位移为零**（实测算术序列 **70 ms**）；`SetEnabled(false)` ⇒ 全 ERR=0、幂等复测返回「已经是失能态（幂等）」 |
 | **M9.3** | `arm_manage` 节点（两个 Gate + 3 服务 + 聚合状态） | mock 链上跑通 `arm_on` / `safe_disarm` / `emergency_stop`，断言**调用顺序**（控制器先 inactive）与 `state_machine` 迁移 |
 | **M9.4** | 总 launch 取代三份 | 一条命令起全栈；`use_mock` 贯穿；mock/真机互斥；只起一个 RViz |
 | **M9.5** | 真机分级验收 | 只读 → `arm_on(with_controller=false)` → **零位移保持** → `arm_on(with_controller=true)` → 小动作 → `safe_disarm`（残差对拍）→ `emergency_stop`（确认塌且无异常）；每步记 ERR/温度 |

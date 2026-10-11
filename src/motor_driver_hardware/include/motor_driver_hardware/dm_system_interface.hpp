@@ -27,8 +27,14 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
+#include <arm_msgs/msg/hardware_status.hpp>
+#include <arm_msgs/srv/hardware_emergency_stop.hpp>
+#include <arm_msgs/srv/set_enabled.hpp>
+
 #include <array>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -63,6 +69,25 @@ public:
     const rclcpp_lifecycle::State & previous_state) override;
   hardware_interface::CallbackReturn on_error(
     const rclcpp_lifecycle::State & previous_state) override;
+
+  // ── 运行期使能（服务回调与单测**共用**这两个入口）──────────────────────────
+  // 公开的理由：这是服务回调的实现体，而且**单测没有节点**（服务建不起来）⇒ 直接调它们
+  // 就能把"前提检查 → 状态机 → 结果"整条路测出来（与本文件"注入假串口"的先例一致）。
+  // 前提检查 + 置请求：**不阻塞、不发帧**（真正的活由 write() 的状态机干）；why 里写拒绝原因。
+  bool request_enable(bool enable, std::string * why);
+  // 轮询等状态机完成（服务回调用）。超时返回 false（说明 CM 的 update 没在跑）。
+  bool wait_enable_done(double timeout_s, std::string * why);
+  bool armed() const {return armed_;}
+  // write() 里逐周期推进的状态机（失能请求优先、可打断使能序列）。
+  void advance_enable_fsm();
+  // read() 里每 kStatusEvery 圈调一次（10 Hz）：**只有插件能发** —— ros2_control 的状态接口
+  // 只有控制器读得到，外部节点拿不到 ERR/温度/守卫（见 MANAGE_ARCH M-5）。
+  void publish_status();
+  // 服务处理（在 on_configure 里注册）
+  void handle_set_enabled(
+    const std::shared_ptr<arm_msgs::srv::SetEnabled::Request> req,
+    std::shared_ptr<arm_msgs::srv::SetEnabled::Response> res);
+  void handle_emergency_stop(std::shared_ptr<arm_msgs::srv::HardwareEmergencyStop::Response> res);
 
   // ── 接口导出 ──
   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
@@ -130,6 +155,39 @@ private:
     rclcpp::Time vel_over_since{0, 0, RCL_ROS_TIME};   // 速度首次越限的时刻（防抖从这里算）
   };
 
+  // ── 运行期使能（M9.2，设计见 docs/MANAGE_ARCH.md §5）────────────────────────
+  // **为什么需要**：`enable_on_activate` 是硬件组件的 <param>（来自 robot_description，构建/launch 期
+  //   定死），CM 的 `set_hardware_component_state` **改不了已加载的参数** ⇒ 启动为只读之后想使能，
+  //   只能走插件自己提供的服务（决策 M-1）。
+  // **怎么做**：服务回调只做"前提检查 + 置请求"；真正的寄存器 I/O 与使能帧由 `write()` 里的状态机
+  //   **逐周期**推进（一个周期最多一次 `0x0A` 写 ≈150 ms，期间**不发控制帧**）；回调随后**阻塞等结果**
+  //   （约 1 s）。使能序列与 `on_activate` 共用同一份积木（`write_mode_one` / `enable_all_and_latch`）。
+  // ⚠️ 回调能安全阻塞的前提：CM 的 `read/update/write` **不跑在 executor 上**
+  //   （`controller_manager.hpp:212` 的注释 + `ros2_control_node` 的 "Spawning RT thread"）
+  //   ⇒ 阻塞的回调**不会**卡住状态机（否则就是陷阱 #57 那种死锁）。代价：这 ~1 s 内 CM 的其它服务排队。
+  // ⚠️ 状态机必须在 `write()` 的"只读早返回"**之前**（否则只读启动后永远使能不了）。
+  // ⚠️ 失能请求**随时可以打断使能序列**（急停要能立刻生效，不用等 6 次寄存器写完）。
+  enum class EnablePhase {Idle, WriteMode, EnableAll};
+  bool armed_ = false;                     // **真实**使能态（on_activate 里初值 = enable_on_activate_）
+  bool active_ = false;                    // 硬件组件是否 ACTIVE（服务的前提）
+  EnablePhase phase_ = EnablePhase::Idle;
+  std::size_t phase_step_ = 0;             // WriteMode 推进到第几台
+  std::atomic<int> enable_req_{0};         // 0=无请求 / 1=请求使能 / -1=请求失能（失能优先）
+  std::atomic<int> enable_result_{0};      // 0=未决 / 1=成功 / -1=失败
+  std::string enable_fail_why_;            // 失败原因（先写它、再置 enable_result_）
+  std::mutex enable_mu_;                   // 只保护 enable_fail_why_
+  double enable_timeout_s_ = 3.0;          // 等状态机完成的上限。⚠️ 真机实测整个使能序列只要
+                                           // **~70 ms**（6 台 × 寄存器往返 ~12 ms，2026-10-11），
+                                           // 给 3 s 只是"CM 的 update 停了"时别把服务挂死。
+  // ⚠️ 上面那个"~12 ms"是**实测**：早先文档里的"每台 150 ms"是 Python 寄存器工具自己轮询节拍的
+  //    开销，不是这条链的往返延迟。`sync_states` 的 quiet 窗口才是这里真正的阻塞源（~30~50 ms）。
+
+  // ── ROS 侧接口（on_configure 里建；**没有节点时不建** = 单测）──
+  rclcpp::Service<arm_msgs::srv::SetEnabled>::SharedPtr set_enabled_srv_;
+  rclcpp::Service<arm_msgs::srv::HardwareEmergencyStop>::SharedPtr estop_srv_;
+  rclcpp::Publisher<arm_msgs::msg::HardwareStatus>::SharedPtr status_pub_;
+  int status_tick_ = 0;                    // 每 kStatusEvery 圈发一次（10 Hz @ 100 Hz）
+
   // ── 参数解析 ──
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）
   bool parse_one_joint(const hardware_interface::ComponentInfo & j);  // 同上，逐关节
@@ -139,6 +197,12 @@ private:
   void build_hardware();                                             // on_configure：串口/总线/关节对象
   void teardown();                                                   // on_cleanup / 出错收尾
   void disable_all_quietly();                                        // 失能，绝不抛
+
+  // ── 使能序列的两块积木（on_activate 与运行期状态机**共用同一份**，别写两遍）──
+  void write_mode_one(std::size_t i);       // ① 单台写 0x0A（+ 可选写 PID）
+  void enable_all_and_latch();              // ② 全部使能 + 锁保持目标 + MIT 下补真实保持帧
+  // 记结果：先写原因（加锁）再置原子量 ⇒ 读到 result≠0 时原因一定已就绪。
+  void set_enable_result(int v, const std::string & why);
 
   // ── 模型坐标 ⇄ 我们的关节坐标（换算公式的真源在 dm_joint.hpp，这里只套每关节的 sign/δ）──
   double model_to_ours(std::size_t i, double q_urdf) const;

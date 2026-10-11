@@ -6,7 +6,8 @@
 # ⚠️ ERR=13（通讯丢失）是**锁存的**，只能断电重上电清；本服务只报告，**不假装能恢复**
 #    （`enable(0xFC)`、连发帧、写回 `0x09=0` 都清不掉 —— 见 AGENTS 陷阱 #25）。
 ---
-bool success        # 只要"尽力失能"这一轮没抛就是 true
-string[] disabled   # 成功失能的关节名
-string[] failed     # 失能失败的关节名（原因写进 message）
+bool success        # **全部确认失能**才是 true（幂等：本来就全失能 ⇒ true）。判定以缓存 ERR 为准，
+                    # **不是**"失能帧发出去了"；false 时看 failed[] 与 message
+string[] disabled   # 确认失能的关节名（ERR=0）
+string[] failed     # 没确认失能的关节名（原因写进 message）
 string message      # 含"需要断电重启"这类明确结论

@@ -34,6 +34,9 @@ constexpr uint8_t kRegKiAsr = 0x1A;  // 速度环 Ki
 constexpr uint8_t kRegKpApr = 0x1B;  // 位置环 Kp
 constexpr uint8_t kRegKiApr = 0x1C;  // 位置环 Ki
 
+// ── 状态话题的发布周期（kStatusEvery 圈发一次；100 Hz 控制周期 ⇒ 10 Hz）──
+constexpr int kStatusEvery = 10;
+
 // ── 重力前馈的残差守卫阈值（**调这里 = 改安全行为，想清楚再动**）──
 // 语义分两种，否则一跑轨迹就误触发（机械臂本来就要离开激活姿态）：
 //   保持（命令 NaN）⇒ 比"偏离使能时锁定的保持点"，位置 kGuardRad / 速度 kGuardRadPerS；
@@ -302,6 +305,67 @@ void DmSystemInterface::disable_all_quietly()
   }
 }
 
+// ① 单台写控制模式寄存器 `0x0A`（RAM ⇒ 每次激活/运行期使能都要写），可选写 PID。
+//    **一次调用只动一台**：运行期状态机一个周期只能做这一件事（~150 ms 静默），
+//    所以它必须能"逐台"调用；on_activate 则在一个循环里连调 6 次。
+void DmSystemInterface::write_mode_one(std::size_t i)
+{
+  const JointParams & jp = joints_[i];
+  const uint32_t mode = gravity_ff_ ? 1u : 2u;      // 1 = MIT（重力前馈）/ 2 = 位置速度
+  if (!bus_->write_register(jp.cfg.motor_id, kRegCtrlMode, uint32_to_uint8s(mode))) {
+    throw std::runtime_error(
+      "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 0x0A=" + std::to_string(mode) +
+      " 没收到回包");
+  }
+  if (jp.pid.has_value()) {
+    const auto & pid = *jp.pid;
+    const std::array<std::pair<uint8_t, double>, 4> regs = {{
+      {kRegKpAsr, pid[0]}, {kRegKiAsr, pid[1]}, {kRegKpApr, pid[2]}, {kRegKiApr, pid[3]}}};
+    for (const auto & kv : regs) {
+      if (!bus_->write_register(jp.cfg.motor_id, kv.first, float32_to_uint8s(kv.second))) {
+        throw std::runtime_error(
+          "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 PID 寄存器 0x" +
+          std::to_string(kv.first) + " 没收到回包");
+      }
+    }
+  }
+}
+
+// ② 全部使能 + 锁保持目标 +（MIT）立刻补一帧真实保持帧。
+//    **on_activate 与运行期状态机共用这一份** —— 两处必须一模一样，否则"激活时"和"运行期"
+//    的使能语义会悄悄漂开（那正是最难查的一类 bug）。
+void DmSystemInterface::enable_all_and_latch()
+{
+  // 使能所有电机（`Joint::enable()` 内部会先查缓存位置，再补保持帧）。
+  for (auto & jp : joints_) {jp.joint->enable();}
+
+  // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
+  // 为什么不每圈重读："读哪停哪"没有回复力，重力能把关节慢慢压走（陷阱 #38）。
+  for (std::size_t i = 0; i < joints_.size(); ++i) {
+    const auto st = bus_->get_state(joints_[i].cfg.motor_id);
+    if (!st.has_value()) {
+      throw std::runtime_error(
+        "关节 " + joints_[i].name + " 使能后仍没有实测位置，锁不住保持目标");
+    }
+    rt_[i].hold_pos = st->pos;
+    // 同一个保持目标的**关节侧**值：POS_VEL 的保持帧要电机侧（绕过换算=真保持），
+    // MIT 的保持帧要关节侧（set_mit 会自己换算回来）。两者是同一点，别混用。
+    rt_[i].hold_ours = joints_[i].joint->motor_to_joint(st->pos);
+  }
+
+  // 关键：MIT 模式下 `enable()` 只是零增益保持帧，机械臂会自由下落。立刻补发一帧带重力的真实保持帧。
+  if (gravity_ff_) {
+    // ⚠️ MIT 下 `enable()` 发的是**零增益零前馈**保持帧（出力恒为 0）⇒ 到第一次 write()
+    //    之间机械臂是**自由下落**的。真机实测（2026-10-05）：j4 在这段窗口里掉了 0.104 rad，
+    //    直接把"位置残差守卫"顶爆 ⇒ tau_ff 被锁成 0，整轮前馈白废。
+    //    这里立刻补一帧**真实**的 MIT 保持帧，把窗口关掉。算不出来就抛（宁可起不来，也别掉臂）。
+    refresh_gravity_torque();
+    if (send_mit_frames() != return_type::OK) {
+      throw std::runtime_error("使能时补发真实 MIT 保持帧失败");
+    }
+  }
+}
+
 // 坐标换算包装（调用头文件里的自由函数）。
 double DmSystemInterface::model_to_ours(std::size_t i, double q_urdf) const
 {
@@ -363,6 +427,36 @@ CallbackReturn DmSystemInterface::on_configure(const rclcpp_lifecycle::State &)
       return CallbackReturn::ERROR;
     }
   }
+
+  // ── ROS 侧接口：运行期使能（自己提供） + 状态话题（只能由插件发）────────────────
+  // ⚠️ 单测里**没有节点**（get_node() 为空）⇒ 不建服务/话题；逻辑照样能测 ——
+  //    直接调 request_enable() / advance_enable_fsm() / publish_status()（见 test_*.cpp）。
+  auto node = get_node();
+  if (node != nullptr) {
+    set_enabled_srv_ = node->create_service<arm_msgs::srv::SetEnabled>(
+      "/arm/set_enabled",
+      [this](
+        const std::shared_ptr<arm_msgs::srv::SetEnabled::Request> req,
+        std::shared_ptr<arm_msgs::srv::SetEnabled::Response> res) {
+        handle_set_enabled(req, res);
+      });
+    estop_srv_ = node->create_service<arm_msgs::srv::HardwareEmergencyStop>(
+      "/arm/emergency_stop",
+      [this](
+        const std::shared_ptr<arm_msgs::srv::HardwareEmergencyStop::Request>,
+        std::shared_ptr<arm_msgs::srv::HardwareEmergencyStop::Response> res) {
+        handle_emergency_stop(res);
+      });
+    // latched（TRANSIENT_LOCAL）：新订阅者**立刻**拿到最后一份 ⇒ 不需要 GetStatus 服务（M-6）
+    status_pub_ = node->create_publisher<arm_msgs::msg::HardwareStatus>(
+      "/arm/hardware_status", rclcpp::QoS(1).transient_local());
+    RCLCPP_INFO(get_logger(),
+      "运行期使能接口已注册：/arm/set_enabled、/arm/emergency_stop；"
+      "状态话题 /arm/hardware_status（latched，10 Hz）");
+  } else {
+    RCLCPP_WARN(get_logger(),
+      "没有节点（单测？）⇒ 未注册 /arm/set_enabled、/arm/emergency_stop、/arm/hardware_status");
+  }
   return CallbackReturn::SUCCESS;
 }
 
@@ -418,27 +512,8 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     }
 
     // 写控制模式寄存器（必须每次激活都写，因为是 RAM）。可选写 PID。
-    // 逐台：切控制模式（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
-    const uint32_t mode = gravity_ff_ ? 1u : 2u;      // 1 = MIT（重力前馈）/ 2 = 位置速度
-    for (const auto & jp : joints_) {
-      if (!bus_->write_register(jp.cfg.motor_id, kRegCtrlMode, uint32_to_uint8s(mode))) {
-        throw std::runtime_error(
-          "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 0x0A=" + std::to_string(mode) +
-          " 没收到回包");
-      }
-      if (jp.pid.has_value()) {
-        const auto & pid = *jp.pid;
-        const std::array<std::pair<uint8_t, double>, 4> regs = {{
-          {kRegKpAsr, pid[0]}, {kRegKiAsr, pid[1]}, {kRegKpApr, pid[2]}, {kRegKiApr, pid[3]}}};
-        for (const auto & kv : regs) {
-          if (!bus_->write_register(jp.cfg.motor_id, kv.first, float32_to_uint8s(kv.second))) {
-            throw std::runtime_error(
-              "给电机 " + std::to_string(jp.cfg.motor_id) + " 写 PID 寄存器 0x" +
-              std::to_string(kv.first) + " 没收到回包");
-          }
-        }
-      }
-    }
+    // 逐台走 `write_mode_one()`：**与运行期使能状态机共用同一份**（别写两遍）
+    for (std::size_t i = 0; i < joints_.size(); ++i) {write_mode_one(i);}
 
     // 重置所有状态，防止跨运行污染。
     // 命令先全部置 NaN ⇒ write() 里会走"保持"（用**锁定的**保持目标），绝不朝零位冲
@@ -456,40 +531,21 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     guard_ = GravityGuard{};
 
     // 只读模式直接返回。
+    // ⚠️ 从这里开始组件才算"能用运行期使能接口"：服务会检查 active_ 与 bus_。
+    active_ = true;
+    armed_ = false;                                  // 只读时**真实**使能态 = 假
     if (!enable_on_activate_) {
       RCLCPP_WARN(get_logger(),
-        "enable_on_activate=false：**只读** —— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态");
+        "enable_on_activate=false：**只读** —— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态。"
+        "（要用运行期使能接口就调 /arm/set_enabled）");
       return CallbackReturn::SUCCESS;
     }
 
-    // 使能所有电机（内部会先补保持帧）。
-    for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
-
-    // 锁定保持目标（电机侧和关节侧各存一份）。
-    // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
-    // 为什么不每圈重读："读哪停哪"没有回复力，重力能把关节慢慢压走（陷阱 #38）。
-    for (std::size_t i = 0; i < joints_.size(); ++i) {
-      const auto st = bus_->get_state(joints_[i].cfg.motor_id);
-      if (!st.has_value()) {
-        throw std::runtime_error(
-          "关节 " + joints_[i].name + " 使能后仍没有实测位置，锁不住保持目标");
-      }
-      rt_[i].hold_pos = st->pos;
-      // 同一个保持目标的**关节侧**值：POS_VEL 的保持帧要电机侧（绕过换算=真保持），
-      // MIT 的保持帧要关节侧（set_mit 会自己换算回来）。两者是同一点，别混用。
-      rt_[i].hold_ours = joints_[i].joint->motor_to_joint(st->pos);
-    }
-
-    // 关键：MIT 模式下 enable() 只是零增益保持帧，机械臂会自由下落。立刻补发一帧带重力的真实保持帧。
+    // 使能全部 + 锁保持目标 + （MIT）立刻补真实保持帧。
+    // **与运行期状态机共用同一份**（enable_all_and_latch）—— 别写两遍。
+    enable_all_and_latch();
+    armed_ = true;
     if (gravity_ff_) {
-      // ⚠️ MIT 下 `enable()` 发的是**零增益零前馈**保持帧（出力恒为 0）⇒ 到第一次 write()
-      //    之间机械臂是**自由下落**的。真机实测（2026-10-05）：j4 在这段窗口里掉了 0.104 rad，
-      //    直接把"位置残差守卫"顶爆 ⇒ tau_ff 被锁成 0，整轮前馈白废。
-      //    这里立刻补一帧**真实**的 MIT 保持帧，把窗口关掉。算不出来就抛（宁可起不来，也别掉臂）。
-      refresh_gravity_torque();
-      if (send_mit_frames() != return_type::OK) {
-        throw std::runtime_error("激活时补发真实 MIT 保持帧失败");
-      }
       RCLCPP_WARN(get_logger(),
         "已使能 %zu 台（MIT + 重力前馈 scale=%.3f；保持目标 = 使能那一刻锁定的关节侧位置，"
         "并已立刻补发真实保持帧关闭零增益窗口）", joints_.size(), gravity_ff_scale_);
@@ -522,6 +578,14 @@ CallbackReturn DmSystemInterface::on_deactivate(const rclcpp_lifecycle::State &)
 {
   RCLCPP_INFO(get_logger(), "deactivate：全部失能");
   disable_all_quietly();
+  // 失能了就回到"只读"：armed_=false ⇒ read() 重新发 0x7FF 刷新帧、write() 什么都不发。
+  // ⚠️ 运行期使能接口也随之失效（request_enable 会因 !active_ 拒绝）——**这是对的**：
+  //    组件不在 ACTIVE 时 read/write 都不跑，状态机根本推不动。
+  armed_ = false;
+  active_ = false;
+  enable_req_.store(0);
+  phase_ = EnablePhase::Idle;
+  phase_step_ = 0;
   return CallbackReturn::SUCCESS;
 }
 
@@ -536,6 +600,17 @@ CallbackReturn DmSystemInterface::on_cleanup(const rclcpp_lifecycle::State &)
     }
   }
   teardown();
+  // ROS 句柄也放掉（重新 configure 时会重建）；状态机复位，避免跨次运行带状态。
+  set_enabled_srv_.reset();
+  estop_srv_.reset();
+  status_pub_.reset();
+  status_tick_ = 0;
+  armed_ = false;
+  active_ = false;
+  enable_req_.store(0);
+  enable_result_.store(0);
+  phase_ = EnablePhase::Idle;
+  phase_step_ = 0;
   return CallbackReturn::SUCCESS;
 }
 
@@ -544,6 +619,11 @@ CallbackReturn DmSystemInterface::on_error(const rclcpp_lifecycle::State &)
 {
   RCLCPP_ERROR(get_logger(), "进入 error 状态：尽力失能并关串口");
   disable_all_quietly();
+  armed_ = false;
+  active_ = false;
+  enable_req_.store(0);
+  phase_ = EnablePhase::Idle;
+  phase_step_ = 0;
   if (bus_ != nullptr) {
     try {
       bus_->close();
@@ -591,7 +671,7 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
     JointRuntime & r = rt_[i];
     if (!bus_->get_state(jp.cfg.motor_id).has_value()) {
       if (++r.missing_streak >= fail_streak_limit_) {
-        if (enable_on_activate_) {
+        if (armed_) {
           RCLCPP_ERROR(get_logger(),
             "关节 %s（电机 %u）连续 %d 圈没有反馈 —— 报 ERROR（串口掉了 / 电机断电？）",
             jp.name.c_str(), jp.cfg.motor_id, r.missing_streak);
@@ -614,7 +694,7 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
     hw_efforts_[i] = static_cast<double>(jp.sign) * st.torque;
     if (st.err != 0x0 && st.err != 0x1) {
       const char * text = err_text(st.err);
-      if (enable_on_activate_) {
+      if (armed_) {
         RCLCPP_ERROR(get_logger(),
           "关节 %s 故障 ERR=%u（%s）—— 报 ERROR。注意 ERR=13(通讯丢失) 是锁存的，只能断电再上电清；"
           "失能只是让电机松掉，重力负载下会掉", jp.name.c_str(), st.err,
@@ -632,9 +712,18 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
       r.err_warned = 0;
     }
   }
-  // 只读模式要主动问状态（电机不主动报）；使能后命令帧本身就带回包，不必再刷
-  if (!enable_on_activate_) {
+  // 只读（或**运行期已失能**）要主动问状态（电机不主动报）；使能后命令帧本身就带回包，不必再刷。
+  // ⇒ 这正是 MANAGE_ARCH M-5 想要的行为：`SafeDisarm` 失能之后，插件自动回到"只发刷新帧"
+  if (!armed_) {
     for (const auto & jp : joints_) {bus_->send_refresh(jp.cfg.motor_id);}
+  }
+
+  // 状态话题（10 Hz @ 100 Hz 控制周期）：**只能由插件发** —— ros2_control 的状态接口只有控制器
+  // 读得到，外部节点拿不到 ERR/温度/守卫（见 MANAGE_ARCH §4.2/M-5）。放 read() 不放 write()：
+  // write() 是发帧关键路径，别在那儿做序列化与分配。
+  if (status_pub_ != nullptr && ++status_tick_ >= kStatusEvery) {
+    status_tick_ = 0;
+    publish_status();
   }
   return return_type::OK;
 }
@@ -645,8 +734,16 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
 return_type DmSystemInterface::write(const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   if (bus_ == nullptr) {return return_type::ERROR;}
-  // ⚠️ 只读模式下 write() **什么都不发**：这是"不接真机也能先只看"的前提
-  if (!enable_on_activate_) {return return_type::OK;}
+  // ① 运行期使能/失能状态机**最优先**（必须在只读早返回**之前**，否则只读启动后永远使能不了）。
+  //    一个周期最多做一件事（一次 `0x0A` 写 ≈150 ms）；期间**不发控制帧**。
+  //    前提是"全臂失能"（request_enable 检查过）⇒ 这 0.9 s 里没有已使能的关节，
+  //    不会撞 500 ms 看门狗（陷阱 #24/#25）。
+  if (enable_req_.load() != 0) {
+    advance_enable_fsm();
+    return return_type::OK;
+  }
+  // ② 没使能（只读启动 / 运行期已失能）：**什么都不发** —— "不接真机也能先只看"的前提
+  if (!armed_) {return return_type::OK;}
   if (gravity_ff_) {return write_gravity_ff(time, period);}
   return write_pos_vel();
 }
@@ -858,6 +955,278 @@ return_type DmSystemInterface::send_mit_frames()
     }
   }
   return return_type::OK;
+}
+
+// ══════════════════════════ 运行期使能（M9.2）══════════════════════════
+// 设计见头文件与 docs/MANAGE_ARCH.md §5。三条要点：
+//   ① 服务回调只做"前提检查 + 置请求"，真正的活由 write() 里的状态机干；
+//   ② **失能请求优先**，可以随时打断使能序列（急停要立刻生效，不等 6 次寄存器写完）；
+//   ③ 使能序列与 on_activate **共用** write_mode_one() / enable_all_and_latch()。
+
+// 先写原因（加锁）再置原子量 ⇒ 读到 result≠0 时原因一定已就绪。
+void DmSystemInterface::set_enable_result(int v, const std::string & why)
+{
+  {
+    std::lock_guard<std::mutex> lk(enable_mu_);
+    enable_fail_why_ = why;
+  }
+  enable_result_.store(v);
+}
+
+bool DmSystemInterface::request_enable(bool enable, std::string * why)
+{
+  auto fail = [why](const std::string & s) {if (why != nullptr) {*why = s;} return false;};
+  if (enable_req_.load() != 0) {
+    return fail("已有一个使能/失能请求在处理中（等它完成；急停请求会打断它）");
+  }
+  if (!active_) {
+    return fail("硬件组件不是 ACTIVE —— 先把它切到 ACTIVE（见 MANAGE_ARCH M-1）");
+  }
+  if (bus_ == nullptr || io_ == nullptr || !io_->is_open()) {return fail("串口没开");}
+
+  if (enable == armed_) {
+    // 幂等：已经是想要的状态 ⇒ **一帧都不发**，直接报成功
+    set_enable_result(1, enable ? "已经是使能态（幂等，未发帧）" : "已经是失能态（幂等，未发帧）");
+    if (why != nullptr) {*why = enable ? "已经是使能态（幂等）" : "已经是失能态（幂等）";}
+    return true;
+  }
+
+  if (enable) {
+    // 前提：**全臂失能**（ERR 必须全是 0）。"使能一半的臂"是这里最危险的失败模式：
+    // 已使能的关节会被喂帧、未使能的不会；而 MIT 的 enable 又是零增益帧（陷阱 #41）。
+    std::string bad;
+    for (const auto & jp : joints_) {
+      const auto st = bus_->get_state(jp.cfg.motor_id);
+      if (!st.has_value()) {
+        bad += " " + jp.name + "(没有反馈)";
+      } else if (st->err != 0x0) {
+        bad += " " + jp.name + "(ERR=" + std::to_string(st->err) + ")";
+      }
+    }
+    if (!bad.empty()) {
+      return fail("拒绝使能：有电机不处于失能态（ERR≠0）：" + bad +
+        " ⇒ 不许重新使能（会使能一半的臂）。ERR=13(通讯丢失) 锁存，只能断电重上电清");
+    }
+  }
+
+  enable_result_.store(0);
+  {
+    std::lock_guard<std::mutex> lk(enable_mu_);
+    enable_fail_why_.clear();
+  }
+  if (why != nullptr) {*why = "已受理";}
+  enable_req_.store(enable ? 1 : -1);   // 最后置：状态机看到请求时，上面的清场一定已完成
+  return true;
+}
+
+bool DmSystemInterface::wait_enable_done(double timeout_s, std::string * why)
+{
+  const auto t0 = std::chrono::steady_clock::now();
+  while (true) {
+    const int r = enable_result_.load();
+    if (r != 0) {
+      if (r > 0) {
+        if (why != nullptr) {*why = "完成";}
+        return true;
+      }
+      std::lock_guard<std::mutex> lk(enable_mu_);
+      if (why != nullptr) {*why = enable_fail_why_.empty() ? "失败（没有原因）" : enable_fail_why_;}
+      return false;
+    }
+    if (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() > timeout_s) {
+      if (why != nullptr) {
+        *why = "等状态机完成超时（" + std::to_string(timeout_s) +
+          " s）—— CM 的 update 循环还在跑吗？看 /arm/hardware_status";
+      }
+      return false;
+    }
+    // 5 ms 轮询：状态机每一步是 10 ms（控制周期）或 ~150 ms（寄存器写），5 ms 足够细
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+}
+
+void DmSystemInterface::advance_enable_fsm()
+{
+  // ① 失能（含"使能途中被急停打断"）：**优先**，一个周期做完，不碰寄存器。
+  if (enable_req_.load() < 0) {
+    disable_all_quietly();                       // 永不抛
+    armed_ = false;
+    phase_ = EnablePhase::Idle;
+    phase_step_ = 0;
+    enable_req_.store(0);
+    // ⚠️ **必须重新问一次真实状态再下结论**：失能帧的反馈还没进缓存，直接看缓存会读到**上一次的
+    //    ERR=1**（陷阱 #20 的同款形状：陈旧回包骗缓存）。`sync_states` 会 flush + 刷新到安静。
+    // ⚠️ 这里会阻塞约 30~50 ms（= quiet 窗口）⇒ CM 会打一条 overrun 警告（实测 Write time 53.9 ms、
+    //    missed 6 拍）。**无害**：此刻 6 台都已经不发控制帧了（失能帧刚发完），掉拍不影响看门狗。
+    //    仍在陷阱 #25 的"不许 >100 ms"之内。
+    try {
+      bus_->sync_states(0.3, 0.03);
+    } catch (...) {
+    }
+    // 复核：以缓存里的 ERR 为准（真失能才是 0）。**别只凭"帧发出去了"就报成功**。
+    std::string still_on;
+    for (const auto & jp : joints_) {
+      const auto st = bus_->get_state(jp.cfg.motor_id);
+      if (!st.has_value()) {
+        still_on += " " + jp.name + "(没有反馈)";
+      } else if (st->err != 0x0) {
+        still_on += " " + jp.name + "(ERR=" + std::to_string(st->err) + ")";
+      }
+    }
+    if (still_on.empty()) {
+      set_enable_result(1, "已失能（全部 ERR=0）");
+    } else {
+      set_enable_result(-1, "发过失能帧，但复核仍有电机不是失能态：" + still_on +
+        " —— ERR=13 锁存需断电重上电；看 /arm/hardware_status");
+    }
+    return;
+  }
+
+  // ② 使能：逐周期推进（一个周期最多一次寄存器 I/O）。
+  try {
+    if (phase_ == EnablePhase::Idle) {
+      phase_ = EnablePhase::WriteMode;
+      phase_step_ = 0;
+      RCLCPP_WARN(get_logger(),
+        "运行期使能开始：逐台写 0x0A=%u（每周期一台，共 %zu 台；**这期间不发控制帧**）",
+        gravity_ff_ ? 1u : 2u, joints_.size());
+      return;                                     // 这一周期只起个头
+    }
+    if (phase_ == EnablePhase::WriteMode) {
+      write_mode_one(phase_step_);                // 一次一台（~150 ms 静默）
+      if (++phase_step_ >= joints_.size()) {phase_ = EnablePhase::EnableAll;}
+      return;
+    }
+    if (phase_ == EnablePhase::EnableAll) {
+      // 全部使能 + 锁保持目标 +（MIT）立刻补真实保持帧 —— **与 on_activate 同一份代码**
+      enable_all_and_latch();
+      armed_ = true;
+      phase_ = EnablePhase::Idle;
+      phase_step_ = 0;
+      enable_req_.store(0);
+      set_enable_result(1, gravity_ff_ ? "已使能（MIT + 重力前馈，保持目标已锁定）"
+                                      : "已使能（POS_VEL，保持目标已锁定）");
+      RCLCPP_WARN(get_logger(), "运行期使能完成：%s", gravity_ff_ ? "MIT" : "POS_VEL");
+      return;
+    }
+  } catch (const std::exception & e) {
+    // 失败 ⇒ 尽力失能回到只读（**绝不半使能**），原因写进结果。
+    RCLCPP_ERROR(get_logger(), "运行期使能失败：%s —— 尽力失能回到只读", e.what());
+    disable_all_quietly();
+    armed_ = false;
+    phase_ = EnablePhase::Idle;
+    phase_step_ = 0;
+    enable_req_.store(0);
+    set_enable_result(-1, std::string("使能序列失败：") + e.what());
+  }
+}
+
+void DmSystemInterface::handle_set_enabled(
+  const std::shared_ptr<arm_msgs::srv::SetEnabled::Request> req,
+  std::shared_ptr<arm_msgs::srv::SetEnabled::Response> res)
+{
+  std::string why;
+  res->now_armed = armed_;                        // **调用那一刻**的状态
+  if (!request_enable(req->enable, &why)) {
+    res->success = false;
+    res->message = why;
+    return;
+  }
+  if (enable_req_.load() == 0) {                  // 幂等路径（request_enable 已置好结果）
+    res->success = true;
+    res->now_armed = armed_;
+    res->message = why;
+    return;
+  }
+  // **阻塞等状态机完成**（约 1 s，A 方案）。能这么做是因为 CM 的 read/update/write 不跑在
+  // executor 上（见头文件里的说明）⇒ 回调阻塞**不会**卡住状态机（否则就是陷阱 #57 的死锁形状）。
+  // 代价：这 ~1 s 内 CM 的其它服务排队（此刻控制器本来也该是 inactive）。
+  const bool done = wait_enable_done(enable_timeout_s_, &why);
+  res->success = done;
+  res->now_armed = armed_;                        // 完成后才是**真实**状态
+  res->message = done ? (armed_ ? "已使能（保持目标已锁定）" : "已失能") : ("未完成：" + why);
+}
+
+void DmSystemInterface::handle_emergency_stop(
+  std::shared_ptr<arm_msgs::srv::HardwareEmergencyStop::Response> res)
+{
+  // 急停 = 立即失能。**不碰寄存器、不做恢复**（ERR=13 锁存只能断电清）。
+  // 走同一条状态机（串行化 ⇒ 不会与 RT 线程并发写串口），失能一个周期就能做完。
+  std::string why;
+  bool not_confirmed = false;
+  if (armed_ || enable_req_.load() == 1) {
+    if (request_enable(false, &why)) {
+      if (enable_req_.load() != 0 && !wait_enable_done(2.0, &why)) {not_confirmed = true;}
+    } else {
+      not_confirmed = true;                       // 连请求都发不出去（已有一个请求在处理）
+    }
+  } else {
+    why = "本来就是失能态（幂等，未发帧）";
+  }
+
+  // 复核每台的真实状态：**以缓存里的 ERR 为准**，别只凭"发过失能帧"
+  std::string failed_names;
+  for (const auto & jp : joints_) {
+    const auto st = bus_->get_state(jp.cfg.motor_id);
+    if (st.has_value() && st->err == 0x0) {
+      res->disabled.push_back(jp.name);
+    } else {
+      res->failed.push_back(jp.name);
+      failed_names += " " + jp.name +
+        (st.has_value() ? "(ERR=" + std::to_string(st->err) + ")" : "(没有反馈)");
+    }
+  }
+  res->success = !not_confirmed && res->failed.empty();
+  if (not_confirmed) {
+    res->message = "未能确认失能：" + why +
+      " —— 状态机没推进（CM 的 update 停了？）；请断电，或用 ros2 control set_hardware_component_state";
+  } else if (res->failed.empty()) {
+    res->message = "已失能全部 " + std::to_string(res->disabled.size()) + " 台（ERR=0）";
+  } else {
+    res->message = "有 " + std::to_string(res->failed.size()) + " 台仍未失能：" + failed_names +
+      " —— ERR=13(通讯丢失) 锁存，只能断电重上电清";
+  }
+}
+
+void DmSystemInterface::publish_status()
+{
+  if (status_pub_ == nullptr) {return;}
+  arm_msgs::msg::HardwareStatus m;
+  const auto clock = get_clock();
+  if (clock != nullptr) {m.stamp = clock->now();}
+  m.mode = gravity_ff_ ? "MIT" : "POS_VEL";       // **声明**值（真源 joint.yaml；本层读不到 0x0A）
+  m.gravity_ff = gravity_ff_;
+  m.gravity_ff_scale = gravity_ff_scale_;
+  m.guard_tripped = guard_.tripped;
+  for (const auto & jp : joints_) {
+    m.joint_names.push_back(jp.name);
+    std::optional<MotorState> st;
+    if (bus_ != nullptr) {st = bus_->get_state(jp.cfg.motor_id);}
+    if (st.has_value()) {
+      const char * text = err_text(st->err);
+      m.err.push_back(static_cast<int32_t>(st->err));
+      m.err_text.emplace_back(text != nullptr ? text : "未知错误码");
+      // 反馈帧里的 D[6]/D[7] **就是摄氏度**，不做换算
+      m.temp_mos.push_back(static_cast<double>(st->t_mos_raw));
+      m.temp_rotor.push_back(static_cast<double>(st->t_rotor_raw));
+      m.armed.push_back(st->err == 0x1);
+    } else {
+      m.err.push_back(-1);                        // -1 = 没有反馈（不是电机报的 ERR）
+      m.err_text.emplace_back("没有反馈");
+      const double nan = std::numeric_limits<double>::quiet_NaN();
+      m.temp_mos.push_back(nan);
+      m.temp_rotor.push_back(nan);
+      m.armed.push_back(false);
+    }
+  }
+  if (bus_ != nullptr) {
+    const SerialStats & s = bus_->stats();
+    m.tx_calls = s.tx_calls;
+    m.rx_calls = s.rx_calls;
+    m.tx_bytes = s.tx_bytes;
+    m.rx_bytes = s.rx_bytes;
+  }
+  status_pub_->publish(m);
 }
 
 }  // namespace motor_driver_hardware
