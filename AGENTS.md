@@ -40,7 +40,7 @@
 | [setup.py](src/motor_driver/setup.py) | 36 | 装 `share/motor_driver/config/joint.yaml`；**`data_files` 的源路径只能写相对路径**（colcon 的 ament_python task 会 assert 拒绝绝对路径） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` 指向 `motor_driver.*` |
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus`（内嵌 `HardwareStatus`）/ **`HardwareStatus`** + action `MoveToPose` + **5 个 srv**（`SetEnabled` / `HardwareEmergencyStop` 是**插件内部接口**；`ArmOn` / `SafeDisarm` / `ManageEmergencyStop` 是**管理层对外接口**） | 只定义接口、无代码；**M9.2 起 `motor_driver_hardware` 插件依赖它**（两个插件级 srv + `HardwareStatus`），M9.3 的 `arm_manage` 还会用管理层那 3 个 srv；夹爪本阶段不做。字段与语义见 `docs/MANAGE_ARCH.md §4` |
 | [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + **`config/mit_gains.yaml`（MIT 保持增益）** + **`config/gravity_identified.yaml`（辨识出的质量/质心）** + `scripts/apply_identified_inertia.py` + **`scripts/gen_joint_limits_header.py`（构建期生成 `joint_limits.hpp`：模型坐标关节限位，给应用层当护栏；并与 URDF 的 `<limit>` 对拍、漂了就构建失败）** + 显示 launch。构建时生成**三份**动力学 URDF：`arm.urdf`（上游名义）、**`arm_identified.urdf`（辨识版、**空载**、前馈默认用）**、`arm_identified_gripper.urdf`（带夹爪；夹爪质量**未辨识**，见陷阱 #56） | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
-| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **`real_control.launch.py`**（真机 ros2_control，参数 `enable_on_activate` / `spawn_arm_controller` / `vlim` / **`gravity_ff`** / **`gravity_ff_scale`** / `mit_controllers`）+ **两份控制器配置** `config/ros2_controllers.yaml`（只 position）与 `ros2_controllers_mit.yaml`（position+velocity+constraints，见陷阱 #40） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
+| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **`real_control.launch.py`**（真机 ros2_control，参数 `enable_on_activate` / `spawn_arm_controller` / `vlim` / **`gravity_ff`** / **`gravity_ff_scale`** / `mit_controllers`）+ **两份控制器配置** `config/ros2_controllers.yaml`（只 position）与 `ros2_controllers_mit.yaml`（position+velocity+constraints，见陷阱 #40） **+ `arm_system.launch.py`（总 launch，M9.4）**：一条命令起全栈、`use_mock` 贯穿 mock/真机；**`arm_controller` 默认只装载不激活**（`spawner --inactive`，把激活交给 `arm_manage` 以保证 M-3 顺序），并在 launch 里自动补 `LD_LIBRARY_PATH`（否则 `arm_manage_node` 报 `librclcpp.so` 找不到）；⚠️ **刻意不拉 `move_group.launch.py`**（它自带一套 mock 链 ⇒ 双开 = 陷阱 #35/#29） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
 | [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
 | [arm_motion](src/arm_motion) | — | **运动执行件**（ament_cmake，C++ 库）：`MotionClient` —— 给 JTC 发**单点轨迹**的非阻塞客户端（限位护栏 / 非阻塞 / `async_cancel_goal` / 残差验证），2026-10-07 **M9.0** 从 `safe_park_node` 抽出、**行为逐条等价** | 不拥有线程、不 sleep、**自己不打任何日志**（只产出**事件队列**，措辞与严重级由调用方决定 —— 日志措辞是业务的）、不碰协议/串口/寄存器；将来 `ExecuteMotion` action server 也落在本包（见 `docs/MOTION_ARCH.md`） |
 | [arm_manage](src/arm_manage) | — | **管理层**（ament_cmake，C++ 节点）：**唯一状态机** = 把「控制器先 inactive → 硬件使能 → 校验 → 控制器 active」（M-3）做对 + 「收臂到折叠位**再**失能」编排成一次调用。两个 Gate：`ControllerGate`（switch/list_controllers + 持有 `arm_motion::MotionClient`）、`HardwareGate`（`/arm/set_enabled`、`/arm/emergency_stop`、订阅 `/arm/hardware_status`）。2026-10-11 **M9.3** 落地 | 对外只有 3 个服务（`/arm_manage/arm_on`、`safe_disarm`、`emergency_stop`）+ `/arm/status`（latched）；**只编排、不自己碰电机**；park 位姿真源是 `config/arm_manage.yaml`（M-10）；⚠️ **没有插件时（mock 链）硬件步骤显式跳过**（`skipped=true`，绝不假装使能成功）—— 这样控制器侧 + MotionClient 流程仍能在 mock 上验收 |
@@ -120,7 +120,7 @@ position_min/position_max/**sign/zero_shift**/**torque_max**/**kp_hold**/**kd_ho
 **每个函数只管一件事**（重构前是 163 行的一个函数；带**残差守卫**，见陷阱 #42））。
 ⚠️ 收臂**不在驱动层**：驱动层只做电机 I/O；`safe_park` 是 `arm_application/safe_park_node`（见 §2）。
 
-**未实现（别以为有）**：`arm_msgs` 之上的节点 · **运动接口层 `arm_motion` 的 action server / IK / 规划 / 命名目标**（⚠️ 其中**执行件 `MotionClient` 已落地**（M9.0，8 个 gtest 全过 + 端到端行为等价已验证）；分层/接口契约/异常矩阵见 [docs/MOTION_ARCH.md](docs/MOTION_ARCH.md)，决策 D-M1…D-M8）· **`arm_manage` 管理层的总 launch（M9.4）与真机验收（M9.5）**（节点本身 **M9.3 已落地**、mock 链上 25 项断言全绿；插件那一半 M9.2 已真机验过。设计见 [docs/MANAGE_ARCH.md](docs/MANAGE_ARCH.md)）· 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
+**未实现（别以为有）**：`arm_msgs` 之上的节点 · **运动接口层 `arm_motion` 的 action server / IK / 规划 / 命名目标**（⚠️ 其中**执行件 `MotionClient` 已落地**（M9.0，8 个 gtest 全过 + 端到端行为等价已验证）；分层/接口契约/异常矩阵见 [docs/MOTION_ARCH.md](docs/MOTION_ARCH.md)，决策 D-M1…D-M8）· **M9.5 真机分级验收**（M9.4 总 launch **已落地**：mock 上一条命令起全栈、三个服务全绿；M9.3 节点 / M9.2 插件也都已落地。设计见 [docs/MANAGE_ARCH.md](docs/MANAGE_ARCH.md)）· 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
 **C++ 侧的力位混控路径**（POS_VEL 与 MIT 两条都做了，够重力前馈用）·
 **摩擦前馈 / 宿主侧积分 / 逐关节 kp 标定**（见 §5 "重力补偿"那段末尾的"还差什么"）·
 **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；`test/` 只存在于 C++ 包：`motor_driver_hardware/test/` 与 `arm_motion/test/`，见 §7）。
@@ -279,6 +279,9 @@ j4 `[-0.157540, +0.938132]` · j5 `[-0.970641, +0.913381]` · j6 `[-1.359002, +4
 | 58 | **QoS 不匹配就一帧都收不到、且不报错** | `jsb` 是 RELIABLE + TRANSIENT_LOCAL；排查用 `ros2 topic info --verbose` |
 | 59 | **JTC 不校验关节限位** ⇒ 越界目标顶在硬限位上堵转 | **发目标前自己查限位**：构建期 `joint_limits.hpp` + 启动即校验 `park_pose` |
 | 60 | **放弃 goal 时只退出、不取消 ⇒ JTC 还挂着，臂会自己走完** | 加 `Cancelling` + `async_cancel_goal`；凡"超时/放弃"路径都要**显式取消** |
+| 61 | **`ros2 service list` 会列出"只有客户端"的名字** | 用 `ros2 service info X` 看 **Services count**：**0 = 没有服务端**（只是某个节点的 client 端点）。2026-10-11 我据此误判"mock 链里有插件服务"、绕了一大圈 |
+| 62 | **`pkill -f <pattern>` 会匹配到自己所在 shell 的命令行**（命令文本含该 pattern 时）⇒ **自杀** | 表现是那条命令**自己被杀**、后续步骤全没跑（假插件因此根本没起来）。先 `pgrep` 确认、或把 pattern 收紧（如 `pkill -f 'python3 .*xxx'`） |
+| 63 | **状态机等异步结果必须自带超时** —— 对面服务"在但不答"时，**服务调用方的超时救不了 FSM** | 调用方最多等 `timeout+10 s` 就报错，但 FSM 会**永久停在过渡态**、之后所有操作被"忙"拒掉。`arm_manage` 已加 **3 s/步**（`kAsyncWaitTicksMax`）并如实报"没回 set_enabled（3 s）" |
 
 ## 7. 怎么验证（没有硬件时）
 
@@ -341,6 +344,12 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   export ROS_LOG_DIR=$PWD/build/ros_log && mkdir -p "$ROS_LOG_DIR"
   pixi run colcon test --packages-select arm_motion
   ```
+- **M9.4 总 launch 的验收（mock，一条命令起全栈）**：`ros2 launch arm_bringup arm_system.launch.py use_rviz:=false`
+  ⇒ 断言 `arm_controller` 是 **inactive（装载未激活）**、jsb `active`、`/arm_manage/*` 三个服务在、`/arm/status` = `READONLY`；
+  再 `ros2 service call /arm_manage/arm_on arm_msgs/srv/ArmOn "{with_controller: true}"` ⇒ `ARMED_CONTROLLER` 且控制器转 `active`；
+  然后 `safe_disarm`（残差 0.000000、attempts=1）→ `emergency_stop`。**2026-10-11 全部实测通过**。
+  ⚠️ 回归 FSM 超时（陷阱 #63）的手法：起一个**只注册服务、callback 睡 30 s** 的假插件 ⇒ `arm_on` 应在 **~3 s** 失败并报
+  "插件没回 set_enabled（3 s）"。
 - **`safe_park_node` 的端到端行为等价**（M9.0 抽 `MotionClient` 时用的手法，不落盘）：进程内 Python 起
   **假 JTC action server + 假 `/joint_states`**，用 `subprocess` 跑真实可执行文件，断言**轨迹逐字段**
   （关节名 / 1 个点 / 位置=折叠位 / 末端速度 0 / `duration == max(1, travel/vlim)`）、业务日志逐条、退出码 0。

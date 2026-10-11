@@ -138,6 +138,11 @@ private:
   static constexpr int kEstopDone = 9;
 
   static constexpr int kWaitTicksMax = 100;        // 等一个状态变化最多 100 tick（20ms ⇒ 2s）
+  // 等**异步结果**（服务响应 / switch 结果）的上限：150 tick = 3 s。
+  // ⚠️ 没有这个超时，对面服务"在但不答"（例如残留进程提供着同名服务）会让状态机**静默永久卡住**：
+  //    服务调用方最多等 timeout+10 s 就报"内部超时"，但 FSM 会一直停在 ARMING、之后所有操作都被"忙"拒掉。
+  //    2026-10-11 真踩过（M9.3 测试的假插件进程残留 ⇒ mock 链里居然有 /arm/set_enabled）。
+  static constexpr int kAsyncWaitTicksMax = 150;
   static constexpr int kRefreshEveryTicks = 25;    // list_controllers 每 25 tick（0.5s）刷一次
 
   // ─────────────────────────── 配置校验 ───────────────────────────
@@ -374,12 +379,16 @@ private:
         bool ok = false;
         std::string msg;
         if (ctl_->switch_pending()) {
-          if (!ctl_->poll_switch(&ok, &msg)) {return;}
+          if (!ctl_->poll_switch(&ok, &msg)) {
+            if (++wait_ticks_ > kAsyncWaitTicksMax) {fail_arm_on("CM 没回 switch_controller（3 s）");}
+            return;
+          }
           if (!ok) {fail_arm_on("停 arm_controller 失败：" + msg); return;}
           wait_ticks_ = 0;
           step_ = kArmWaitInactive;
           return;
         }
+        wait_ticks_ = 0;
         if (!ctl_->request_switch(false, &why)) {fail_arm_on(why); return;}
         return;
       }
@@ -392,12 +401,19 @@ private:
       case kArmEnableHw: {
         HardwareGate::Result r;
         if (hw_->pending()) {
-          if (!hw_->poll(&r)) {return;}
+          if (!hw_->poll(&r)) {
+            if (++wait_ticks_ > kAsyncWaitTicksMax) {
+              // 服务"在但不答"：多半是残留进程占着同名服务（或插件卡死）
+              fail_arm_on("插件没回 set_enabled（3 s）—— 它还在吗？看 /arm/hardware_status");
+            }
+            return;
+          }
           if (!r.ok) {fail_arm_on("硬件使能失败：" + r.message); return;}
           if (r.skipped) {RCLCPP_WARN(get_logger(), "%s", r.message.c_str());}
           step_ = kArmVerify;
           return;
         }
+        wait_ticks_ = 0;
         if (!hw_->request(HardwareGate::Req::Enable, &why)) {fail_arm_on(why); return;}
         return;
       }
@@ -432,7 +448,13 @@ private:
         bool ok = false;
         std::string msg;
         if (ctl_->switch_pending()) {
-          if (!ctl_->poll_switch(&ok, &msg)) {return;}
+          if (!ctl_->poll_switch(&ok, &msg)) {
+            if (++wait_ticks_ > kAsyncWaitTicksMax) {
+              state_ = State::Armed;
+              finish_op(false, "CM 没回 switch_controller（3 s）—— 硬件已使能，停在原地", false);
+            }
+            return;
+          }
           if (!ok) {
             // 异常矩阵 #12：控制器起不来 ⇒ **回滚到 ARMED**（硬件仍使能、停在原地），不扔掉臂
             state_ = State::Armed;
@@ -443,6 +465,7 @@ private:
           step_ = kArmWaitActive;
           return;
         }
+        wait_ticks_ = 0;
         if (!ctl_->request_switch(true, &why)) {
           state_ = State::Armed;
           finish_op(false, "硬件已使能，但发起 activate 失败：" + why, false);
@@ -560,11 +583,18 @@ private:
         bool ok = false;
         std::string msg;
         if (ctl_->switch_pending()) {
-          if (!ctl_->poll_switch(&ok, &msg)) {return;}
+          if (!ctl_->poll_switch(&ok, &msg)) {
+            if (++wait_ticks_ > kAsyncWaitTicksMax) {
+              RCLCPP_WARN(get_logger(), "CM 没回 switch_controller（3 s）—— 仍然继续失能");
+              step_ = kDisDisableHw;
+            }
+            return;
+          }
           wait_ticks_ = 0;
           step_ = kDisWaitInactive;
           return;
         }
+        wait_ticks_ = 0;
         if (!ctl_->request_switch(false, &why)) {
           // 停不下来也必须继续去失能（安全侧优先）
           RCLCPP_WARN(get_logger(), "停 arm_controller 失败（%s）—— 仍然继续失能", why.c_str());
@@ -586,7 +616,13 @@ private:
       case kDisDisableHw: {
         HardwareGate::Result r;
         if (hw_->pending()) {
-          if (!hw_->poll(&r)) {return;}
+          if (!hw_->poll(&r)) {
+            if (++wait_ticks_ > kAsyncWaitTicksMax) {
+              state_ = State::Fault;
+              finish_op(false, "插件没回 set_enabled（3 s）⇒ **臂可能仍然使能**，请直接查 /arm/hardware_status 或断电", false);
+            }
+            return;
+          }
           if (!r.ok) {
             state_ = State::Fault;
             finish_op(false,
@@ -598,6 +634,7 @@ private:
             " rad）" + (r.skipped ? "；" + r.message : ""), true);
           return;
         }
+        wait_ticks_ = 0;
         if (!hw_->request(HardwareGate::Req::Disable, &why)) {
           state_ = State::Fault;
           finish_op(false, "失能请求发不出去：" + why + " ⇒ **臂仍然使能**", false);
@@ -646,13 +683,20 @@ private:
       case kEstopHw: {
         HardwareGate::Result r;
         if (hw_->pending()) {
-          if (!hw_->poll(&r)) {return;}
+          if (!hw_->poll(&r)) {
+            if (++wait_ticks_ > kAsyncWaitTicksMax) {
+              estop_hw_msg_ = "插件没回 emergency_stop（3 s）⇒ **可能没失能**，请直接断电";
+              step_ = kEstopDeactivate;      // 仍然继续停控制器，并如实报
+            }
+            return;
+          }
           failed_ = r.failed;
           estop_skipped_ = r.skipped;
           estop_hw_msg_ = r.message;
           step_ = kEstopDeactivate;
           return;
         }
+        wait_ticks_ = 0;
         if (!hw_->request(HardwareGate::Req::EStop, &why)) {
           estop_hw_msg_ = why;
           step_ = kEstopDeactivate;
@@ -664,7 +708,11 @@ private:
         // ③ 停控制器（best effort）：不为了它拖慢急停，一个 tick 内发出去就走
         bool ok = false;
         std::string msg;
-        if (ctl_->switch_pending()) {ctl_->poll_switch(&ok, &msg); step_ = kEstopDone; return;}
+        if (ctl_->switch_pending()) {
+          if (!ctl_->poll_switch(&ok, &msg) && ++wait_ticks_ <= kAsyncWaitTicksMax) {return;}
+          step_ = kEstopDone;                 // 超时也走（急停不为停控制器拖时间）
+          return;
+        }
         if (!ctl_->request_switch(false, &why)) {step_ = kEstopDone; return;}
         return;
       }
