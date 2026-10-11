@@ -1,0 +1,26 @@
+# arm_manage 的参数（设计见 docs/MANAGE_ARCH.md；§十二 的默认值已按此定稿）。
+#
+# ⚠️ **折叠位（park）的真源就在这里**（M-10）：`arm_application/safe_park_node.cpp` 里那份
+#    `kDefaultParkPose` 要一次性迁过来、不再留第二份。迁移完成前两边都有一份 —— 改一个必须改另一个。
+arm_manage:
+  ros__parameters:
+    # 关节名与顺序：与 joint.yaml / align.yaml / URDF 一致（限位来自 arm_description 的生成头）
+    joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    # 折叠位 = **模型坐标**（JTC / joint_states / joint_limits 都是这一套），6 个数按上面顺序
+    park_pose: [1.4724, 0.0008, -0.0233, 0.0027, 0.0069, 0.0149]
+
+    # 控制器侧
+    controller_name: "arm_controller"
+    controller_manager_ns: "/controller_manager"
+
+    # 收臂：vlim 保守（0.15 与 safe_park 同）、残差判据、单次执行超时
+    vlim: 0.15
+    tol_rad: 0.05
+    timeout_sec: 60.0
+    # 收臂失败重试次数。⚠️ 用尽仍失败 ⇒ **保持使能、停在原地**（M-8，绝不把臂扔掉）
+    max_retries: 2
+
+    # 状态话题 /arm/status 的发布频率（latched；新订阅者立刻拿到最后一份 ⇒ 不需要 GetStatus 服务）
+    status_hz: 10.0
+    # 状态机 tick 周期：每 tick 推进一步、立刻返回（服务流程不是硬实时）
+    tick_ms: 20

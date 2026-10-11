@@ -115,8 +115,8 @@
 
 | 环节 | 上下文 | 约束 |
 |---|---|---|
-| 管理层服务回调 | executor 回调 | **只做常量时间的事**：置状态机标志、返回 future；长流程交给 tick |
-| 管理层 tick | 定时器（建议 20 ms） | 每 tick 推进一步、立刻返回；**不许 sleep / 不许阻塞等 future**（[陷阱 #57](AGENTS.md)） |
+| 管理层服务回调 | executor 回调 | ⚠️ **做不到「只做常量时间的事」**（见下）：rclcpp 的 srv **不能延迟回复** —— 回调返回时响应就发出去了 ⇒ 选 A 方案（响应语义真实）就必须**在回调里等状态机完成**。实现 = **MultiThreadedExecutor** + 服务与 tick 分属**不同回调组**（否则回调等 tick、而 tick 进不来 = 陷阱 #57） |
+| 管理层 tick | 定时器（20 ms） | 每 tick 推进一步、立刻返回；**不许 sleep / 不许阻塞等 future**（[陷阱 #57](AGENTS.md)）。**回调组必须与服务分开**，否则服务回调一阻塞就把 tick 饿死 |
 | 发轨迹给 JTC | tick 内 `async_send_goal` | 非阻塞 future（`MotionClient`） |
 | 等待到位 | tick 内 `future.wait_for(0)` | 非阻塞轮询；超时走 `async_cancel_goal`（[陷阱 #60](AGENTS.md)） |
 | 插件使能状态机 | `write()` 里推进 | 每周期最多一次寄存器 I/O；**期间不发控制帧** |
@@ -357,7 +357,7 @@ status_pub_      = node->create_publisher<arm_msgs::msg::HardwareStatus>("/arm/h
 ### 6.3 `EmergencyStop`
 
 ```
-① 取消一切进行中的目标（MotionClient 的 async_cancel_goal；不等待确认，超过 1 s 不再等）
+① 取消一切进行中的目标 —— ⚠️ **实现时偏离**：`arm_motion::MotionClient` 没有公开的 `cancel()`（M9.0 定稿的 API 里没有），所以改用「**立即失能 + 停控制器**」达到同样的物理效果：硬件一失能就没有力矩，而 JTC 在控制器 deactivate 时会中止它的 goal。将来若给 MotionClient 加 `cancel()`，这里再调它
 ② HardwareGate.estop() → /arm/emergency_stop（插件：立即失能、不碰寄存器、永不抛）
 ③ 停控制器（best effort）
 ④ 报："臂将塌回折叠位" + 失能失败的关节 + 锁存故障要断电（陷阱 #39）
@@ -423,7 +423,7 @@ status_pub_      = node->create_publisher<arm_msgs::msg::HardwareStatus>("/arm/h
 | **M9.0** | 抽 `MotionClient` 到 `arm_motion`；`safe_park_node` 改用它（行为不变） | ① 假 action server 单测：正常到达 / 超时 / 取消确认 / 残差超差；② 与旧 `safe_park` 同参数下**发出的轨迹逐字段一致**；③ 真机回归残差与迁移前同量级 |
 | **M9.1** | `arm_msgs` 加 5 srv + 1 msg；扩展 `ArmStatus` | ✅ **已落地（2026-10-11）**：10 个接口 `ros2 interface show` 全对、`colcon build` 通过；**无任何包依赖 `arm_msgs`** ⇒ 替换 `ArmStatus` 的老字段是安全的 |
 | **M9.2** | 插件：`armed_` + 使能 FSM + 状态发布 + 2 服务 | ✅ **已落地（2026-10-11）**：21 个插件单测全过（14 原有 + 7 新）；真机上**只读启动**下 `/arm/set_enabled`/`/arm/emergency_stop` 注册成功、`/arm/hardware_status` **10.0 Hz** 内容正确；`SetEnabled(true)` ⇒ `success=True`、`err` 全 1、**`/joint_states` 位移为零**（实测算术序列 **70 ms**）；`SetEnabled(false)` ⇒ 全 ERR=0、幂等复测返回「已经是失能态（幂等）」 |
-| **M9.3** | `arm_manage` 节点（两个 Gate + 3 服务 + 聚合状态） | mock 链上跑通 `arm_on` / `safe_disarm` / `emergency_stop`，断言**调用顺序**（控制器先 inactive）与 `state_machine` 迁移 |
+| **M9.3** | `arm_manage` 节点（两个 Gate + 3 服务 + 聚合状态） | ✅ **已落地（2026-10-11）**：mock 链 + 假插件，**25 项断言全绿** —— 含 **M-3 顺序不变量**（插件收到 enable/disable 的那一刻 `arm_controller` 已 inactive）、`safe_disarm` 真收臂（残差 0.000000、attempts=1、2.5 s）、**已在 park ⇒ 跳过运动**（attempts=0、0.1 s）、幂等、急停、以及 `/arm/status` 迁移 `READONLY→ARMING→ARMED_CONTROLLER→DISARMING→READONLY`（**无假 FAULT**） |
 | **M9.4** | 总 launch 取代三份 | 一条命令起全栈；`use_mock` 贯穿；mock/真机互斥；只起一个 RViz |
 | **M9.5** | 真机分级验收 | 只读 → `arm_on(with_controller=false)` → **零位移保持** → `arm_on(with_controller=true)` → 小动作 → `safe_disarm`（残差对拍）→ `emergency_stop`（确认塌且无异常）；每步记 ERR/温度 |
 

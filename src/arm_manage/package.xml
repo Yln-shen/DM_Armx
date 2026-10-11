@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_manage</name>
+  <version>0.0.0</version>
+  <description>
+    DM_Armx 的**管理层**：把"控制器生命周期"与"硬件使能"两件必须成对做对的事编排成一个状态机
+    （设计见 docs/MANAGE_ARCH.md）。对外只提供 3 个服务 + 1 个状态话题。
+  </description>
+  <maintainer email="3432607998@qq.com">ylnn</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <!-- 两个 Gate 的接口：插件级 srv + HardwareStatus/ArmStatus -->
+  <depend>arm_msgs</depend>
+  <!-- 发轨迹给 JTC 的执行件（M9.0 抽出来的那份，别在这里重写一遍） -->
+  <depend>arm_motion</depend>
+  <!-- 模型坐标关节限位（构建期生成；JTC 不校验限位，见陷阱 #59） -->
+  <depend>arm_description</depend>
+  <!-- controller_manager 的 switch_controller / list_controllers -->
+  <depend>controller_manager_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
