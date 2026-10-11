@@ -10,13 +10,13 @@
 
 #include <glob.h>
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <limits>
-#include <stdexcept>
-#include <thread>
-#include <unordered_map>
+#include <algorithm>   // std::fill, std::max, std::min
+#include <chrono>      // 时间间隔
+#include <cmath>       // std::fabs, std::isfinite, std::tanh, std::isnan
+#include <limits>      // std::numeric_limits
+#include <stdexcept>   // 异常
+#include <thread>      // std::this_thread::sleep_for
+#include <unordered_map> // 参数表
 
 namespace motor_driver_hardware
 {
@@ -29,36 +29,39 @@ using hardware_interface::return_type;
 
 // ── 寄存器 ──
 constexpr uint8_t kRegCtrlMode = 0x0A;   // CTRL_MODE（RAM；uint32）
-constexpr uint8_t kRegKpAsr = 0x19;
-constexpr uint8_t kRegKiAsr = 0x1A;
-constexpr uint8_t kRegKpApr = 0x1B;
-constexpr uint8_t kRegKiApr = 0x1C;
+constexpr uint8_t kRegKpAsr = 0x19;  // 速度环 Kp
+constexpr uint8_t kRegKiAsr = 0x1A;  // 速度环 Ki
+constexpr uint8_t kRegKpApr = 0x1B;  // 位置环 Kp
+constexpr uint8_t kRegKiApr = 0x1C;  // 位置环 Ki
 
 // ── 重力前馈的残差守卫阈值（**调这里 = 改安全行为，想清楚再动**）──
 // 语义分两种，否则一跑轨迹就误触发（机械臂本来就要离开激活姿态）：
 //   保持（命令 NaN）⇒ 比"偏离使能时锁定的保持点"，位置 kGuardRad / 速度 kGuardRadPerS；
 //   有命令（跑轨迹）⇒ 比"跟踪误差"（命令 − 实测），阈值放宽到 kGuardTrackRad，只抓"跑飞"。
-constexpr double kGuardRad = 0.1;
-constexpr double kGuardRadPerS = 0.5;
-constexpr double kGuardTrackRad = 0.3;
+constexpr double kGuardRad = 0.1;          // 保持态位置偏差阈值 0.1 rad
+constexpr double kGuardRadPerS = 0.5;      // 保持态速度阈值 0.5 rad/s
+constexpr double kGuardTrackRad = 0.3;     // 跟踪误差阈值 0.3 rad
 // 速度那一路的宽限与防抖：使能到第一次 write 之间 MIT 是零增益的，机械臂**真的在掉**
 // （2026-10-05 实测 0.7~1.5 rad/s）⇒ 一个采样就锁死会把整轮前馈白废掉。
-constexpr double kGuardGraceSec = 0.5;
-constexpr double kGuardVelDebounceSec = 0.2;
+constexpr double kGuardGraceSec = 0.5;      // 激活后 0.5s 内不查速度
+constexpr double kGuardVelDebounceSec = 0.2; // 速度越限需持续 0.2s 才触发
 
 // ── 宿主侧积分（ki_hold）的三个保护（理由见 arm_description/config/mit_gains.yaml 顶部）──
 constexpr double kIntegGateRad = 0.15;    // 误差门控：|q_des−q| 超过它就不积分
 constexpr double kIntegFrac = 0.3;        // τ_i 上限 = 0.3 × torque_max
 constexpr double kIntegResetRad = 0.05;   // 参考单周期跳变超过它 ⇒ 复位积分
 
+// 判断参数是否存在。
 bool has(const Params & m, const std::string & key) {return m.count(key) != 0;}
 
+// 取字符串参数，缺省返回 def。
 std::string as_str(const Params & m, const std::string & key, const std::string & def)
 {
   auto it = m.find(key);
   return it == m.end() ? def : it->second;
 }
 
+// 取 double。用 used 检查是否整个字符串都被解析（防止 "1.2abc" 被当作 1.2）。
 double as_double(const Params & m, const std::string & key, double def)
 {
   auto it = m.find(key);
@@ -71,11 +74,13 @@ double as_double(const Params & m, const std::string & key, double def)
   return v;
 }
 
+// 取 int（复用 double 解析）
 int as_int(const Params & m, const std::string & key, int def)
 {
   return static_cast<int>(as_double(m, key, static_cast<double>(def)));
 }
 
+// 严格的布尔解析，不接受其它写法。
 bool as_bool(const Params & m, const std::string & key, bool def)
 {
   auto it = m.find(key);
@@ -104,6 +109,8 @@ std::string list_tty_acm_devices()
 
 }  // namespace
 
+// 析构函数
+// 析构时释放串口/总线/关节对象。
 DmSystemInterface::~DmSystemInterface()
 {
   teardown();
@@ -111,12 +118,15 @@ DmSystemInterface::~DmSystemInterface()
 
 // ══════════════════════════ 参数 ══════════════════════════
 
+// parse_one_joint：解析单个关节
 bool DmSystemInterface::parse_one_joint(const hardware_interface::ComponentInfo & j)
 {
+  // motor_id 必填
   const Params & p = j.parameters;
   if (!has(p, "motor_id")) {
     throw std::invalid_argument("关节 " + j.name + " 缺 <param name=\"motor_id\">");
   }
+  // 电机 ID 范围 1~6（DM 总线协议限制）。
   JointParams jp;
   jp.name = j.name;
   jp.cfg.name = j.name;
@@ -124,21 +134,30 @@ bool DmSystemInterface::parse_one_joint(const hardware_interface::ComponentInfo 
   if (jp.cfg.motor_id < 1 || jp.cfg.motor_id > 6) {
     throw std::invalid_argument("关节 " + j.name + " 的 motor_id 必须在 1~6");
   }
-  jp.cfg.direction = as_int(p, "direction", 1);
-  jp.cfg.offset = as_double(p, "offset", 0.0);
-  jp.cfg.motor_type = as_str(p, "motor_type", "");
-  jp.cfg.limit = Limit{as_double(p, "p_max", 12.5), as_double(p, "v_max", 10.0),
-    as_double(p, "t_max", 28.0)};
+
+  jp.cfg.direction = as_int(p, "direction", 1);        // 电机安装方向
+  jp.cfg.offset = as_double(p, "offset", 0.0);         // 零点偏移
+  jp.cfg.motor_type = as_str(p, "motor_type", "");     // 型号（用于限幅查表）
+  jp.cfg.limit = Limit{as_double(p, "p_max", 12.5),
+                       as_double(p, "v_max", 10.0),
+                       as_double(p, "t_max", 28.0)};   //位置/速度/力矩上限（默认 DM 电机典型值）。
+  
+  // 可选软限位。                     
   if (has(p, "position_min")) {jp.cfg.position_min = as_double(p, "position_min", 0.0);}
   if (has(p, "position_max")) {jp.cfg.position_max = as_double(p, "position_max", 0.0);}
+
   // gravity_ff=true ⇒ 整条链走 MIT（只有 MIT 能直接给力矩，重力前馈必须有它）；
   // false ⇒ 一切照旧 POS_VEL（固件闭环，静态精度最好）
-  jp.cfg.mode = gravity_ff_ ? 1 : 2;
+  jp.cfg.mode = gravity_ff_ ? 1 : 2; //根据 gravity_ff_ 决定控制模式：1=MIT，2=POS_VEL。
+
+  // sign 是矢量符号（位置/速度/力矩统一乘它），只允许 ±1。
   jp.sign = as_int(p, "sign", 1);
   if (jp.sign != 1 && jp.sign != -1) {
     throw std::invalid_argument("关节 " + j.name + " 的 sign 只能是 ±1");
   }
+  // 标量零点偏移（只作用于位置，不作用于矢量）。
   jp.zero_shift = as_double(p, "zero_shift", 0.0);
+  // MIT 保持增益、积分增益、摩擦前馈参数。
   if (has(p, "torque_max")) {jp.cfg.torque_max = as_double(p, "torque_max", 0.0);}
   jp.kp_hold = as_double(p, "kp_hold", 0.0);
   jp.kd_hold = as_double(p, "kd_hold", 0.0);
@@ -146,6 +165,7 @@ bool DmSystemInterface::parse_one_joint(const hardware_interface::ComponentInfo 
   jp.friction_c = as_double(p, "friction_c", 0.0);              // 默认 0 = 摩擦前馈不生效
   jp.friction_v_eps = as_double(p, "friction_v_eps", 0.0);
 
+  // 只在开启重力前馈时才强制校验这些参数。
   if (gravity_ff_) {
     // 打开重力前馈才校验 —— 默认 false 时这些参数不该拦住任何东西
     if (!jp.cfg.torque_max.has_value() || !(*jp.cfg.torque_max > 0.0)) {
@@ -170,7 +190,7 @@ bool DmSystemInterface::parse_one_joint(const hardware_interface::ComponentInfo 
         "（它是 tanh 的速度尺度，给 0 会除零）");
     }
   }
-  // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值）
+  // PID 四个都给了才写（不给 = 保留电机 RAM 里的当前值），避免只改部分导致混乱
   if (has(p, "kp_asr") && has(p, "ki_asr") && has(p, "kp_apr") && has(p, "ki_apr")) {
     jp.pid = std::array<double, 4>{as_double(p, "kp_asr", 0.0), as_double(p, "ki_asr", 0.0),
       as_double(p, "kp_apr", 0.0), as_double(p, "ki_apr", 0.0)};
@@ -179,6 +199,7 @@ bool DmSystemInterface::parse_one_joint(const hardware_interface::ComponentInfo 
   return true;
 }
 
+// log_params：打印参数摘要
 void DmSystemInterface::log_params() const
 {
   std::string summary;
@@ -192,6 +213,7 @@ void DmSystemInterface::log_params() const
       ",fc" + std::to_string(jp.friction_c) +
       (jp.pid.has_value() ? ",pid" : "") + ")";
   }
+  // 逐关节拼接参数摘要
   RCLCPP_INFO(get_logger(),
     "参数就绪：%zu 关节%s\n  device=%s baud=%d vlim=%.3f rad/s enable_on_activate=%s"
     "\n  gravity_ff=%s scale=%.3f urdf_path=%s",
@@ -200,10 +222,11 @@ void DmSystemInterface::log_params() const
     gravity_ff_ ? "true（整链 MIT + 重力前馈）" : "false（走 POS_VEL）", gravity_ff_scale_,
     urdf_path_.empty() ? "(未给)" : urdf_path_.c_str());
 }
-
+// parse_params：解析硬件级参数
 bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & info)
 {
   try {
+    // 读取硬件级参数。安全默认：只读、不使能。
     const Params & hp = info.hardware_parameters;
     device_ = as_str(hp, "device", "/dev/ttyACM0");   // 兜底值；真源是 joint.yaml 的 channel（xacro 注入）
     baud_ = as_int(hp, "baud", 921600);
@@ -214,6 +237,8 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     gravity_ff_ = as_bool(hp, "gravity_ff", false);
     urdf_path_ = as_str(hp, "urdf_path", "");
     gravity_ff_scale_ = as_double(hp, "gravity_ff_scale", 1.0);
+
+    // 参数合法性校验。
     if (!(vlim_ > 0.0)) {throw std::invalid_argument("vlim 必须是正数（rad/s）");}
     if (fail_streak_limit_ <= 0) {throw std::invalid_argument("fail_streak_limit 必须是正整数");}
     if (!std::isfinite(gravity_ff_scale_) || gravity_ff_scale_ < 0.0 || gravity_ff_scale_ > 1.0) {
@@ -223,7 +248,8 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
     if (gravity_ff_ && urdf_path_.empty()) {
       throw std::invalid_argument("gravity_ff=true 时必须给 <param name=\"urdf_path\">（动力学模型）");
     }
-
+    
+    // 初始化运行时数组和硬件接口数组。用 NaN 而非 0：表示"还没有数据"，避免谎报。
     joints_.clear();
     for (const auto & j : info.joints) {parse_one_joint(j);}
     if (joints_.empty()) {throw std::invalid_argument("URDF 里一个关节都没有");}
@@ -244,7 +270,7 @@ bool DmSystemInterface::parse_params(const hardware_interface::HardwareInfo & in
 }
 
 // ══════════════════════════ 骨架 ══════════════════════════
-
+// 支持"注入 IO"（测试用假串口），否则自建 SerialPort。然后建总线、每关节一个 Joint 对象。
 void DmSystemInterface::build_hardware()
 {
   if (injected_io_ == nullptr) {owned_io_ = std::make_unique<SerialPort>(device_, baud_);}
@@ -253,6 +279,7 @@ void DmSystemInterface::build_hardware()
   for (auto & jp : joints_) {jp.joint = std::make_unique<Joint>(*bus_, jp.cfg);}
 }
 
+//逆序释放。
 void DmSystemInterface::teardown()
 {
   for (auto & jp : joints_) {jp.joint.reset();}
@@ -261,6 +288,7 @@ void DmSystemInterface::teardown()
   io_ = nullptr;
 }
 
+// 尽力失能所有电机，不抛异常（收尾路径）
 void DmSystemInterface::disable_all_quietly()
 {
   if (bus_ == nullptr || io_ == nullptr || !io_->is_open()) {return;}
@@ -274,6 +302,7 @@ void DmSystemInterface::disable_all_quietly()
   }
 }
 
+// 坐标换算包装（调用头文件里的自由函数）。
 double DmSystemInterface::model_to_ours(std::size_t i, double q_urdf) const
 {
   const JointParams & jp = joints_[i];
@@ -287,7 +316,7 @@ double DmSystemInterface::ours_to_model(std::size_t i, double q_ours) const
 }
 
 // ══════════════════════════ 生命周期 ══════════════════════════
-
+// 先调基类 on_init，再解析参数。
 CallbackReturn DmSystemInterface::on_init(
   const hardware_interface::HardwareComponentInterfaceParams & params)
 {
@@ -298,6 +327,7 @@ CallbackReturn DmSystemInterface::on_init(
   return CallbackReturn::SUCCESS;
 }
 
+// 构建硬件对象（此时还没开串口）。
 CallbackReturn DmSystemInterface::on_configure(const rclcpp_lifecycle::State &)
 {
   try {
@@ -307,6 +337,8 @@ CallbackReturn DmSystemInterface::on_configure(const rclcpp_lifecycle::State &)
     teardown();
     return CallbackReturn::ERROR;
   }
+
+  // 构建重力模型（Pinocchio 之类）。预分配缓冲避免 write() 里分配内存（实时性要求）。失败直接 FATAL，不降级。
   if (gravity_ff_) {
     // 重力模型在这里一次性建好（Data/缓冲都预分配）⇒ write() 里零堆分配。
     // 构造失败**不静默降级**：少算一个关节的重力就敢发力矩，比直接起不来危险得多。
@@ -336,6 +368,7 @@ CallbackReturn DmSystemInterface::on_configure(const rclcpp_lifecycle::State &)
 
 CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
 {
+  // 打开串口。
   if (bus_ == nullptr) {
     RCLCPP_FATAL(get_logger(), "还没 configure 就 activate");
     return CallbackReturn::ERROR;
@@ -344,6 +377,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     bus_->open();
     RCLCPP_INFO(get_logger(), "串口已打开：%s @%d", device_.c_str(), baud_);
 
+    // 等待所有电机上线，最多 ~8 秒。这是真机踩坑后的经验。
     // 冷启动/刚上电时电机回得慢 ⇒ **重试**到全部就位（最多 ~5 秒），别"一次采样就判死刑"。
     // 2026-10-05 真机踩过：只做一次 2 秒 sync_states 就要求 6 台全在 ⇒ 偶发一台慢（Python 侧一问
     // 全部正常）⇒ on_activate 直接 FATAL ⇒ 硬件没激活 ⇒ 没有 /joint_states ⇒ RViz 里"残缺的模型"。
@@ -367,6 +401,8 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
+
+    // 要动电机就要求全部在线；只读模式容忍缺失。
     if (!missing.empty()) {
       std::string names;
       for (const auto & m : missing) {names += " " + m;}
@@ -381,6 +417,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
         "只读模式：%zu 台没有反馈（%s）—— 继续跑（不影响其它关节）", missing.size(), names.c_str());
     }
 
+    // 写控制模式寄存器（必须每次激活都写，因为是 RAM）。可选写 PID。
     // 逐台：切控制模式（0x0A 是 RAM，掉电回 MIT ⇒ 每次激活都要写）+ 可选写 PID
     const uint32_t mode = gravity_ff_ ? 1u : 2u;      // 1 = MIT（重力前馈）/ 2 = 位置速度
     for (const auto & jp : joints_) {
@@ -403,6 +440,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
       }
     }
 
+    // 重置所有状态，防止跨运行污染。
     // 命令先全部置 NaN ⇒ write() 里会走"保持"（用**锁定的**保持目标），绝不朝零位冲
     const double nan = std::numeric_limits<double>::quiet_NaN();
     std::fill(hw_commands_.begin(), hw_commands_.end(), nan);
@@ -417,13 +455,17 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
     }
     guard_ = GravityGuard{};
 
+    // 只读模式直接返回。
     if (!enable_on_activate_) {
       RCLCPP_WARN(get_logger(),
         "enable_on_activate=false：**只读** —— 不使能、不发控制帧，只发 0x7FF 刷新帧读状态");
       return CallbackReturn::SUCCESS;
     }
 
+    // 使能所有电机（内部会先补保持帧）。
     for (auto & jp : joints_) {jp.joint->enable();}      // 内部会先查缓存位置，再补保持帧
+
+    // 锁定保持目标（电机侧和关节侧各存一份）。
     // 锁定保持目标 = 刚使能时的电机侧实测位置，之后 write() 一直发它。
     // 为什么不每圈重读："读哪停哪"没有回复力，重力能把关节慢慢压走（陷阱 #38）。
     for (std::size_t i = 0; i < joints_.size(); ++i) {
@@ -438,6 +480,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
       rt_[i].hold_ours = joints_[i].joint->motor_to_joint(st->pos);
     }
 
+    // 关键：MIT 模式下 enable() 只是零增益保持帧，机械臂会自由下落。立刻补发一帧带重力的真实保持帧。
     if (gravity_ff_) {
       // ⚠️ MIT 下 `enable()` 发的是**零增益零前馈**保持帧（出力恒为 0）⇒ 到第一次 write()
       //    之间机械臂是**自由下落**的。真机实测（2026-10-05）：j4 在这段窗口里掉了 0.104 rad，
@@ -456,6 +499,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
         joints_.size(), kHoldVlim);
     }
     return CallbackReturn::SUCCESS;
+    // 异常处理：打印可用设备、尽力失能、关串口。
   } catch (const std::exception & e) {
     RCLCPP_FATAL(get_logger(), "on_activate 失败：%s", e.what());
     RCLCPP_FATAL(get_logger(),
@@ -473,6 +517,7 @@ CallbackReturn DmSystemInterface::on_activate(const rclcpp_lifecycle::State &)
   }
 }
 
+// 失能（不关串口，可重新激活）。
 CallbackReturn DmSystemInterface::on_deactivate(const rclcpp_lifecycle::State &)
 {
   RCLCPP_INFO(get_logger(), "deactivate：全部失能");
@@ -480,6 +525,7 @@ CallbackReturn DmSystemInterface::on_deactivate(const rclcpp_lifecycle::State &)
   return CallbackReturn::SUCCESS;
 }
 
+// 彻底清理（关串口 + 释放对象）。
 CallbackReturn DmSystemInterface::on_cleanup(const rclcpp_lifecycle::State &)
 {
   disable_all_quietly();
@@ -493,6 +539,7 @@ CallbackReturn DmSystemInterface::on_cleanup(const rclcpp_lifecycle::State &)
   return CallbackReturn::SUCCESS;
 }
 
+// 错误状态下也尽力安全收尾。
 CallbackReturn DmSystemInterface::on_error(const rclcpp_lifecycle::State &)
 {
   RCLCPP_ERROR(get_logger(), "进入 error 状态：尽力失能并关串口");
@@ -594,6 +641,7 @@ return_type DmSystemInterface::read(const rclcpp::Time &, const rclcpp::Duration
 
 // ══════════════════════════ 周期写 ══════════════════════════
 
+// 分派：没 bus → ERROR，只读模式 → 什么都不发，重力前馈 → MIT 路径，否则 → POS_VEL 路径
 return_type DmSystemInterface::write(const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   if (bus_ == nullptr) {return return_type::ERROR;}
@@ -603,6 +651,8 @@ return_type DmSystemInterface::write(const rclcpp::Time & time, const rclcpp::Du
   return write_pos_vel();
 }
 
+// 命令是 NaN → 发保持帧，目标是使能那一刻锁定的电机侧实测值，不换算不钳位、也不重读（重读=follow-me，没有回复力，陷阱 #38）。
+// 有命令 → 正常 set_pos_vel。
 return_type DmSystemInterface::write_pos_vel()
 {
   for (std::size_t i = 0; i < joints_.size(); ++i) {
