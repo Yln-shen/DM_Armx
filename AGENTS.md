@@ -386,9 +386,9 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   `arm_application` 的 `uncrustify`（5 处格式分歧）+ `motor_driver` 的 `pytest`
   + **`arm_bringup` 的 "Ran 0 tests / NO TESTS RAN"（exit code 5）** ——
   该包**根本没有 `test/` 目录**，ament_cmake 的默认 pytest 空跑就返回 5。
-  ⚠️ **不是回归**：2026-10-14 改 launch 时验证过，与改动无关（`git stash` 前后同款）。
-  要清掉就给该包加 `if(BUILD_TESTING)` 的真实测试，或干脆声明它没有测试
-  （`pluggy ... Plugin 'launch_testing' for hook 'pytest_pycollect_makemodule'`，**插件环境错**）。
+  ⚠️ **不是回归**：2026-10-14 改 launch 时验证过，与改动无关。要清掉就给该包加真实测试。
+  （`motor_driver` 那条 pytest 是 `pluggy ... Plugin 'launch_testing' for hook
+  'pytest_pycollect_makemodule'`，**插件环境错**，与代码无关）
   - 原来还有 `flake8`(36) / `pep257`(3)：它们检查的正是 `arm_application/launch/safe_park.launch.py`，
     **该文件 2026-10-11 随 M9.4 删除 ⇒ 那 39 个失败自动消失**（注意：**不是「修好了」**）。
     ⚠️ 删文件后 `colcon test-result` 仍会把**陈旧的 xunit 文件**算进去 ⇒ 先
