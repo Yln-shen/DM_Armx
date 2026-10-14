@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_controllers</name>
+  <version>0.0.0</version>
+  <description>
+    控制层：控制律（重力前馈 / 摩擦前馈 / 宿主侧积分 / 守卫策略）与把它接进 ros2_control 的控制器。
+    设计见 docs/LAYERS.md（硬件/控制层的分工）与 docs/DESIGN.md §D8。
+    **本包不碰串口、不碰协议、不判使能** —— 那些在 motor_driver_hardware。
+  </description>
+  <maintainer email="3432607998@qq.com">Yln-shen</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 纯 C++ 核：pinocchio 算 τ_g。**不依赖 rclcpp** ⇒ 控制律可以脱开 ROS 单测。
+       ⚠️ 不单独声明 eigen：pinocchio 的 CMake target 会把 Eigen 的 include 传出来，
+          而 rosdep 里没有叫 "eigen" 的键（写了会让 rosdep 解析失败）。 -->
+  <depend>pinocchio</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

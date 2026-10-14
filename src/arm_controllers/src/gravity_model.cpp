@@ -1,14 +1,13 @@
-// dm_gravity.cpp —— 重力项实现（pinocchio 的 RNEA 静态特例：零速度、零加速度 ⇒ 只剩重力）。
-// 输入机械臂当前角度，输出每个关节的重力力矩
-
-#include "motor_driver_hardware/dm_gravity.hpp"
+// gravity_model.cpp —— 重力项实现（pinocchio 的 `computeGeneralizedGravity`：RNEA 的静态特例，
+// 零速度零加速度 ⇒ 只剩重力）。
+#include "arm_controllers/gravity_model.hpp"
 
 #include <pinocchio/algorithm/rnea.hpp>
 
 #include <cmath>
 #include <stdexcept>
 
-namespace motor_driver_hardware
+namespace arm_controllers
 {
 
 GravityModel::GravityModel(const std::string & urdf_path,
@@ -29,6 +28,9 @@ GravityModel::GravityModel(const std::string & urdf_path,
       throw std::invalid_argument(
         "GravityModel：sign 只能是 ±1（收到 " + std::to_string(s) + "）");
     }
+  }
+  if (urdf_path.empty()) {
+    throw std::invalid_argument("GravityModel：urdf_path 是空的（参数没给？）");
   }
 
   pinocchio::urdf::buildModel(urdf_path, model_);
@@ -55,15 +57,11 @@ GravityModel::GravityModel(const std::string & urdf_path,
 
 void GravityModel::tau_ours(const double * q_urdf, double * out)
 {
-  // 1. 检查输入有限
-  // 2. 写进预分配缓冲
-  // 3. Pinocchio 算
-  // 4. 乘 sign
   for (std::size_t k = 0; k < jidx_.size(); ++k) {
     if (!std::isfinite(q_urdf[k])) {
       throw std::invalid_argument(
         "GravityModel：q 里有非有限数（NaN/inf），拒绝算重力项 —— "
-        "宁可让调用方退回 POS_VEL，也不要发一个 NaN 力矩出去");
+        "宁可让调用方本周期不发 effort，也不要写一个 NaN 力矩出去");
     }
   }
   // 按 idx_q 摆进"模型顺序"的缓冲：零分配（q_buf_ 在构造时建好）
@@ -77,4 +75,4 @@ void GravityModel::tau_ours(const double * q_urdf, double * out)
   }
 }
 
-}  // namespace motor_driver_hardware
+}  // namespace arm_controllers

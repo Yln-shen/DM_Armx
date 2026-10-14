@@ -14,8 +14,10 @@
   ros2 launch arm_bringup arm_system.launch.py use_mock:=false
   ros2 service call /arm_manage/arm_on arm_msgs/srv/ArmOn "{with_controller: true}"
 
-  # ⑤ 真机 + 重力前馈（整链 MIT；先小 scale 分级上电）
-  ros2 launch arm_bringup arm_system.launch.py use_mock:=false gravity_ff:=true gravity_ff_scale:=0.2
+  # ⑤ 真机 + **预置 MIT**（`gravity_ff:=true` 只让硬件在"还没有控制器"时预置 MIT + effort=0，
+  #    硬件**不自算重力**；真正的前馈量由控制层的重力补偿控制器经 effort 命令接口送来 ——
+  #    那个控制器还没实现（R2）。⚠️ `gravity_ff_scale` 已不再是硬件参数（分级上电的缩放在控制层）。
+  ros2 launch arm_bringup arm_system.launch.py use_mock:=false gravity_ff:=true
 
 **它起什么**：`ros2_control_node`（硬件 = mock 或 `DmSystemInterface`）→ `robot_state_publisher` →
 `joint_state_broadcaster` → `arm_controller`（**默认只装载、不激活**，见下）→ `arm_manage_node`（管理层）→ 一个 RViz。
@@ -77,10 +79,10 @@ def generate_launch_description():
         description="控制器是否声索 velocity 命令接口（MIT 速度前馈要用）。默认只声索 position")
     gravity_ff = DeclareLaunchArgument(
         "gravity_ff", default_value="false",
-        description="重力前馈总开关：true ⇒ 整链进 MIT + 每帧重力前馈，并自动改用 MIT 版控制器配置")
-    gravity_ff_scale = DeclareLaunchArgument(
-        "gravity_ff_scale", default_value="1.0",
-        description="重力前馈缩放 0~1（**分级上电用**：第一次上真机从 0.2 开始）")
+        description="预置控制模式：true ⇒ 硬件在**没有控制器**时预置 MIT + effort=0，"
+                    "并自动改用 MIT 版控制器配置（多声索 velocity）。"
+                    "⚠️ 硬件**不自算重力**（控制律在控制层，见 docs/LAYERS.md §4）；"
+                    "真正的前馈量由控制层的重力补偿控制器经 effort 命令接口送来（R2 才实现）")
 
     # ── 运行时补 LD_LIBRARY_PATH（我们自己的可执行文件需要；见文件头说明）──
     conda_prefix = os.environ.get("CONDA_PREFIX", "")
@@ -118,7 +120,6 @@ def generate_launch_description():
             " enable_on_activate:=", LaunchConfiguration("enable_on_activate"),
             " vlim:=", LaunchConfiguration("vlim"),
             " gravity_ff:=", LaunchConfiguration("gravity_ff"),
-            " gravity_ff_scale:=", LaunchConfiguration("gravity_ff_scale"),
         ]),
         value_type=str)
 
@@ -190,7 +191,7 @@ def generate_launch_description():
     return LaunchDescription([
         use_mock, use_rviz, start_arm_manage, enable_on_activate,
         spawn_arm_controller, arm_controller_inactive, vlim, use_gripper,
-        mit_controllers, gravity_ff, gravity_ff_scale,
+        mit_controllers, gravity_ff,
         *env_actions,
         control_node,
         robot_state_publisher,

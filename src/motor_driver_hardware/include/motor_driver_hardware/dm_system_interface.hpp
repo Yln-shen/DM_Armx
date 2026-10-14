@@ -1,5 +1,9 @@
 // dm_system_interface.hpp —— ros2_control 的 `SystemInterface` 插件（把 C++ 核接到真机）。
 //
+// **这一层的职责**（LAYERS §2）：串口与帧 I/O、把上层给的目标**装配成 CAN 帧**、使能/失能（电气动作）、
+// 反馈 → 状态接口、**物理**边界（PMAX / `torque_max`）、喂 500 ms 看门狗、ERR 上报。
+// **不做**：控制律（τ_g / 摩擦 / 积分 / 守卫策略）、轨迹、模型软限位、业务流程 —— 那些属于控制层/运动层。
+//
 // 三层坐标系（**这是本文件最容易看错的地方**）：
 //     URDF / 模型坐标  ←sign/zero_shift→  我们的关节坐标 q_ours  ←direction/offset→  电机 p_m
 //   - ros2_control 的**命令与状态接口都是模型坐标**（和 URDF、JTC 一致）；
@@ -7,12 +11,15 @@
 //   - 换算常量：`sign`/`zero_shift` 来自 arm_description/config/align.yaml，
 //     `direction`/`offset` 来自 motor_driver/config/joint.yaml —— 由 xacro 变成 <param> 传进来。
 //
-// 两条控制路径（由 `gravity_ff` 选，见 write()）：
-//   - `gravity_ff=false`（默认）：整链 POS_VEL，固件闭环，静态精度最好；`write_pos_vel()`。
-//   - `gravity_ff=true`：整链 MIT（只有它能直接给力矩）+ 重力前馈；`write_gravity_ff()`。
+// 两种控制模式由 **`effort` 命令接口的 NaN 语义**选（D-L1，见 docs/LAYERS.md §4 与 dm_frame_plan.hpp）：
+//   - `effort` 是 NaN（没有控制器声索力矩）⇒ **POS_VEL**：位置给固件闭环，静态精度最好；
+//   - `effort` 是有限值（控制器在写力矩）  ⇒ **MIT**：硬件的 PD（`kp_hold`/`kd_hold`）**加上**
+//     `effort` 当 `tau_ff`（D-L2：控制器只写前馈量，PD 留在硬件层）。
+//   模式可以**运行期切换**（控制器起停 ⇒ 模式必然变），由 `advance_mode_fsm()` 一次切一台。
+//   ⚠️ `gravity_ff` 参数只决定"**没有控制器时**预置哪一种模式"（见 parse_params），不再是整链开关。
 //
 // 安全设计（都是真机踩出来的，别删）：
-//   1. **命令是 NaN 就发"保持"**（目标是**使能那一刻锁定**的电机侧位置）：ros2_control 里没被写过的
+//   1. **命令是 NaN 就发"保持"**（目标是**使能那一刻锁定**的位置）：ros2_control 里没被写过的
 //      命令接口就是 NaN，当 0 处理 = 一使能就朝零位冲。锁定而不是"每圈重读实测值"，是因为后者没有
 //      回复力 —— 重力能把关节慢慢压走（陷阱 #38，2026-10-05 真机实测 20s 掉 0.0027 rad）；
 //   2. `write()` 每圈给**所有**关节发帧：不发帧的会被电机侧 500ms 看门狗打成锁存 ERR=13（只能断电清）；
@@ -40,7 +47,7 @@
 #include <vector>
 
 #include "motor_driver_hardware/dm_bus.hpp"
-#include "motor_driver_hardware/dm_gravity.hpp"
+#include "motor_driver_hardware/dm_frame_plan.hpp"
 #include "motor_driver_hardware/dm_joint.hpp"
 #include "motor_driver_hardware/dm_serial.hpp"
 
@@ -81,7 +88,7 @@ public:
   // write() 里逐周期推进的状态机（失能请求优先、可打断使能序列）。
   void advance_enable_fsm();
   // read() 里每 kStatusEvery 圈调一次（10 Hz）：**只有插件能发** —— ros2_control 的状态接口
-  // 只有控制器读得到，外部节点拿不到 ERR/温度/守卫（见 MANAGE_ARCH M-5）。
+  // 只有控制器读得到，外部节点拿不到 ERR/温度（见 MANAGE_ARCH M-5）。
   void publish_status();
   // 服务处理（在 on_configure 里注册）
   void handle_set_enabled(
@@ -109,18 +116,10 @@ private:
     double zero_shift = 0.0;
     std::optional<std::array<double, 4>> pid;         // KP_ASR/KI_ASR/KP_APR/KI_APR；空 = 不写 PID
     std::unique_ptr<Joint> joint;
-    // MIT（gravity_ff=true）才用得上：
+    // MIT 的保持增益（D-L2：**留在硬件层** —— "这台电机怎么调"）。控制器只写 `effort` 前馈量，
+    // PD 由硬件在自己的 100 Hz 里叠上去。
     double kp_hold = 0.0;
     double kd_hold = 0.0;
-    // ki_hold：**宿主侧积分增益**（默认 0 = 不生效）。MIT 固件没有积分，稳态误差被
-    // "不可重复扰动/kp" 卡住（真机 j3 在 kp=7 下差 0.134 rad，而 POS_VEL 是 0.0016 rad）
-    // ⇒ τ_i 加进 MIT 帧的 t_ff，就变成"宿主侧 PI + 重力前馈"。
-    double ki_hold = 0.0;
-    // 库仑摩擦前馈（**只在有命令/跑轨迹时生效**）：τ_ff += +friction_c·tanh(v_cmd/friction_v_eps)。
-    // 符号取**正**：摩擦力矩反对速度（v>0 时是 −F_c）⇒ 抵消它要给 +F_c·sign(v)。
-    // 符号取自**命令速度**（实测速度 12 bit，低速下只有几个 LSB、符号会抖）。
-    double friction_c = 0.0;
-    double friction_v_eps = 0.0;
   };
 
   // ── 运行期状态：每周期都会变的东西（与"静态参数"分开，便于一眼看出谁是状态）──
@@ -132,27 +131,6 @@ private:
     // `hold_ours` 是**关节侧**同一点（MIT 保持帧要它）。两者别混用。
     std::optional<double> hold_pos;
     std::optional<double> hold_ours;
-    // 重力项（**关节侧** N·m，已套 sign；还没乘 gravity_ff_scale）。
-    // 算不出来时**保留上一次的值**（照样得发帧喂狗），所以别把它当"这一帧算成功了"的证据。
-    double tau_gravity = 0.0;
-    // 宿主侧积分器（只有 ki_hold>0 才动）。`tau_i` 是**关节侧** N·m。
-    double tau_i = 0.0;
-    // 上一周期的参考（关节侧）：用来判"命令跳变 ⇒ 复位积分"。
-    std::optional<double> prev_q_ref_ours;
-  };
-
-  // ── 重力前馈的残差守卫（锁存：一旦触发就把 τ_ff 全部置 0，见 check_guard）──
-  struct GravityGuard
-  {
-    // 保持（命令 NaN）：偏离**保持点**超过 kRad ⇒ 触发；有命令（跑轨迹）：只看**跟踪误差** > kTrack。
-    // 速度那一路只在保持时查（跑轨迹时机械臂本来就以 ~1 rad/s 在动 ⇒ 会误触发）。
-    bool tripped = false;
-    bool since_set = false;                           // 还没判过守卫（宽限从第一次 check 算起）
-    bool vel_over = false;                            // 当前是否处于"速度越限"
-    // ⚠️ 两个时刻用**显式构造**给初值：只写 `rclcpp::Time x;` 会让 `GravityGuard{}` 触发
-    //    -Wconversion（从 {} 到 explicit 构造），而写 `x{}` 又必须知道时钟类型 ⇒ 干脆写全。
-    rclcpp::Time since{0, 0, RCL_ROS_TIME};            // 首次判守卫的时刻
-    rclcpp::Time vel_over_since{0, 0, RCL_ROS_TIME};   // 速度首次越限的时刻（防抖从这里算）
   };
 
   // ── 运行期使能（M9.2，设计见 docs/MANAGE_ARCH.md §5）────────────────────────
@@ -160,7 +138,7 @@ private:
   //   定死），CM 的 `set_hardware_component_state` **改不了已加载的参数** ⇒ 启动为只读之后想使能，
   //   只能走插件自己提供的服务（决策 M-1）。
   // **怎么做**：服务回调只做"前提检查 + 置请求"；真正的寄存器 I/O 与使能帧由 `write()` 里的状态机
-  //   **逐周期**推进（一个周期最多一次 `0x0A` 写 ≈150 ms，期间**不发控制帧**）；回调随后**阻塞等结果**
+  //   **逐周期**推进（一个周期最多一次 `0x0A` 写 ≈12 ms，期间**不发控制帧**）；回调随后**阻塞等结果**
   //   （约 1 s）。使能序列与 `on_activate` 共用同一份积木（`write_mode_one` / `enable_all_and_latch`）。
   // ⚠️ 回调能安全阻塞的前提：CM 的 `read/update/write` **不跑在 executor 上**
   //   （`controller_manager.hpp:212` 的注释 + `ros2_control_node` 的 "Spawning RT thread"）
@@ -179,14 +157,44 @@ private:
   double enable_timeout_s_ = 3.0;          // 等状态机完成的上限。⚠️ 真机实测整个使能序列只要
                                            // **~70 ms**（6 台 × 寄存器往返 ~12 ms，2026-10-11），
                                            // 给 3 s 只是"CM 的 update 停了"时别把服务挂死。
-  // ⚠️ 上面那个"~12 ms"是**实测**：早先文档里的"每台 150 ms"是 Python 寄存器工具自己轮询节拍的
-  //    开销，不是这条链的往返延迟。`sync_states` 的 quiet 窗口才是这里真正的阻塞源（~30~50 ms）。
 
-  // ── ROS 侧接口（on_configure 里建；**没有节点时不建** = 单测）──
-  rclcpp::Service<arm_msgs::srv::SetEnabled>::SharedPtr set_enabled_srv_;
-  rclcpp::Service<arm_msgs::srv::HardwareEmergencyStop>::SharedPtr estop_srv_;
-  rclcpp::Publisher<arm_msgs::msg::HardwareStatus>::SharedPtr status_pub_;
-  int status_tick_ = 0;                    // 每 kStatusEvery 圈发一次（10 Hz @ 100 Hz）
+  // ── 运行期模式切换（D-L1 的必然结果：控制器起停 ⇒ 模式变）────────────────────
+  // 每个控制器周期重新算一次**期望模式**（`pick_mode(effort)`）；与**已提交**的模式不同就切，
+  // 一次切一台（一次 `0x0A` 写 ≈12 ms）。
+  // ⚠️ 切换**必须补一帧原模式的保持帧**：`0x0A` 是运行期写，若不补，那一刻"在飞的目标"会被
+  //    电机侧清零（陷阱 #2 同源）⇒ 先从"保持当前位置"起步，两种模式的参考点都是当前实测位置，
+  //    切过去时 PD 误差 ≈ 0 ⇒ **无跳变**。
+  // ⚠️ **没有 `enable_req_` 时也允许切**（激活时就是靠它写 `0x0A`），这与运行期使能状态机不冲突：
+  //    它只在 `enable_req_ != 0` 时跑，且那时 `advance_mode_fsm()` 不会被执行。
+  void advance_mode_fsm();
+  // 写入期望模式：一次一台（一次寄存器往返）= 运行期路径。
+  void write_mode_one(std::size_t i, ControlMode mode);
+  // 逐台写一遍（on_activate 用）。**不是 RT 路径**：那里本来就在阻塞地等电机上线，
+  // 一次写完整臂是原行为（6 台 × ~12 ms）。
+  void write_mode_all();
+
+  // ── 使能序列的两块积木（on_activate 与运行期状态机**共用同一份**，别写两遍）──
+  void enable_all_and_latch();              // 全部使能 + 锁保持目标
+  // 记结果：先写原因（加锁）再置原子量 ⇒ 读到 result≠0 时原因一定已就绪。
+  void set_enable_result(int v, const std::string & why);
+
+  // ── 当前控制模式（`committed_mode_` 是"真的写进 0x0A 的那个"；空 = 本轮还没提交过）──
+  // 单独一个数组：模式是**每条关节各自**的事（一台不同不影响别的 5 台）。
+  std::vector<ControlMode> committed_mode_;
+  std::vector<ControlMode> pending_mode_;
+  std::vector<char> mode_done_;
+  std::size_t mode_step_ = 0;
+
+  // ── 模型坐标 ⇄ 我们的关节坐标（换算公式的真源在 dm_joint.hpp，这里只套每关节的 sign/δ）──
+  double model_to_ours(std::size_t i, double q_urdf) const;
+  double ours_to_model(std::size_t i, double q_ours) const;
+
+  // ── 两条装配路径（`write()` 按模式分派；只负责装配帧，不做决策、不算控制律）──
+  hardware_interface::return_type send_pos_vel_frames();
+  hardware_interface::return_type send_mit_frames();
+  // 所有关节补一帧**各自当前模式**的保持帧。返回是否**每台都发成功**
+  // （模式切换前用它可以 best effort，使能后用它的返回值判成败）。
+  bool send_hold_frames_all();
 
   // ── 参数解析 ──
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）
@@ -198,31 +206,11 @@ private:
   void teardown();                                                   // on_cleanup / 出错收尾
   void disable_all_quietly();                                        // 失能，绝不抛
 
-  // ── 使能序列的两块积木（on_activate 与运行期状态机**共用同一份**，别写两遍）──
-  void write_mode_one(std::size_t i);       // ① 单台写 0x0A（+ 可选写 PID）
-  void enable_all_and_latch();              // ② 全部使能 + 锁保持目标 + MIT 下补真实保持帧
-  // 记结果：先写原因（加锁）再置原子量 ⇒ 读到 result≠0 时原因一定已就绪。
-  void set_enable_result(int v, const std::string & why);
-
-  // ── 模型坐标 ⇄ 我们的关节坐标（换算公式的真源在 dm_joint.hpp，这里只套每关节的 sign/δ）──
-  double model_to_ours(std::size_t i, double q_urdf) const;
-  double ours_to_model(std::size_t i, double q_ours) const;
-
-  // ── 重力前馈路径（gravity_ff=true 时 write() 走这条）──
-  // `write_gravity_ff()` 只负责"按顺序调用下面四个"；每个函数管一件事。
-  hardware_interface::return_type write_gravity_ff(
-    const rclcpp::Time & time, const rclcpp::Duration & period);
-  // ① 实测姿态 → 每关节的 tau_gravity（关节侧）。算不出来沿用上一次的值（仍发帧喂狗）。
-  void refresh_gravity_torque();
-  // ② 残差守卫：越界就锁存（之后 τ_ff 恒 0，但仍发 MIT + kp_hold，不失阻尼）。
-  void check_guard(const rclcpp::Time & time);
-  // ③ 宿主侧积分：只有 ki_hold>0 才动。
-  void update_integrators(const rclcpp::Duration & period);
-  // ④ 逐关节发 MIT 帧（含摩擦前馈与保持帧的绕限位）。
-  hardware_interface::return_type send_mit_frames();
-
-  // ── POS_VEL 路径（gravity_ff=false 时 write() 走这条）──
-  hardware_interface::return_type write_pos_vel();
+  // ── ROS 侧接口（on_configure 里建；**没有节点时不建** = 单测）──
+  rclcpp::Service<arm_msgs::srv::SetEnabled>::SharedPtr set_enabled_srv_;
+  rclcpp::Service<arm_msgs::srv::HardwareEmergencyStop>::SharedPtr estop_srv_;
+  rclcpp::Publisher<arm_msgs::msg::HardwareStatus>::SharedPtr status_pub_;
+  int status_tick_ = 0;                    // 每 kStatusEvery 圈发一次（10 Hz @ 100 Hz）
 
   std::vector<JointParams> joints_;
   std::vector<JointRuntime> rt_;
@@ -231,9 +219,13 @@ private:
   // effort（模型坐标 N·m）：来自电机反馈的**电流估计**，不是力矩传感器。只当量级参考。
   std::vector<double> hw_efforts_;
   std::vector<double> hw_commands_;
-  // velocity 命令接口（模型坐标 rad/s）：只有 gravity_ff=true 走 MIT 时才用得上（当 dq_des）。
+  // velocity 命令接口（模型坐标 rad/s）：MIT 下当 `dq_des` 用，POS_VEL 路径不看它。
   // 两条链都导出它 —— ros2_controllers.yaml 是 mock/真机共用的，少一个接口 JTC 会配置失败。
   std::vector<double> hw_vel_commands_;
+  // effort 命令接口（模型坐标 N·m）—— **本层选模式的唯一依据**（D-L1）：
+  //   NaN = 没有控制器声索力矩 ⇒ 发 POS_VEL；有限 = 有控制器在写 ⇒ 发 MIT 且把它当 `tau_ff`。
+  //   默认 NaN；`gravity_ff=true` 时预置 0.0（使能即进 MIT，且前馈为 0 —— 控制律不在本层）。
+  std::vector<double> hw_effort_commands_;
 
   SerialIo * injected_io_ = nullptr;                  // 测试注入（不拥有）
   std::unique_ptr<SerialPort> owned_io_;              // 生产自持
@@ -245,18 +237,9 @@ private:
   bool enable_on_activate_ = false;                   // 默认**只读**
   double vlim_ = 1.0;                                 // POS_VEL 速度上限（rad/s）
   int fail_streak_limit_ = 10;                        // 连续多少圈收不到反馈就报错
-  // 重力前馈总开关（默认 false ⇒ 一切照旧走 POS_VEL）。
+  // ⚠️ 这只是"没有控制器时**预置**哪一种模式"（false⇒POS_VEL / true⇒MIT+`effort`=0），
+  //    **不是**整链开关：真正的模式由 `effort` 接口每周期决定（D-L1）。控制律不在这条路径上。
   bool gravity_ff_ = false;
-  std::string urdf_path_;                             // 动力学模型路径（gravity_ff 时才要求非空）
-  // 重力前馈缩放 0~1：**分级上电用**（第一次给真机发力矩先 0.2，确认方向对再往上加）
-  double gravity_ff_scale_ = 1.0;
-  // 重力模型：gravity_ff=true 时在 on_configure 建好（构造即抛 ⇒ FATAL，不静默降级）
-  std::unique_ptr<GravityModel> gravity_;
-  GravityGuard guard_;
-
-  // q 缓冲：tau_ours() 要按关节顺序读，不每帧分配
-  std::vector<double> q_urdf_buf_;
-  std::vector<double> tau_ours_buf_;
 };
 
 }  // namespace motor_driver_hardware

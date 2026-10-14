@@ -178,30 +178,28 @@ double Joint::clamp_mit_torque(double kp, double kd, double q_des, double dq_des
       std::to_string(*cfg_.torque_max) + "）—— 先 poll() 拿到反馈再发 MIT 帧");
   }
   const double limit = *cfg_.torque_max;
-  const double pd = kp * (q_des - m->pos) + kd * (dq_des - m->vel);
-  if (std::abs(pd) > limit) {
+  // 显式限定到自由函数：不限定会被**成员函数自己**遮住（成员名先在类作用域找到）
+  const MitTorquePlan plan =
+    motor_driver_hardware::clamp_mit_torque(kp, kd, q_des - m->pos, dq_des - m->vel, tau_ff, limit);
+  if (plan.refuse) {
     std::ostringstream os;
-    os << "关节 " << cfg_.name << "：PD 项 " << pd << " N·m 已超过 torque_max=" << limit
+    os << "关节 " << cfg_.name << "：PD 项 " << plan.pd << " N·m 已超过 torque_max=" << limit
        << "（kp=" << kp << ", kd=" << kd << ", q_des−q=" << (q_des - m->pos)
        << " rad, dq_des−dq=" << (dq_des - m->vel) << " rad/s）—— 钳 tau_ff 救不回来，拒发；"
        << "要么降 kp/kd，要么把目标挪近";
     throw std::runtime_error(os.str());
   }
-  const double total = pd + tau_ff;
-  if (std::abs(total) > limit) {
-    // 钳是单调安全的（只会让力矩更小）⇒ 钳 + 限流打日志，不像 PD 超限那样拒发
-    const double clamped = std::copysign(limit - std::abs(pd), total);
-    const double now_s =
-      std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-    if (now_s - clamp_warn_at_ >= kClampWarnInterval) {
-      clamp_warn_at_ = now_s;
-      std::fprintf(stderr,
-        "[%s] tau_ff 被钳：%+.3f → %+.3f N·m（PD %+.3f + tau_ff 会到 %+.3f，超 torque_max %g）\n",
-        cfg_.name.c_str(), tau_ff, clamped, pd, total, limit);
-    }
-    return clamped;
+  if (!plan.clamped) {return plan.value;}
+  // 钳是单调安全的（只会让力矩更小）⇒ 钳 + 限流打日志，不像 PD 超限那样拒发。
+  const double now_s =
+    std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  if (now_s - clamp_warn_at_ >= kClampWarnInterval) {
+    clamp_warn_at_ = now_s;
+    std::fprintf(stderr,
+      "[%s] tau_ff 被钳：%+.3f → %+.3f N·m（PD %+.3f + tau_ff 会到 %+.3f，超 torque_max %g）\n",
+      cfg_.name.c_str(), tau_ff, plan.value, plan.pd, plan.predicted, limit);
   }
-  return tau_ff;
+  return plan.value;
 }
 
 void Joint::enable()

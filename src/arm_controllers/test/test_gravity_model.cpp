@@ -1,4 +1,4 @@
-// test_dm_gravity.cpp —— 重力项：与**已跑通的 MuJoCo** 逐点对拍（守住 sign 那一段符号链），
+// test_gravity_model.cpp —— 重力项：与**已跑通的 MuJoCo** 逐点对拍（守住 sign 那一段符号链），
 // 外加 sign 生效检查与参数/用法错误。
 //
 // 为什么是 MuJoCo：它是另一条完全独立的实现路径，而且本工程 2026-10-05 已经用它算过
@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "motor_driver_hardware/dm_gravity.hpp"
+#include "arm_controllers/gravity_model.hpp"
 
 #ifndef ARM_DYN_URDF
 #error "缺少 ARM_DYN_URDF（应由 CMake target_compile_definitions 传入）"
@@ -22,7 +22,7 @@
 #error "缺少 ARM_DESC_DIR（应由 CMake target_compile_definitions 传入）"
 #endif
 
-namespace md = motor_driver_hardware;
+namespace ac = arm_controllers;
 
 namespace
 {
@@ -97,7 +97,7 @@ std::string urdf_hint()
 }  // namespace
 
 // ① 与 MuJoCo 逐点对拍（sign 全取 +1 ⇒ 输出就是 URDF 坐标下的重力项，可直接比）
-TEST(DmGravity, MatchesMuJoCo)
+TEST(GravityModel, MatchesMuJoCo)
 {
   std::ifstream probe(ARM_DYN_URDF);
   ASSERT_TRUE(probe.good()) << urdf_hint();
@@ -113,7 +113,7 @@ TEST(DmGravity, MatchesMuJoCo)
   ASSERT_EQ(ref.size(), poses.size()) << "MuJoCo 参考没有逐行给结果（脚本/import 出错？）";
 
   const std::vector<int> sign_plus(6, 1);
-  md::GravityModel gm(ARM_DYN_URDF, kJoints, sign_plus);
+  ac::GravityModel gm(ARM_DYN_URDF, kJoints, sign_plus);
   ASSERT_EQ(gm.size(), 6u);
 
   for (std::size_t k = 0; k < poses.size(); ++k) {
@@ -126,7 +126,7 @@ TEST(DmGravity, MatchesMuJoCo)
 }
 
 // ② sign 真的生效（逐关节），而且只乘 sign、不加 zero_shift
-TEST(DmGravity, SignIsAppliedPerJoint)
+TEST(GravityModel, SignIsAppliedPerJoint)
 {
   std::ifstream probe(ARM_DYN_URDF);
   ASSERT_TRUE(probe.good()) << urdf_hint();
@@ -135,8 +135,8 @@ TEST(DmGravity, SignIsAppliedPerJoint)
   const std::vector<double> q = {1.4709, -0.5528, -0.7828, 0.6176, -0.0088, 0.0111};
   const std::vector<int> sign_plus(6, 1);
   const std::vector<int> sign_real = {-1, -1, -1, -1, -1, 1};   // align.yaml 的真实值
-  md::GravityModel g1(ARM_DYN_URDF, kJoints, sign_plus);
-  md::GravityModel g2(ARM_DYN_URDF, kJoints, sign_real);
+  ac::GravityModel g1(ARM_DYN_URDF, kJoints, sign_plus);
+  ac::GravityModel g2(ARM_DYN_URDF, kJoints, sign_real);
 
   std::vector<double> a(6, 0.0), b(6, 0.0);
   g1.tau_ours(q.data(), a.data());
@@ -149,7 +149,7 @@ TEST(DmGravity, SignIsAppliedPerJoint)
 }
 
 // ③ 参数与用法错误：当场拒，不静默
-TEST(DmGravity, RejectsBadInput)
+TEST(GravityModel, RejectsBadInput)
 {
   std::ifstream probe(ARM_DYN_URDF);
   ASSERT_TRUE(probe.good()) << urdf_hint();
@@ -158,18 +158,18 @@ TEST(DmGravity, RejectsBadInput)
   const std::vector<int> sign_plus(6, 1);
   // 模型里没有这个关节名
   EXPECT_THROW(
-    md::GravityModel(ARM_DYN_URDF, {"joint1", "根本没有这个关节"}, {1, 1}),
+    ac::GravityModel(ARM_DYN_URDF, {"joint1", "根本没有这个关节"}, {1, 1}),
     std::invalid_argument);
   // 长度不一致
-  EXPECT_THROW(md::GravityModel(ARM_DYN_URDF, kJoints, {1, 1}), std::invalid_argument);
+  EXPECT_THROW(ac::GravityModel(ARM_DYN_URDF, kJoints, {1, 1}), std::invalid_argument);
   // sign 不是 ±1
   EXPECT_THROW(
-    md::GravityModel(ARM_DYN_URDF, kJoints, {2, 1, 1, 1, 1, 1}), std::invalid_argument);
+    ac::GravityModel(ARM_DYN_URDF, kJoints, {2, 1, 1, 1, 1, 1}), std::invalid_argument);
   // URDF 根本不存在 ⇒ pinocchio 会抛（具体类型不重要，只要不静默）
   EXPECT_THROW(
-    md::GravityModel("/tmp/dm_gravity_没有这个文件.urdf", kJoints, sign_plus), std::exception);
+    ac::GravityModel("/tmp/dm_gravity_没有这个文件.urdf", kJoints, sign_plus), std::exception);
 
-  md::GravityModel gm(ARM_DYN_URDF, kJoints, sign_plus);
+  ac::GravityModel gm(ARM_DYN_URDF, kJoints, sign_plus);
   std::vector<double> q(6, 0.0), tau(6, 0.0);
   q[3] = std::nan("");
   EXPECT_THROW(gm.tau_ours(q.data(), tau.data()), std::invalid_argument);

@@ -5,6 +5,43 @@
 > `DESIGN.md` = 电机驱动层意图）。**冲突时以本文为准**（本文晚于它们，见 §9）。
 > **由来**：2026-10-11 起因"控制律放错了层"（重力补偿写在硬件插件里）暴露出来的分层问题，逐层明确后重构。
 > **重构序列见 §8**；本文是 R0，只有文档、还没动代码。
+> **进度**：
+> - **R1 ✅ 已落地（2026-10-14）** —— 硬件层加了 `effort` 命令接口（NaN 语义选模式）、
+>   新增运行期模式切换、删掉了 τ_g / 守卫 / 积分 / 摩擦前馈与 `dm_gravity`（连 pinocchio 依赖），
+>   测试按 §8.1 拆成 `test_frame_plan.cpp`（纯逻辑 10 条）+ `test_iface_wiring.cpp`（接线 6 条）。
+> - **R2 进行中（2026-10-14）** —— 新包 `arm_controllers` 已建：`GravityModel`（从硬件层迁来）
+>   + `GravityFfLaw`（τ_g/摩擦/积分/守卫策略的**纯逻辑**）+ **14 条 gtest 全绿**（含从
+>   `test_dm_gravity.cpp` 迁回的 3 条 **MuJoCo 逐点对拍** —— R1 留下的那笔债已还）。
+>   ⏳ **未做**：把它接进 ros2_control 的控制器（pluginlib + `command_interface_configuration`）与
+>   `arm_bringup` 的装配/launch。⚠️ 见下面那条**关键约束**。
+>
+> **R2 前必须先知道的一条硬约束（2026-10-14 在装好的 ros2_control 头里核实）**：
+> ros2_control **不支持控制器之间串联**（`interface_configuration_type` 只有
+> `ALL / INDIVIDUAL / NONE / INDIVIDUAL_BEST_EFFORT / REGEX`，没有 chain；
+> `ResourceManager::claim_command_interface` 的注释明说"**一个命令接口只能被一个实例**占用"）。
+> ⇒ **命令接口独占，重力控制器读不到 JTC 写的 `position` 参考**。
+> 所以 §4 那张"`effort` 由控制层写、`position` 由 JTC 写"的表**不能照字面实现**，必须二选一：
+> **①** 重力控制器**继承** `joint_trajectory_controller::JointTrajectoryController`，重写
+> `command_interface_configuration()`（多声索 `effort`）与 `update()`（先调父类拿插值后的
+> 参考位置，再用它当 `q_ref` 算 τ_ff）；**②** 只写 `effort`、`q_ref` 取**实测位置**
+> （那就退化成"只有重力补偿、没有位置伺服"，轨迹跟踪质量会掉）。
+> **倾向 ①**（保住 D-L2 的"位置归硬件 PD、力矩归控制层"，且复用 JTC 的插值与容差）。
+> ⚠️ 走 ① 时 `update()` 里**不能**再分配内存、不能阻塞（LAYERS §2）。
+>
+> **⚠️⚠️ 另一条更危险的前提，D-L1 依赖它但 ros2_control 没有保证（2026-10-14 核实）**：
+> §4 说"控制器失活 ⇒ 自动回到 POS_VEL（没人写 ⇒ 保持 NaN）"。但
+> `hardware_interface::LoanedCommandInterface` 的析构**只调 `deleter_()`（解除占用）**，
+> **不会把命令值改回 NaN**。⇒ 控制器一旦写过 `effort`，它**失活之后 `effort` 仍然停在最后一个
+> 有限值**，硬件那边会**一直认为"有控制器在写力矩"**、继续留在 MIT 并反复施加那个**陈旧的 τ_ff**。
+> 后果：不是"回落 POS_VEL"，而是"以最后一次前馈继续托着 + 硬件 PD 保持"。
+> **接控制器之前必须先定这条**，三选一：
+> **(a)** 让 `arm_manage` 在 `deactivate` 控制器后**显式把 `effort` 写成 NaN**（最简单，但要管理层
+> 去写命令接口，跨层）；
+> **(b)** 硬件层增加一条"**命令接口多久没被写 ⇒ 视为无人声索**"的**陈旧检测**（需要 CM 提供写入
+> 时间戳，当前拿不到）；
+> **(c)** 接受"失活后留在 MIT + 陈旧前馈"，并把它写进安全说明与真机验收项。
+> **倾向 (a) + (c) 的说明**：(a) 可控且立刻见效，(c) 兜住漏网的路径。
+> ⚠️ 这条**不是** R2 引入的，是 D-L1 当初写文档时没有核实的假设 —— R1 已经按它实现了硬件分支。
 
 ---
 
@@ -108,9 +145,9 @@
 
 | # | 现状 | 目标 |
 |---|---|---|
-| 1 | 控制律在硬件层：`write_gravity_ff()` 的 `refresh_gravity_torque()` → `check_guard()` → `update_integrators()` → `send_mit_frames()`（只有最后一个是 I/O） | τ_g/摩擦/积分/守卫策略搬到 `arm_controllers`；硬件层只装配帧 |
-| 2 | "模式"是插件参数 `gravity_ff`（整链二选一） | 改成"**哪个控制器活着**"（D-L1 的 NaN 语义） |
-| 3 | 控制增益 `mit_gains.yaml` 由插件读 | 移到控制层 config（D-L2：kp/kd 留硬件，τ/摩擦/ki 归控制层） |
+| 1 | ~~控制律在硬件层~~ **✅ R1 已消除**（`write_gravity_ff()` / `refresh_gravity_torque()` / `check_guard()` / `update_integrators()` 与 `dm_gravity` 全删） | τ_g/摩擦/积分/守卫策略搬到 `arm_controllers`（**R2**；插件现在只装配帧） |
+| 2 | ~~"模式"是插件参数 `gravity_ff`（整链二选一）~~ **✅ R1 已消除**（`effort` 的 NaN 语义 + 运行期模式切换；`gravity_ff` 只剩"没有控制器时预置哪一种"） | 改成"**哪个控制器活着**"（D-L1 的 NaN 语义） |
+| 3 | 控制增益 `mit_gains.yaml` 由插件读 | 移到控制层 config（D-L2：kp/kd 留硬件，τ/摩擦/ki 归控制层）。**R1 已做到一半**：硬件只读 `kp_hold`/`kd_hold`，`ki_hold`/`friction_c`/`friction_v_eps` 已不读（yaml 里还在，等 R2 接手） |
 | 4 | 限位校验散在三处（`MotionClient` / 插件 / 管理层） | 收敛到**运动层入口**；硬件层只钳 PMAX |
 | 5 | 管理层自己发轨迹（`ControllerGate` 持有 `MotionClient`） | `safe_disarm` 调 **`ExecuteMotion(named=park)`**（D-L4） |
 | 6 | 应用层 `safe_park_node` 直发 JTC | 改成 `ExecuteMotion` 的 client（D-M2 单一执行出口） |
@@ -124,8 +161,8 @@
 | 步 | 内容 | 验收方式 | 真机风险 |
 |---|---|---|---|
 | **R0** | 本文（`docs/LAYERS.md`） | 逐条评审 | 无 |
-| **R1** | 硬件层瘦身：加 `effort` 命令口（NaN 语义）；删 τ_g/积分/守卫策略/模型限位/`gravity_ff*` 参数与 `dm_gravity` | 改写 21 个插件 gtest（mock 串口）；`test_dm_gravity` 用例迁 R2 | 低（mock 为主） |
-| **R2** | 新建 `arm_controllers` + `GravityCompensationController`（τ_g+摩擦+ki → `effort`） | gtest 与 MuJoCo 对拍（用例从 `test_dm_gravity` 迁来） | 低 |
+| **R1** | 硬件层瘦身：加 `effort` 命令口（NaN 语义）；删 τ_g/积分/守卫策略/模型限位/`gravity_ff*` 参数与 `dm_gravity` | 改写 21 个插件 gtest（mock 串口）；`test_dm_gravity` 用例迁 R2 | 低（mock 为主）**✅ 2026-10-14 已完成**：`dm_hardware` 去 pinocchio、`test_frame_plan`(10) + `test_iface_wiring`(6) 全绿；⚠️ `test_dm_gravity` 的 3 个 MuJoCo 对拍用例**随之删除**，R2 必须把它们迁到 `arm_controllers/test/`（别丢） |
+| **R2** | 新建 `arm_controllers` + `GravityCompensationController`（τ_g+摩擦+ki → `effort`） | gtest 与 MuJoCo 对拍（用例从 `test_dm_gravity` 迁来） | 低 **🔄 进行中（2026-10-14）**：包已建、`GravityModel`+`GravityFfLaw`+**14 条 gtest 全绿**（MuJoCo 对拍已迁回）；⏳ 控制器插件与 launch 装配未做（见文首那条"不支持串联"的约束与两个选项） |
 | **R3** | 运动层 `ExecuteMotion`（原 M8.0→M8.3） | mock 链 + `move_group`（⚠️ 别用 `use_mock:=true`，会双开） | 低 |
 | **R4** | 管理层收敛：`safe_disarm` → `ExecuteMotion(named=park)`；删 `ControllerGate` 的 `MotionClient` | 重跑 M9.3 的 25 项 mock 断言 | 中 |
 | **R5** | 应用层迁移到 ExecuteMotion；删直发路径 | mock + 真机 | 中 |
@@ -137,12 +174,23 @@
 
 | 测什么 | 在哪测 | 怎么测 |
 |---|---|---|
-| 帧装配决策（POS_VEL / MIT / 保持帧）、钳位（PMAX、`torque_max`、`kp` 上界）、使能 FSM 步进、状态快照 | `motor_driver_hardware/test/test_frame_plan.cpp` | **纯输入→输出**：抽成 `dm_hardware` 里的纯函数/小类，**无 rclcpp、无串口、无假电机**；用例小、毫秒级 |
-| 控制律（τ_g / 摩擦 / 积分 / 守卫策略） | `arm_controllers/test/`（R2） | 只喂状态数组、只看算出的 `effort`；**不需要串口，也不需要假电机** |
-| 接线（插件真的按上面的决策去读写串口） | `motor_driver_hardware/test/test_iface_wiring.cpp`，**约 6 条** | 假串口退化成**记录器**（只记 `write()` 收到了什么）。保留：① 只读模式一个控制帧都不发；② 激活 ⇒ 写 `0x0A`+锁定保持；③ 命令 NaN ⇒ 保持帧；④ `read()` 填状态接口；⑤ ERR ⇒ REPORT ERROR；⑥ 使能服务路径 |
+| 帧装配决策（POS_VEL / MIT / 保持帧）、钳位（PMAX、`torque_max`、`kp` 上界）、使能 FSM 步进、状态快照 | `motor_driver_hardware/test/test_frame_plan.cpp` ✅ **已落地（10 条）** | **纯输入→输出**：抽成 `dm_hardware` 里的纯函数/小类（`dm_frame_plan.hpp`），**无 rclcpp、无串口、无假电机**；用例小、毫秒级 |
+| 控制律（τ_g / 摩擦 / 积分 / 守卫策略） | `arm_controllers/test/`（R2） | 只喂状态数组、只看算出的 `effort`；**不需要串口，也不需要假电机**。⚠️ 别忘了把 `test_dm_gravity.cpp` 的 3 条对拍用例迁过来 |
+| 接线（插件真的按上面的决策去读写串口） | `motor_driver_hardware/test/test_iface_wiring.cpp`，**6 条** ✅ **已落地** | 假串口退化成**记录器**（只记 `write()` 收到了什么）。实际保留：① 只读模式一个控制帧都不发（**含被写了 effort**）；② 激活 ⇒ 写 `0x0A`**早于**使能帧 + 补真实 MIT 保持帧；③ 命令 NaN ⇒ 保持帧指向**锁定**位置（#38 回归）；④ `effort` 有限 ⇒ MIT 且 `tau_ff == direction × effort` / 收回 NaN ⇒ 回落 POS_VEL；⑤ 模式切换一次一台 + **切前补原模式保持帧**；⑥ ERR ⇒ REPORT ERROR（只读时容忍） |
 | 端到端 | mock 链（总 launch + `arm_manage` 三服务）→ 真机 R6 | 已有的脚本化验收 |
 
-**要删掉的东西**：`test/test_dm_system_interface.cpp` 整个文件，以及里面那台**模拟电机**（跟位置 / 使能置 ERR=1 / `kp>0` 才跟随）—— 它存在的唯一理由是喂「控制律」那批用例，而控制律搬去控制层了。
+**要删掉的东西**（✅ R1 已删）：`test/test_dm_system_interface.cpp` 整个文件，以及里面那台**模拟电机**
+（跟位置 / 使能置 ERR=1 / `kp>0` 才跟随）—— 它存在的唯一理由是喂「控制律」那批用例，而控制律搬去控制层了。
+⚠️ **接线测试里仍留了一台"最小假电机"**：它只回答刷新帧与寄存器帧（否则 `on_activate` 的 `sync_states`
+要等满 8 秒），**不再**跟位置、不再置 ERR —— 与原来那台不是一回事。
+
+**R1/R2 落地时的偏离与欠账（记录，免得后来者以为文档没执行）**：
+1. `test_dm_gravity.cpp` 的 3 个 MuJoCo 对拍用例随 `dm_gravity` 在 R1 一起删了、**R2 已迁回**
+   （`arm_controllers/test/test_gravity_model.cpp`）⇒ 那笔债已还清。
+2. §8.1 说插件只留"约 6 条"接线用例 —— 实际 **6 条**，但其中一条（运行期模式切换）覆盖的
+   是 R1 **新增**的行为（D-L1 下控制器起停会让模式变），不在原列表里。
+3. **R2 的控制器还没接进 ros2_control**：`GravityFfLaw` 是纯逻辑、已测；把它变成 pluginlib 控制器
+   要先解决文首那条"不支持控制器串联"的约束（两条路见文首）。
 
 **明确放弃的覆盖**（只有真机能测，记在 `TESTING.md` 的真机验收里）：500 ms 看门狗、串口错误路径、ERR=13 锁存、TIOCEXCL 抢口。
 

@@ -1,35 +1,17 @@
-// dm_gravity.hpp —— 重力项（给重力前馈用）。**不依赖 rclcpp**（和 dm_hardware 其余部分一样）。
+// dm_gravity.hpp —— 重力项（控制层；R2 从 motor_driver_hardware 迁来，LAYERS §7 #1）。
 //
 // 只管三层坐标里的**第一段**：
 //     URDF/模型坐标  --sign-->  关节侧 q_ours  --direction-->  电机侧
-// 力矩是**矢量** ⇒ 这里只乘 `sign`（不加 `zero_shift`）；再往下的 `direction` 由 `Joint::set_mit` 负责。
+// 力矩是**矢量** ⇒ 这里只乘 `sign`（不加 `zero_shift`）；再往下的 `direction` 由硬件层的
+// `Joint::set_mit` 负责。
 //
 // 实时性：模型与 `Data` 都在**构造时**建好，`tau_ours()` 只用预分配的缓冲、**不分配内存**
-//         —— 它会在 100 Hz 的控制循环（`write()`）里被调用。
+//         —— 它会在 100 Hz 的 `update()` 里被调用（控制层的硬约束，LAYERS §2）。
 //
-// 关节顺序：调用方给的是**它自己的顺序**（插件里 `<ros2_control>` 的关节顺序未必等于 URDF 里
+// 关节顺序：调用方给的是**它自己的顺序**（`<ros2_control>` 的关节顺序未必等于 URDF 里
 //           关节的出现顺序）⇒ 内部一律按**名字**映射到 pinocchio 的 joint index。
-
-// 控制循环（100Hz）
-//     ↓
-// 读当前关节角度（模型坐标）
-//     ↓
-// 调 gravity.tau_ours(q_urdf, out)
-//     ↓
-// 内部：
-//     1. 把 q_urdf 写进预分配缓冲
-//     2. Pinocchio 算重力项
-//     3. 乘 sign（模型 → q_ours）
-//     4. 写入 out
-//     ↓
-// 得到每个关节的 tau_g（关节侧 N·m）
-//     ↓
-// 加到 MIT 帧的 tau_ff 里
-//     ↓
-// 发给电机
-
-#ifndef MOTOR_DRIVER_HARDWARE__DM_GRAVITY_HPP_
-#define MOTOR_DRIVER_HARDWARE__DM_GRAVITY_HPP_
+#ifndef ARM_CONTROLLERS__GRAVITY_MODEL_HPP_
+#define ARM_CONTROLLERS__GRAVITY_MODEL_HPP_
 
 #include <Eigen/Core>
 #include <pinocchio/multibody.hpp>
@@ -40,7 +22,7 @@
 #include <string>
 #include <vector>
 
-namespace motor_driver_hardware
+namespace arm_controllers
 {
 
 class GravityModel
@@ -57,7 +39,8 @@ public:
 
   // q_urdf（**模型坐标**，长度 = size()，按构造时给的顺序）→ out（**关节侧** N·m，已套 sign）。
   // ⚠️ 非 const：内部用预分配的缓冲，不做堆分配（见文件头）。
-  // 输入里有非有限数 ⇒ 抛 std::invalid_argument（调用方据此退回 POS_VEL，绝不发 NaN 力矩）。
+  // 输入里有非有限数 ⇒ 抛 std::invalid_argument（调用方据此**本周期不发 effort**，
+  // 绝不把 NaN 力矩写进命令接口）。
   void tau_ours(const double * q_urdf, double * out);
 
 private:
@@ -69,6 +52,6 @@ private:
   std::vector<int> sign_;
 };
 
-}  // namespace motor_driver_hardware
+}  // namespace arm_controllers
 
-#endif  // MOTOR_DRIVER_HARDWARE__DM_GRAVITY_HPP_
+#endif  // ARM_CONTROLLERS__GRAVITY_MODEL_HPP_

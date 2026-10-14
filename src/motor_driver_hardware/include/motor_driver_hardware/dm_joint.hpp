@@ -20,6 +20,7 @@
 #include <string>
 
 #include "motor_driver_hardware/dm_bus.hpp"
+#include "motor_driver_hardware/dm_frame_plan.hpp"
 #include "motor_driver_hardware/dm_frames.hpp"
 
 namespace motor_driver_hardware
@@ -119,9 +120,9 @@ public:
   void assert_healthy() const;       // 只查 ERR；故障 ⇒ 先失能再抛
 
 private:
-  // 按 `torque_max` 钳 MIT 的 `tau_ff`。入参与返回都是**电机侧**量（与 Python 的
-  // `_clamp_mit_torque` 逐条对应）：PD 项自己超 ⇒ 抛（钳 tau_ff 救不回来）；
-  // 否则把 tau_ff 钳到"总力矩 = ±torque_max"。
+  // 按 `torque_max` 钳 MIT 的 `tau_ff`。入参与返回都是**电机侧**量。
+  // 判定本身在 `dm_frame_plan.hpp` 的 `clamp_mit_torque()`（纯函数、可单测）；
+  // 这里只负责"取缓存状态 + 按判定结果抛异常/打限流日志"。
   double clamp_mit_torque(double kp, double kd, double q_des_motor, double dq_des_motor,
     double tau_ff_motor) const;
 

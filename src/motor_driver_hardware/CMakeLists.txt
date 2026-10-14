@@ -9,25 +9,19 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-# 动力学（重力前馈）用 pinocchio 算重力项。它是 C++ 库、不牵 rclcpp ⇒ 可以进 dm_hardware 核。
-find_package(pinocchio REQUIRED)
 
-# ── C++ 核：协议 + 串口 + 总线 + 关节 + 重力（**不依赖 rclcpp**）──
+# ── C++ 核：协议 + 串口 + 总线 + 关节 + 帧装配决策（**不依赖 rclcpp**）──
+# ⚠️ 这里**没有**控制律，也**没有** pinocchio（LAYERS §7 #1）：重力/摩擦/积分是控制层的活，
+#    它们经 `effort` 命令接口送进来。本库只负责"把上层给的目标装配成 CAN 帧"。
 add_library(dm_hardware
   src/dm_frames.cpp
   src/dm_serial.cpp
   src/dm_bus.cpp
   src/dm_joint.cpp
-  src/dm_gravity.cpp
 )
 target_include_directories(dm_hardware PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-# PUBLIC：静态库的使用者（插件 .so 与测试）也要能解析 pinocchio 的符号。
-#   pinocchio::parsers 是独立的 .so（URDF 解析在里面），别只链 pinocchio::pinocchio。
-target_link_libraries(dm_hardware PUBLIC
-  pinocchio::pinocchio
-  pinocchio::pinocchio_parsers)
 
 install(TARGETS dm_hardware
   ARCHIVE DESTINATION lib
@@ -74,8 +68,13 @@ install(TARGETS dm_system_interface
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
+# ── 测试分层（LAYERS §8.1：按"这段逻辑属于哪一层"选测法）─────────────────────────
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+
+  # ① 帧装配决策：**纯输入→输出**（无 rclcpp / 无串口 / 无假电机）⇒ 用例小、毫秒级
+  ament_add_gtest(test_frame_plan test/test_frame_plan.cpp)
+  target_link_libraries(test_frame_plan dm_hardware)
 
   ament_add_gtest(test_dm_frames test/test_dm_frames.cpp)
   target_link_libraries(test_dm_frames dm_hardware)
@@ -93,20 +92,9 @@ if(BUILD_TESTING)
   target_compile_definitions(test_dm_joint PRIVATE
     MOTOR_DRIVER_PY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../motor_driver/motor_driver")
 
-  # 插件：假串口 + 模拟电机，走通"只读/使能/保持/命令换算/故障/重力前馈"（自带 main，要 rclcpp::init）
-  ament_add_gtest(test_dm_system_interface test/test_dm_system_interface.cpp)
-  target_link_libraries(test_dm_system_interface dm_system_interface)
-  target_compile_definitions(test_dm_system_interface PRIVATE
-    ARM_DYN_URDF="${CMAKE_BINARY_DIR}/../arm_description/arm_dynamics.urdf")
-
-  # 重力项：与已跑通的 MuJoCo 逐点对拍（守住 sign 那一段符号链）
-  #   ARM_DYN_URDF 指向 **arm_description 构建时生成**的那份纯 URDF
-  #   （install/ 里那份是它的符号链接）⇒ 测试前 arm_description 得先构建过。
-  ament_add_gtest(test_dm_gravity test/test_dm_gravity.cpp)
-  target_link_libraries(test_dm_gravity dm_hardware)
-  target_compile_definitions(test_dm_gravity PRIVATE
-    ARM_DYN_URDF="${CMAKE_BINARY_DIR}/../arm_description/arm_dynamics.urdf"
-    ARM_DESC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../arm_description")
+  # ② 接线：插件真的按上面的决策去读写串口。假串口退化成**记录器**（只见 write 收到什么）
+  ament_add_gtest(test_iface_wiring test/test_iface_wiring.cpp)
+  target_link_libraries(test_iface_wiring dm_system_interface)
 endif()
 
 ament_package()
