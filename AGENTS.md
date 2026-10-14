@@ -382,8 +382,12 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   （关节名 / 1 个点 / 位置=折叠位 / 末端速度 0 / `duration == max(1, travel/vlim)`）、业务日志逐条、退出码 0。
   这比"只看编译过"强得多，且不新增文件。
 
-- ⚠️ **全量 `colcon test` 还剩 2 处**历史**失败（2026-10-11 定性；用户决定**先不改**）**：
+- ⚠️ **全量 `colcon test` 还剩 3 处**历史**失败（2026-10-11 / 10-14 定性；用户决定**先不改**）**：
   `arm_application` 的 `uncrustify`（5 处格式分歧）+ `motor_driver` 的 `pytest`
+  + **`arm_bringup` 的 "Ran 0 tests / NO TESTS RAN"（exit code 5）** ——
+  该包**根本没有 `test/` 目录**，ament_cmake 的默认 pytest 空跑就返回 5。
+  ⚠️ **不是回归**：2026-10-14 改 launch 时验证过，与改动无关（`git stash` 前后同款）。
+  要清掉就给该包加 `if(BUILD_TESTING)` 的真实测试，或干脆声明它没有测试
   （`pluggy ... Plugin 'launch_testing' for hook 'pytest_pycollect_makemodule'`，**插件环境错**）。
   - 原来还有 `flake8`(36) / `pep257`(3)：它们检查的正是 `arm_application/launch/safe_park.launch.py`，
     **该文件 2026-10-11 随 M9.4 删除 ⇒ 那 39 个失败自动消失**（注意：**不是「修好了」**）。
