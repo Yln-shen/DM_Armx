@@ -68,17 +68,15 @@ install(TARGETS dm_system_interface
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-# ── 测试分层（LAYERS §8.1：按"这段逻辑属于哪一层"选测法）─────────────────────────
+# ── 测试（砍掉 MIT 后：帧协议对拍 + 总线 + 关节 + 插件接线）────────────────────────
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
 
-  # ① 帧装配决策：**纯输入→输出**（无 rclcpp / 无串口 / 无假电机）⇒ 用例小、毫秒级
-  ament_add_gtest(test_frame_plan test/test_frame_plan.cpp)
-  target_link_libraries(test_frame_plan dm_hardware)
-
   ament_add_gtest(test_dm_frames test/test_dm_frames.cpp)
   target_link_libraries(test_dm_frames dm_hardware)
-  # 与 Python 的 dm_frames 逐字节对拍：把它的**源码目录**编译进来（测试时 import 用）
+  # 与 Python 的 dm_frames 逐字节对拍：把它的**源码目录**编译进来（测试时 import 用）。
+  # ⚠️ MIT 帧的逐字节对拍**保留** —— 协议只有一个真源，Python 侧 joint.py 仍然支持 MIT，
+  #    C++ 的 mit_frame 也必须继续与它咬住（砍掉的只是 C++ 的控制路径）。
   target_compile_definitions(test_dm_frames PRIVATE
     MOTOR_DRIVER_PY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../motor_driver/motor_driver")
 
@@ -92,7 +90,7 @@ if(BUILD_TESTING)
   target_compile_definitions(test_dm_joint PRIVATE
     MOTOR_DRIVER_PY_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../motor_driver/motor_driver")
 
-  # ② 接线：插件真的按上面的决策去读写串口。假串口退化成**记录器**（只见 write 收到什么）
+  # 接线：插件真的按上面的决策去读写串口。假串口退化成**记录器**（只见 write 收到什么）
   ament_add_gtest(test_iface_wiring test/test_iface_wiring.cpp)
   target_link_libraries(test_iface_wiring dm_system_interface)
 endif()

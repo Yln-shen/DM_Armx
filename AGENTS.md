@@ -14,6 +14,32 @@
 6. 注释/文档风格参照 `~/elc25e`（用户的风格）：简洁中文、不堆框线 emoji。**不要**照抄 `dm_bus.py` 那种长篇 docstring 风格。
 7. 协作流程见 [ARMWORK.md](ARMWORK.md)：访谈 → 计划 → 实现 → 精修 → 归档，**每阶段要用户确认**。
 
+## 0.5 当前重大状态：**MIT 已从 C++ 侧砍掉**（2026-10-14）
+
+**C++ 侧只有一种控制模式：POS_VEL（`0x0A = 2`）**。R1/R2 那套（`effort` 的 NaN 语义选模式、
+运行期模式切换、控制层 `arm_controllers`、重力前馈）**已全部移除**，只作为备查快照留在分支
+`refactor/layers-r1-r2`（commit `8840e26`）。
+
+| | 状态 |
+|---|---|
+| `dm_frames::mit_frame` / `float_to_uint` | ✅ **保留**（协议层；Python `joint.py` 仍支持 MIT，两份实现要继续逐字节咬住） |
+| `dm_joint` | ❌ 只做 POS_VEL；`set_mit` / `clamp_mit_torque` / `prepare_frame_raw` / `torque_max` 已删 |
+| `dm_system_interface` | ❌ 固定 `0x0A=2`；`effort` 命令接口**保留为空插槽**（本层永不读） |
+| 运行期模式切换 / `dm_frame_plan` | ❌ 已删（只有一种模式 ⇒ 无决策可言） |
+| `arm_controllers`（控制层）+ `dm_gravity` | ❌ 整包/整文件删除 |
+| `arm_description/config/mit_gains.yaml` | ❌ 已删（`kp_hold/kd_hold/ki_hold/friction_*` 随之失效） |
+| `ros2_controllers_mit.yaml` / launch 的 `gravity_ff`·`mit_controllers` | ❌ 已删 |
+| Python `motor_driver`（`joint.py` / `dm_gravity.py` / `gravity_teach.py`） | ✅ **不动**（用户明确要求）—— 它仍是"将来要加回 C++ 时"的参考实现与字节对拍基准 |
+
+**支撑这个决定的实测**（2026-10-14，只读、未使能、未写寄存器）：折叠位**失能 5 s 零漂移**
+（六台全部 `0.000000 rad`），`torque` 全在 **±0.02 N·m 的 12 位量化噪声**内 ——
+⇒ 折叠位的重力由**机械结构**承载，电机没出那个力 ⇒ 那条重力前馈在日常姿态上是空转。
+
+⚠️ **留下来的已知缺口**（不是本次引入，但要记住）：张开位/工作姿态的重力**不再有任何补偿**；
+若将来要柔顺/拖动示教/力控，需要把 MIT 路径整套加回（`dm_frames` 的协议部分还在，但
+`dm_joint` 的 `set_mit`、`effort` 分支、`dm_gravity` 都要重写）。
+
+
 ## 1. 这是什么（一句话）
 
 桌面级 6 轴机械臂上位机工程：USB-CAN → 达妙电机。关节 1–3 = **4340P**，4–6 = **4310**，夹爪（4310）本阶段不做。
@@ -39,14 +65,13 @@
 | [config/joint.yaml](src/motor_driver/config/joint.yaml) | — | 6 关节静态参数（**已按本项目标定**：offset / direction / 软限位） | `limit` **必须**是 `0x15/0x16/0x17` 回读值 |
 | [setup.py](src/motor_driver/setup.py) | 36 | 装 `share/motor_driver/config/joint.yaml`；**`data_files` 的源路径只能写相对路径**（colcon 的 ament_python task 会 assert 拒绝绝对路径） | `entry_points` 的 `dm-dump-registers` / `dm-bringup` 指向 `motor_driver.*` |
 | [arm_msgs](src/arm_msgs) | — | 本项目接口包（ament_cmake）：msg `JointMotorCmd` / `JointMotorState` / `ArmStatus`（内嵌 `HardwareStatus`）/ **`HardwareStatus`** + action `MoveToPose` + **5 个 srv**（`SetEnabled` / `HardwareEmergencyStop` 是**插件内部接口**；`ArmOn` / `SafeDisarm` / `ManageEmergencyStop` 是**管理层对外接口**） | 只定义接口、无代码；**M9.2 起 `motor_driver_hardware` 插件依赖它**（两个插件级 srv + `HardwareStatus`），M9.3 的 `arm_manage` 还会用管理层那 3 个 srv；夹爪本阶段不做。字段与语义见 `docs/MANAGE_ARCH.md §4` |
-| [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + **`config/mit_gains.yaml`（MIT 保持增益）** + **`config/gravity_identified.yaml`（辨识出的质量/质心）** + `scripts/apply_identified_inertia.py` + **`scripts/gen_joint_limits_header.py`（构建期生成 `joint_limits.hpp`：模型坐标关节限位，给应用层当护栏；并与 URDF 的 `<limit>` 对拍、漂了就构建失败）** + 显示 launch。构建时生成**三份**动力学 URDF：`arm.urdf`（上游名义）、**`arm_identified.urdf`（辨识版、**空载**、前馈默认用）**、`arm_identified_gripper.urdf`（带夹爪；夹爪质量**未辨识**，见陷阱 #56） | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
-| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **两份控制器配置** `config/ros2_controllers.yaml`（只 position）与 `ros2_controllers_mit.yaml`（position+velocity+constraints，见陷阱 #40） **+ `arm_system.launch.py`（总 launch，M9.4；⚠️ 同日起 `real_control.launch.py` / `mock_control.launch.py` 已删，旧内容看 `git show ac1bde9:<path>`）**：一条命令起全栈、`use_mock` 贯穿 mock/真机（参数 `enable_on_activate`/`spawn_arm_controller`/`arm_controller_inactive`/`vlim`/**`gravity_ff`**/`mit_controllers`/`start_arm_manage`；⚠️ **R1 起删掉了 `gravity_ff_scale`** —— 分级上电的缩放归控制层）；**`arm_controller` 默认只装载不激活**（`spawner --inactive`，把激活交给 `arm_manage` 以保证 M-3 顺序），并在 launch 里自动补 `LD_LIBRARY_PATH`（否则 `arm_manage_node` 报 `librclcpp.so` 找不到）；⚠️ **刻意不拉 `move_group.launch.py`**（它自带一套 mock 链 ⇒ 双开 = 陷阱 #35/#29） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
+| [arm_description](src/arm_description) | — | URDF/xacro 描述（几何 verbatim 取自 reBotArm，CERN-OHL-W-2.0）+ **`config/align.yaml`（模型对齐真源）** + **`config/gravity_identified.yaml`（辨识出的质量/质心）** + `scripts/apply_identified_inertia.py` + **`scripts/gen_joint_limits_header.py`（构建期生成 `joint_limits.hpp`：模型坐标关节限位，给应用层当护栏；并与 URDF 的 `<limit>` 对拍、漂了就构建失败）** + 显示 launch。构建时生成**三份**动力学 URDF：`arm.urdf`（上游名义）、**`arm_identified.urdf`（辨识版、**空载**、前馈默认用）**、`arm_identified_gripper.urdf`（带夹爪；夹爪质量**未辨识**，见陷阱 #56） | 纯数据包；几何**不是我们写的**，改 mesh/URDF 要保留上游许可与来源声明 |
+| [arm_bringup](src/arm_bringup) | — | ROS2 胶水层：`real_joint_states`（**只读**镜像）+ **一份控制器配置** `config/ros2_controllers.yaml`（只声索 position；`ros2_controllers_mit.yaml` 已随 MIT 删除） **+ `arm_system.launch.py`（总 launch，M9.4；⚠️ 同日起 `real_control.launch.py` / `mock_control.launch.py` 已删，旧内容看 `git show ac1bde9:<path>`）**：一条命令起全栈、`use_mock` 贯穿 mock/真机（参数 `enable_on_activate`/`spawn_arm_controller`/`arm_controller_inactive`/`vlim`/`use_gripper`/`start_arm_manage`；⚠️ **2026-10-14 起删掉了 `gravity_ff` 与 `mit_controllers`** —— MIT 路径已砍，控制器配置只剩一份）；**`arm_controller` 默认只装载不激活**（`spawner --inactive`，把激活交给 `arm_manage` 以保证 M-3 顺序），并在 launch 里自动补 `LD_LIBRARY_PATH`（否则 `arm_manage_node` 报 `librclcpp.so` 找不到）；⚠️ **刻意不拉 `move_group.launch.py`**（它自带一套 mock 链 ⇒ 双开 = 陷阱 #35/#29） | **绝不 `enable()`**（镜像节点）；串口连续失败达 `max_fail_streak` 就 FATAL 退出；参数默认值取自 `arm_description/config/align.yaml` |
 | [arm_moveit_config](src/arm_moveit_config) | — | MoveIt 配置（纯数据）：`arm.srdf`（一个规划组 arm = base_link→gripper_tcp 链；**本阶段不做夹爪**；碰撞对只关相邻链节）/ `kinematics.yaml`（KDL）/ `ompl_planning.yaml` / **`joint_limits.yaml`（必须显式给 `max_velocity`，否则 TOTP 失败，见 `docs/TESTING.md` §十四）** / `moveit_controllers.yaml`（simple controller manager → `arm_controller`）/ `move_group.launch.py` / `moveit.rviz` | 不写规划器、不碰运动学实现；模型与限位都来自 `arm_description`；**mock 与真机上 plan / plan+execute 都已跑通**（2026-10-05）；**mock 与真机只能开一套**（陷阱 #35、#29） |
 | [arm_motion](src/arm_motion) | — | **运动执行件**（ament_cmake，C++ 库）：`MotionClient` —— 给 JTC 发**单点轨迹**的非阻塞客户端（限位护栏 / 非阻塞 / `async_cancel_goal` / 残差验证），2026-10-07 **M9.0** 从 `safe_park_node` 抽出、**行为逐条等价** | 不拥有线程、不 sleep、**自己不打任何日志**（只产出**事件队列**，措辞与严重级由调用方决定 —— 日志措辞是业务的）、不碰协议/串口/寄存器；将来 `ExecuteMotion` action server 也落在本包（见 `docs/MOTION_ARCH.md`） |
 | [arm_manage](src/arm_manage) | — | **管理层**（ament_cmake，C++ 节点）：**唯一状态机** = 把「控制器先 inactive → 硬件使能 → 校验 → 控制器 active」（M-3）做对 + 「收臂到折叠位**再**失能」编排成一次调用。两个 Gate：`ControllerGate`（switch/list_controllers + 持有 `arm_motion::MotionClient`）、`HardwareGate`（`/arm/set_enabled`、`/arm/emergency_stop`、订阅 `/arm/hardware_status`）。2026-10-11 **M9.3** 落地；同日 **M9.5 真机分级验收通过** | 对外只有 3 个服务（`/arm_manage/arm_on`、`safe_disarm`、`emergency_stop`）+ `/arm/status`（latched）；**只编排、不自己碰电机**；park 位姿真源是 `config/arm_manage.yaml`（M-10）；⚠️ **没有插件时（mock 链）硬件步骤显式跳过**（`skipped=true`，绝不假装使能成功）—— 这样控制器侧 + MotionClient 流程仍能在 mock 上验收 |
 | [arm_application](src/arm_application) | — | **应用层**（ament_cmake，C++）：`safe_park_node`（⚠️ 它自己的 `launch/` **2026-10-11 已删** —— 链路由 `arm_bringup/launch/arm_system.launch.py` 起、收臂改由管理层的 `safe_disarm` 承担）—— 收臂到**折叠位**（模型坐标；参数 `vlim`/`tol_rad`/`timeout_sec`/`state_wait_sec`，`park_pose` 走 `ros2 run` 覆盖）。走 ros2_control 的**正常轨迹通路**：本节点 → `/arm_controller/follow_joint_trajectory`(JTC) → position 接口 → 插件 | **不碰协议/串口/电机**；收完臂臂**仍使能**（硬件停在 ACTIVE、插件继续发保持帧）——真正失能靠 `ros2_control_node` 正常退出时的 `on_deactivate()`。**✅ 真机已验（2026-10-07：空程 0.0015 rad；大行程 0.68 rad 双向残差 0.025~0.031 rad；POS_VEL 与 MIT+重力前馈两条都跑过，守卫 0 次。见陷阱 #57/#58 与 `TESTING.md` §18.9）** |
-| [arm_controllers](src/arm_controllers) | — | **控制层**（ament_cmake；R2 进行中）：`GravityModel`（pinocchio 的 `computeGeneralizedGravity`，构造时按**名字**映射到关节、预分配缓冲 ⇒ `tau_ours()` **零堆分配**）+ **`GravityFfLaw`**（τ_ff = `scale·τ_g + τ_i + τ_fric` 的**纯逻辑**：守卫策略/宽限/防抖/锁存、积分门控+抗饱和、摩擦只在有速度参考时给、NaN 姿态 ⇒ `valid=false`）。**不依赖 rclcpp** ⇒ 可脱开 ROS 单测 | **不碰串口/协议/使能**（那些在 `motor_driver_hardware`）；**不重复算 PD**（PD 归硬件 `kp_hold`/`kd_hold`，D-L2）；**不钳力矩**（物理边界归硬件，LAYERS §5）；`update()` 里不许分配内存/阻塞。**14 条 gtest 全绿**（含 3 条 MuJoCo 逐点对拍）。⏳ **控制器插件（pluginlib）与 launch 装配未做** —— 先要解掉 `LAYERS.md` 文首那两条约束（命令接口**独占** ⇒ 读不到 JTC 的参考；`effort` 失活后**不会**自动回 NaN） |
-| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧硬件层**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_frame_plan`（**纯决策**：`pick_mode`/`pick_reference`/`clamp_mit_torque`）+ `dm_joint`（换算/软限位/两种模式的关节）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、锁定保持目标、ERR 检查、**effort 的 NaN 语义选模式**、运行期使能 + **运行期模式切换**）** | `dm_hardware` **不依赖 rclcpp、也**不依赖 pinocchio**（R1 起控制律全搬走，见 `docs/LAYERS.md`）；`dm_joint` 两种模式都做（1 MIT / 2 POS_VEL）；默认 `enable_on_activate=false`（**只读**，不发控制帧，**但仍然逐台写 `0x0A`** —— 模式是 RAM，不写后面使能会用错模式的帧；那不是控制帧）；**M9.2 起自己提供运行期使能**：服务 `/arm/set_enabled`、`/arm/emergency_stop` + 状态话题 `/arm/hardware_status`（10 Hz latched，**因为状态接口只有控制器读得到**）；与 Python 那三份实现靠 `test/` 的**逐字节/逐数值对拍**保持一致 |
+| [motor_driver_hardware](src/motor_driver_hardware) | — | **C++ 侧硬件层**（`dm_hardware` 库 + `dm_system_interface` 插件）：`dm_frames`（协议，**含 MIT 帧构造**）+ `dm_serial`（termios 非阻塞串口 + `SerialIo` 接口）+ `dm_bus`（收发/缓存/`sync_states`/寄存器 I/O）+ `dm_joint`（换算/软限位/**只做 POS_VEL**）+ **`DmSystemInterface`（ros2_control 插件：参数化、只读模式、锁定保持目标、ERR 检查、运行期使能）** | `dm_hardware` **不依赖 rclcpp、也不依赖 pinocchio**；**控制模式固定 POS_VEL**（`0x0A=2`，MIT 已砍，见 §0.5）；`effort` 命令接口是**空插槽**（本层永不读）；默认 `enable_on_activate=false`（**只读**，不发控制帧，**但仍然逐台写 `0x0A=2`** —— 模式是 RAM，不写后面使能会用错的帧；那不是控制帧）；**M9.2 起自己提供运行期使能**：服务 `/arm/set_enabled`、`/arm/emergency_stop` + 状态话题 `/arm/hardware_status`（10 Hz latched，**因为状态接口只有控制器读得到**）；与 Python 的实现靠 `test/` 的**逐字节/逐数值对拍**保持一致（含 MIT 帧，Python 侧仍支持） |
 
 ## 3. 已实现 / 未实现（精确到方法）
 
@@ -100,40 +125,30 @@ CLI `list` / `dump` / `verify` / `set` / `restore`。`set` 默认只写 RAM，`-
 `dm_bus`：`open/close` · `add_motor`/`set_limit`/`limit`/`registered_ids` · `send_frame`（唯一出口）+ `send_pos_vel`/`send_enable`/`send_disable`/`send_refresh` ·
 `poll` · `wait_feedback` · `flush` · `get_state` · `unknown_ids` · `sync_states` ·
 `read_register`/`write_register`/`save_params`；
-`dm_frame_plan`（**纯决策，R1 新增**；不依赖 rclcpp / 不碰串口 / 不产生副作用）：
-`ControlMode{Mit=1,PosVel=2}` + `mode_name()` · `pick_mode(effort)`（**NaN ⇒ POS_VEL / 有限 ⇒ MIT**，D-L1）·
-`pick_reference(position_cmd, hold, &out)`（有命令用命令、没有用锁定的保持点；都没 ⇒ false ⇒ 调用方拒发）·
-`clamp_mit_torque(kp, kd, err_q, err_dq, tau_ff, limit)`（返回 `{value, clamped, refuse, predicted, pd}`：
-PD 项自己超 ⇒ `refuse`；总力矩超 ⇒ 钳 `tau_ff`）；
-`dm_joint`：`JointConfig`（name/motor_id/direction/offset/`Limit`/软限位/mode）→ `Joint`：
+`dm_joint`（**只做 POS_VEL**）：`JointConfig`（name/motor_id/direction/offset/`Limit`/软限位）→ `Joint`：
 `joint_to_motor`/`motor_to_joint`/`clamp`/`clamp_pmax`/`prepare_frame`（NaN→软限位→换算→PMAX）·
-`set_pos_vel`（**仅 mode 2**）· `enable`（**无缓存位置拒使能 + 立刻补保持帧**）· `disable` ·
-`get_state`（无反馈抛）· `assert_healthy`（只查 ERR，故障先失能再抛）；
-`dm_joint` 的 MIT 侧：**`set_mit`**（仅 mode 1；`torque_max` 不是空时调 `dm_frame_plan` 的
-`clamp_mit_torque()` 判上限，**判定是纯函数、这里只负责取缓存状态并按结果抛/打限流日志**）·
-`enable` 在 mode 1 下发的是**零增益零前馈**（出力恒 0，见陷阱 #41）；
+`set_pos_vel`（唯一发送路径）· `enable`（**无缓存位置拒使能 + 立刻补保持帧**，保持帧用电机侧实测值、不过钳位）·
+`disable` · `get_state`（无反馈抛）· `assert_healthy`（只查 ERR，故障先失能再抛）。
+⚠️ **R1/R2 曾有**的 `set_mit` / `clamp_mit_torque` / `prepare_frame_raw` / `torque_max` / `dm_frame_plan`
+**已随 MIT 一起删**（备查快照在分支 `refactor/layers-r1-r2`）。
 `DmSystemInterface`（插件，`SystemInterface`）：参数**全部来自 <param>**（device/baud/enable_on_activate/vlim +
-**gravity_ff**（只决定"没有控制器时预置哪一种模式"，默认 false）+ 每关节 motor_id/motor_type/direction/offset/
-p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/**torque_max**/**kp_hold**/**kd_hold**/可选 PID）
-· ⚠️ **R1 起不再有** `gravity_ff_scale` / `urdf_path` / `ki_hold` / `friction_c` / `friction_v_eps`
-（控制律的参数归控制层，LAYERS §6）；
-生命周期 `on_init`（解析校验）→ `on_configure`（建串口/总线/关节）→
-`on_activate`（开串口 + `sync_states` + **`write_mode_all()` 写 `0x0A`** + 可选写 PID + 可选使能 +
-**锁定保持目标** + **逐关节按各自模式补一帧真实保持帧**）→ `on_deactivate`（**全部失能**）；
+每关节 motor_id/motor_type/direction/offset/p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/可选 PID）；
+生命周期 `on_init`（解析校验）→ `on_configure`（建串口/总线/关节 + 注册两个 srv 与状态话题）→
+`on_activate`（开串口 + 重试式 `sync_states` + **逐台写 `0x0A=2`** + 可选写 PID + 可选使能 +
+**锁定保持目标** + **逐台补一帧真实保持帧**）→ `on_deactivate`（**全部失能**）；
 `read()`（poll + 填 position/velocity/**effort** + **ERR 非 0/1 报 ERROR**）·
-`write()`（只读模式**一个字节都不发**；有使能请求 ⇒ 先推 `advance_enable_fsm()`；没使能 ⇒ 什么都不发；
-**期望模式（`pick_mode(effort)`）与已提交模式不同 ⇒ 推 `advance_mode_fsm()`**（一次一台写 `0x0A`，
-**切之前先用原模式给所有关节补一帧保持帧**——陷阱 #24/#25 要求每圈都得喂帧）；
-稳态 ⇒ `send_pos_vel_frames()` 或 `send_mit_frames()`，**按各关节已提交的模式逐台选**（允许一台 MIT、一台 POS_VEL）。
-⚠️ **本层没有控制律**（R1 删掉了 `write_gravity_ff` 那 4 个函数与 `GravityModel`）：MIT 的 `tau_ff` 就是
-`effort` 命令接口里的值，硬件自己只出 `kp_hold`/`kd_hold` 的 PD（D-L2）。
+`write()`（**先推运行期使能状态机**；没使能 ⇒ **一个字节都不发**；稳态 ⇒ `write_pos_vel()`：
+命令 NaN 发锁定保持帧、有命令走 `set_pos_vel`）。
+⚠️ **本层没有控制律**（无 τ_g / 摩擦 / 积分 / 守卫）：`effort` 命令接口是留给将来的空插槽。
 ⚠️ 收臂**不在驱动层**：驱动层只做电机 I/O；`safe_park` 是 `arm_application/safe_park_node`（见 §2）。
 
 **未实现（别以为有）**：`arm_msgs` 之上的节点 · **运动接口层 `arm_motion` 的 action server / IK / 规划 / 命名目标**（⚠️ 其中**执行件 `MotionClient` 已落地**（M9.0，8 个 gtest 全过 + 端到端行为等价已验证）；分层/接口契约/异常矩阵见 [docs/MOTION_ARCH.md](docs/MOTION_ARCH.md)，决策 D-M1…D-M8）· ~~M9.5 真机分级验收~~ ✅ **已通过（2026-10-11）**：只读 → 使能（**零位移 0.00000 rad**）→ 起控制器（**M-3 顺序成立**）→ 小动作（**往返残差 0.00076 rad**）→ `safe_disarm`（已在折叠位 ⇒ **自动跳过收臂**；失能后 ERR 全 0）→ `emergency_stop` 幂等。逐条见 `docs/TESTING.md` §十九 · 夹爪 · 速度模式(3) · **电压监控**（本层读不到 `0x3C`）·
 **C++ 侧的力位混控路径**（POS_VEL 与 MIT 两条都做了，够重力前馈用）·
 **摩擦前馈 / 宿主侧积分 / 逐关节 kp 标定**（见 §5 "重力补偿"那段末尾的"还差什么"）·
 **`motor_driver`（Python 包）里仍然没有任何测试文件**（策略；`test/` 只存在于 C++ 包：`motor_driver_hardware/test/` 与 `arm_motion/test/`，见 §7）。
-真机上的 **ros2_control 三步验收**、**MoveIt 规划 + 执行**、**MIT + 重力前馈整链**都**已通过**（2026-10-05）。
+真机上的 **ros2_control 三步验收**、**MoveIt 规划 + 执行**、**MIT + 重力前馈整链**都**已通过**（2026-10-05）
+—— ⚠️ 其中 **MIT + 重力前馈那一份已随本次改动从代码里移除**（快照在 `refactor/layers-r1-r2`），
+现在真机链只有 POS_VEL。
 
 ## 4. 单一真源表（改之前想清楚该改哪个）
 
@@ -147,8 +162,7 @@ p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/**torque_max**/*
 | **力位混控 `i_des` ↔ 扭矩的换算** | `arm_config.NM_PER_I_DES`（实测值，**别按峰值比例外推**：4340P 40 / 4310 22，不是 3.2 倍关系） |
 | **模型对齐 `sign` / `zero_shift`**（`q_urdf = sign·q_ours + zero_shift`） | `src/arm_description/config/align.yaml`（2026-10-04 M1b 实测；URDF 限位与 M5 硬件接口都从它推） |
 | **模型坐标下的关节限位**（应用层护栏 / URDF / MoveIt 都该用这一套） | **算出来的，不是手写的**：`joint.yaml` 的 `position_min/max` + `align.yaml` 的 `sign/zero_shift` ⇒ URDF 的 `<limit>`（xacro 里是**硬编码字面量**）与构建期生成的 `joint_limits.hpp`。**生成器逐条对拍两者**：改了真源没同步另一份就构建失败 |
-| **MIT 保持增益（`kp_hold`/`kd_hold`）** | `src/arm_description/config/mit_gains.yaml`（2026-10-05 真机定：**kp j1~j3 25.0 / j4~j6 15.0、kd 0.8**）。⚠️ **R1 起 `ki_hold` / `friction_c` / `friction_v_eps` 这三个键硬件层不再读**（控制律参数归控制层，见 `docs/LAYERS.md` §6）—— 它们还在 yaml 里、被 xacro 读，等 R2 的 `arm_controllers` 接手 |
-| **运行期控制模式**（POS_VEL / MIT） | **不是参数**，是 `effort` 命令接口的 NaN 语义算出来的（D-L1）：NaN ⇒ POS_VEL / 有限 ⇒ MIT。硬件侧的真源是 `dm_frame_plan.pick_mode()`；`gravity_ff` 只决定"没有控制器时预置哪一种" |
+| ~~MIT 保持增益~~ | **已删**（2026-10-14）：`arm_description/config/mit_gains.yaml` 随 MIT 路径一起移除；C++ 侧不再读 `kp_hold`/`kd_hold`/`ki_hold`/`friction_*`。⚠️ Python 侧的 `config/teach.yaml` 仍**引用**那个文件名（`gravity_teach` 用），加回 MIT 时要一并恢复 |
 | **这台实机的质量 / 质心（重力模型）** | `src/arm_description/config/gravity_identified.yaml`（2026-10-05 辨识，RMS 1.323→0.418；**上游 CAD 的惯量不可信**，见陷阱 #43） |
 | 设计意图（电机驱动层） | `docs/DESIGN.md`（2026-10-07 精简为"设计意图与不变量"；2026-10-11 再去重一轮。⚠️ **节号只能删内容不能改编号**） |
 | 运动 / 应用 / 规划层设计 | `docs/MOTION_ARCH.md`（**已设计未实现**，决策 D-M1…D-M8） |
@@ -162,9 +176,10 @@ p_max/v_max/t_max/position_min/position_max/**sign/zero_shift**/**torque_max**/*
 
 **反馈帧**：适配器→主机 16 字节（`[0]=0xAA`、`[1]=0x11`、`[15]=0x55`），数据段 8 字节 = `D[0]=ID|ERR<<4`、`D[1:3]=POS16`、`D[3:5]=VEL12`、`D[5:7]=T12`、`D[6]=T_MOS`、`D[7]=T_Rotor`（后两个**就是摄氏度**，不换算）
 
-**模式（`0x0A`）**：1 MIT / 2 位置速度 / 3 速度 / 4 力位混控。`0x0A` 是 **RAM**，掉电复位；插件**读不到**它
-⇒ 插件维护一个"**已提交模式**"（写成功才更新）来代表电机那边的真值，每圈用 `effort` 算**期望模式**，不一致就切。
-⚠️ 别再把它当"启动期声明值"：R1 起 `DmSystemInterface` 会**运行期**写 `0x0A`（控制器起停 ⇒ 模式变，D-L1）
+**模式（`0x0A`）**：1 MIT / 2 位置速度 / 3 速度 / 4 力位混控。`0x0A` 是 **RAM**，掉电复位；插件**读不到**它。
+⚠️ **C++ 侧固定写 `0x0A=2`（POS_VEL）**，没有运行期切换（2026-10-14 砍 MIT）。
+每次 `on_activate` 与运行期使能序列都要**重新写一遍** —— RAM 掉电就回默认值，不写的话后面使能会用错模式的帧。
+（那不是控制帧，所以**只读模式下也照写**）
 
 **ERR**：`0` 失能 / `1` 使能 / `8` 超压 / `9` 欠压 / `A` 过流 / `B` MOS 过温 / `C` 线圈过温 / **`D` 通讯丢失（锁存，只能断电清）** / `E` 过载
 
@@ -208,10 +223,11 @@ j4 `[-0.157540, +0.938132]` · j5 `[-0.970641, +0.913381]` · j6 `[-1.359002, +4
   三模式分工：MIT 发前钳位、力位混控限幅、**POS_VEL 只能事后监控**
 - **温度所有模式都查**：MOS / 线圈各自判 `>=`，`temp_warn=80` / `temp_fault=100`℃；warn 限流键是 **(关节, 传感器)**
 
-**重力前馈（MIT；2026-10-05 整链真机跑通 —— ⚠️ R1 起控制律搬去控制层，本节前半是历史与设计意图）**：
-- **现状（R1 之后）**：硬件层**不再算 τ_g**（`dm_gravity` / `GravityModel` / 守卫 / 积分 / 摩擦前馈全部删除）。
-  模式由 `effort` 命令接口的 NaN 语义决定（D-L1）；MIT 帧的 `tau_ff` **就是**控制层写进 `effort` 的值，
-  硬件只出 `kp_hold`/`kd_hold` 的 PD（D-L2）。⇒ **R2 落地前，真机上没有重力前馈可用**（R1 不做真机验收）
+**重力前馈（⚠️ 2026-10-14 起 C++ 侧整套不存在了 —— 下面是历史与仍然成立的物理事实）**：
+- **现状**：C++ 侧**没有重力前馈**，也没有 `effort` 通路（MIT 砍了）。`dm_gravity` / `GravityModel` /
+  守卫 / 积分 / 摩擦前馈在 R1 迁去 `arm_controllers`、又在砍 MIT 时**随包删除**。
+  ⇒ 真机上唯一的托举是**固件位置环（POS_VEL）**；折叠位那部分由**机械结构**扛（实测，见 §0.5）。
+  Python 侧 `dm_gravity.py` / `gravity_teach.py` **还在**（拖动示教走那条旁路）
 - **只有 MIT 能给力矩**：POS_VEL 帧里没有力矩字段，力位混控的 `i_des` 是**上限**也不是前馈
   ⇒ 做重力前馈**必然**要整链换模式（这条不变量不变）
 - **模型**：`arm_identified.urdf`（**空载**辨识版、默认；带夹爪用 `_gripper` 那份，但那份质量**未辨识**）。
@@ -331,39 +347,19 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   **内存字节流**当串口，就能不接硬件走通"发帧 → 收反馈 → 进缓存"整条链；`test_dm_bus.cpp` 还带一个
   **应答器**（收到刷新帧就回一条反馈），所以 `sync_states()` 那种"先丢旧的、再主动问"的流程也能测。
   `test_dm_joint.cpp` 则直接调 Python 的 `joint.py` 比 `prepare_frame`/发帧结果。
-- **插件级测试（R1 起分两层，共 16 个用例；原 `test_dm_system_interface.cpp` 的 21 个已删）**：
-  ① **`test_frame_plan.cpp`（10 个用例，纯输入→输出）** —— 无 rclcpp / 无串口 / 无假电机，毫秒级。
-  守住三条最容易悄悄漂开的判据：`pick_mode` 的 NaN 语义（**`effort=0.0` 必须进 MIT**、inf 不算 MIT）、
-  `pick_reference`（0.0 是有效命令、NaN 才回落保持点、两者都 NaN ⇒ 拒绝）、
-  `clamp_mit_torque`（放行 / 钳位且保号 / **PD 项自己超 ⇒ refuse** / 无上限放行 / 恰好等于上限不算超）。
-  ② **`test_iface_wiring.cpp`（6 个用例，接线）** —— 假串口退化成**记录器**，另配一台最小假电机回答
-  刷新帧与寄存器帧（否则 `on_activate` 的 `sync_states` 要等满 8 秒）。覆盖：只读模式一个控制帧都不发（**含被写了 effort**）、
-  激活写 `0x0A` **早于**使能帧 + 补**真实** MIT 保持帧、命令 NaN ⇒ 保持帧指向**锁定**位置（不重读，陷阱 #38 回归）、
-  `effort` 有限 ⇒ MIT 帧且 `tau_ff == direction × effort`（**注意帧里是电机侧、带符号**）+ 收回 NaN ⇒ 回落 POS_VEL、
-  模式切换**一个周期只写一台寄存器**且**先给所有关节补原模式保持帧**（看门狗）、
-  故障在已使能时报 ERROR / 只读时容忍。
-  ⚠️ **写这类测试时小心帧类型判据**：寄存器帧也是广播 ID、数据段[0] 正是目标电机 ID ——
-  我第一版只按"CAN ID 落在 1~6"判 MIT 帧，把寄存器帧当成了 MIT 帧。判据必须**互斥**（见文件里 `Frame` 的注释）。
-- ⚠️ **跑我们自己编的可执行文件（`safe_park_node`、`arm_manage_node`、gtest）都要带 `LD_LIBRARY_PATH=<pixi env>/lib`**：CMake 给它们设的 RPATH 里没有 pixi 环境 ⇒ 直接 `ros2 run` 会报 `librclcpp.so: cannot open shared object file`（`ros2 launch` 起的 `ros2_control_node` 不受影响 —— 那个可执行文件来自 pixi 环境本身）。根治同样是 `pixi.toml` 的 `[activation.env]`（待用户定）。
-- **`arm_manage` 的验收（mock 链 + 假插件，M9.3 用过的手法）**：起 `mock_control.launch.py`（控制器都在、但**没有我们的插件服务**）→ 起 `arm_manage_node` → 再起一个**假插件**（两个 srv + `/arm/hardware_status`），在它的 `set_enabled` 处理函数里**记下那一刻 `arm_controller` 是否 active** ⇒ 这就是 **M-3 顺序不变量**的判据（实测：enable/disable 到达时 `ctl_active=False`）。同时断言 `/arm/status` 的迁移序列（`READONLY → ARMING → ARMED_CONTROLLER → DISARMING → READONLY`，**全绿流程里不该出现 `FAULT`**）。
-- ⚠️ **R1 起 `motor_driver_hardware/test/` 不再需要 pinocchio 的 `LD_LIBRARY_PATH`**（那条依赖随 `dm_gravity`
-  一起删了）；但**跑我们自己编的可执行文件（`safe_park_node`、`arm_manage_node`、gtest）仍要带**
-  `LD_LIBRARY_PATH=<pixi env>/lib`（见上一条）。⚠️ 这条留给 **R2**：控制层要用 pinocchio 算 τ_g，
-  到时 `arm_controllers/test/` 会重新需要它（`libpinocchio_parsers.so.4.1.0: cannot open shared object file`，
-  pixi 激活只设 `LIBRARY_PATH`、**不设 `LD_LIBRARY_PATH`**，同陷阱 #49）。
-- **控制层的 gtest（`arm_controllers/test/`，R2，14 条）**：
-  ① **`test_gravity_model.cpp`（3 条）** —— 从 R1 删掉的 `test_dm_gravity.cpp` **迁回**：与**已跑通的 MuJoCo**
-  逐点对拍（4 位姿 × 6 关节，≤1e-9）+ sign 逐关节生效 + 参数/用法错误。
-  ⚠️ 读的是**构建时生成**的 `arm_description/arm_dynamics.urdf` ⇒ 先构建 `arm_description`。
-  ⚠️ **它现在带 pinocchio** ⇒ 跑之前要 `export LD_LIBRARY_PATH=$PWD/.pixi/envs/default/lib:$LD_LIBRARY_PATH`
-  （否则 `libpinocchio_parsers.so.4.1.0: cannot open shared object file`，同陷阱 #49）。
-  ② **`test_gravity_ff.cpp`（9 条，纯输入→输出）** —— 不需要串口、不需要假电机：
-  τ_ff == `sign·τ_g`（与 `GravityModel` 逐位一致、j2/j6 反号）、scale 线性且越界拒、
-  **摩擦只在有速度参考时给**（保持时一律 0）、NaN 姿态 ⇒ `valid=false`、
-  守卫**保持态位置即时判 + 锁存**、**轨迹态只查跟踪误差**（陷阱 #42 回归）、速度宽限 + 防抖、
-  积分**门控/抗饱和/参考跳变复位**、参数校验当场抛。
-  ⚠️ 写这类用例时**先算清期望值再写断言**：我在积分那条上因为参数自相矛盾（饱和上限 < 单步×步数）
-  来回改了三次，最后是**实现里的两个 bug** 才让它说真话（见 `LESSONS` 待补）。
+- **插件级测试（`motor_driver_hardware/test/test_iface_wiring.cpp`，4 个用例）** ——
+  假串口退化成**记录器**，另配一台最小假电机回答刷新帧与寄存器帧（否则 `on_activate` 的 `sync_states`
+  要等满 8 秒）。覆盖（**2026-10-14 砍 MIT 后的实际集合**）：
+  ① 只读模式一个控制帧都不发（**含往 `effort` 插槽写过值**）；
+  ② 激活时写 `0x0A=2` **早于**使能帧 + 补 POS_VEL 保持帧 + **一个 MIT 帧都不该有**；
+  ③ 命令 NaN ⇒ 保持帧指向**锁定**位置、不重读（陷阱 #38 回归）；
+  ④ 故障在已使能时报 ERROR / 只读时容忍。
+  ⚠️ **写这类测试时小心帧类型判据**：寄存器帧也是广播 ID、数据段[0] 正是目标电机 ID。判据必须**互斥**
+  （见文件里 `Frame` 的注释）—— 我第一版只按"CAN ID 落在 1~6"判 MIT 帧，把寄存器帧当成了 MIT 帧。
+  ⚠️ **MIT 帧本身仍被测**：`test_dm_frames.cpp` 里有 `mit_frame` 与 Python 的逐字节对拍
+  （协议只有一个真源，Python 侧 `joint.py` 仍支持 MIT ⇒ 两份实现必须继续咬住）。
+- ⚠️ **`motor_driver_hardware/test/` 不需要 pinocchio**（硬件层从未依赖它）；但**跑我们自己编的
+  可执行文件（`safe_park_node`、`arm_manage_node`、gtest）都要带** `LD_LIBRARY_PATH=<pixi env>/lib`（见上一条）。
 - **`arm_motion` 的 gtest**（`src/arm_motion/test/test_motion_client.cpp`，**8** 个用例）：进程内**假 action server**
   + 假 `/joint_states`（QoS 必须 RELIABLE + TRANSIENT_LOCAL），覆盖：越界/名字错 ⇒ 当场拒绝（一帧不发）、
   "全 0 目标"也越界（j1 限位是 `[1.392202, 1.626143]`）、正常到达残差≈0、JTC 报成功但没动 ⇒ 残差超差、
@@ -396,7 +392,9 @@ class FakeBus:                       # 只实现 Joint 用到的那几个方法
   - `uncrustify` 那条**不是新引入的**（A/B：HEAD 版本 15 处分歧 → 现在 5 处）；`pytest` 与代码无关。
   - ⇒ **看 `colcon test` 红之前先看是哪一条**：`arm_motion` / `motor_driver_hardware` / `arm_msgs` 都干净。
 
-**真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` → 小增益 `set_mit(kp≈1~5, q=当前位置)` → 确认方向 → 加大 → `disable()` → 关电源。
+**真机上电顺序**（每一步都要先只读）：`bus.poll()` 看状态 → `poll()` 拿到位置 → `enable()` →
+小 `vlim` 发 `set_pos_vel(当前位置)` 确认方向 → 加大 → `disable()` → 关电源。
+⚠️ C++ 侧**已无 `set_mit`**；要做力矩类调试走 **Python** 的 `joint.py` / `dm_bringup jog --mit`。
 
 ## 8. 文档真源与过期清单
 

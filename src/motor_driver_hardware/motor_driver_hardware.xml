@@ -3,13 +3,12 @@
          type="motor_driver_hardware::DmSystemInterface"
          base_class_type="hardware_interface::SystemInterface">
     <description>
-      DM_Armx 的达妙电机 SystemInterface。命令接口是 position / velocity / effort，
+      DM_Armx 的达妙电机 SystemInterface。命令接口是 position + effort，
       状态接口是 position / velocity / effort（**电机反馈里的电流估计**，不是力矩传感器）。
-      控制模式由 `effort` 命令接口的 NaN 语义决定（docs/LAYERS.md §4 的 D-L1）：
-        effort 是 NaN   ⇒ POS_VEL（没有控制器声索力矩；位置给固件闭环）
-        effort 是有限值 ⇒ MIT（控制器在写力矩；它被当作 tau_ff，PD 由插件的 kp_hold/kd_hold 叠加）
-      模式可运行期切换（控制器起停会让它变），一次一台写 0x0A。
-      **本插件不含控制律**：重力 / 摩擦 / 积分由控制层算好、经 effort 送进来。
+      **控制模式固定 POS_VEL（0x0A=2）**：位置给固件闭环（固件自带积分）。
+      ⚠️ MIT 已砍（2026-10-14）：本链不需要关节力矩，而折叠位的重力由机械结构承载（实测）。
+         `effort` 命令接口**保留为空插槽**（本层永远不读），将来若要加力矩控制器不必改 URDF。
+      MIT 帧的构造仍在协议层（dm_frames::mit_frame），与 Python 侧逐字节对拍。
       默认 enable_on_activate=false（只读）：不使能、不发控制帧，只发 0x7FF 刷新帧读状态。
     </description>
   </class>

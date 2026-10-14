@@ -2,15 +2,15 @@
 //
 // 边界：
 //   - 不拥有控制循环（`set_*` 只发一帧）、不 poll、不写寄存器；
-//   - 不知道 ROS、不读 yaml —— 参数由调用方（M5 的插件）填进 `JointConfig`；
-//   - 支持 **mode 1(MIT) 与 mode 2(位置速度)**；力位混控(4)与速度(3)没移植。
-//     ros2_control 这条链的**轨迹执行仍走 POS_VEL**（固件闭环稳态误差能到 ~0）；
-//     MIT 是唯一能**直接给力矩**的模式，留给重力前馈这类需要 `tau_ff` 的场合。
+//   - 不知道 ROS、不读 yaml —— 参数由调用方（插件）填进 `JointConfig`；
+//   - **只做 mode 2(位置速度)**。MIT(1) 已从 C++ 这一层砍掉（2026-10-14 决定：本链只走
+//     POS_VEL，固件位置环自带积分、不需要力矩前馈；折叠位的重力由机械结构承载，已实测）。
+//     ⚠️ 协议层的 `dm_frames::mit_frame` **保留**（Python 侧 `joint.py` 仍然支持 MIT，
+//        两份协议实现要继续互相咬住），只是 C++ 的控制路径不再用它。
 //
 // 三条真机教训内建在这里：
 //   - 位置类模式下**没有实测位置就拒绝使能**（切模式时电机内部指令被清零，使能会朝零位冲）；
 //   - 使能后**立刻补"保持帧"**，且保持帧用**电机侧实测值**、不经过软限位/换算（钳了就不是保持）；
-//     （mode 1 的保持帧是"零增益零前馈"，出力恒为 0，与 Python 侧一致）
 //   - `prepare_frame()` 的顺序固定为 NaN 拦 → 软限位 → 换算 → PMAX 钳位。
 #ifndef MOTOR_DRIVER_HARDWARE__DM_JOINT_HPP_
 #define MOTOR_DRIVER_HARDWARE__DM_JOINT_HPP_
@@ -20,15 +20,12 @@
 #include <string>
 
 #include "motor_driver_hardware/dm_bus.hpp"
-#include "motor_driver_hardware/dm_frame_plan.hpp"
 #include "motor_driver_hardware/dm_frames.hpp"
 
 namespace motor_driver_hardware
 {
 
 constexpr double kHoldVlim = 0.1;   // 保持帧的速度幅值（与 Python 侧 HOLD_VLIM 一致）
-// MIT 钳位日志的限流间隔（同 Python 的 CLAMP_WARN_INTERVAL）
-constexpr double kClampWarnInterval = 5.0;
 
 // 模型坐标（URDF / ros2_control 接口用的那一套） ⇄ 我们的关节坐标 q_ours。
 //   q_urdf = sign · q_ours + zero_shift        （sign/zero_shift 来自 arm_description/config/align.yaml）
@@ -53,10 +50,6 @@ struct JointConfig
   Limit limit{12.5, 10.0, 28.0};                // 档位（必须来自 0x15/0x16/0x17 回读）
   std::optional<double> position_min;           // 关节侧软限位（我们的标定）；空 = 不钳
   std::optional<double> position_max;
-  // MIT 的力矩上限（关节侧 N·m，DESIGN §4.3 的额定值：j1~j3 12.0 / j4~j6 3.5）。
-  // 空 = 不钳（单关节直用时）；注意它**不是**档位里的 `limit.t_max`（那是电机峰值 28/10）。
-  std::optional<double> torque_max;
-  int mode = 2;                                 // 1 = MIT / 2 = POS_VEL（别的模式没移植）
 };
 
 struct JointState
@@ -86,7 +79,6 @@ public:
   const JointConfig & config() const {return cfg_;}
   const std::string & name() const {return cfg_.name;}
   uint8_t motor_id() const {return cfg_.motor_id;}
-  int mode() const {return cfg_.mode;}
 
   // ── 换算与钳位（纯函数，和 Python 的公式逐条对应）──
   double joint_to_motor(double joint_value) const;   // direction × v + offset
@@ -96,21 +88,9 @@ public:
 
   // 发送前的统一处理：NaN 拦 → 软限位 → 换算 → PMAX。返回**电机侧**位置。
   double prepare_frame(double joint_pos) const;
-  // 同 prepare_frame，但**跳过软限位钳位**（NaN 拦与 PMAX 钳位保留）。
-  // 给"保持当前位置"这类帧用：它的语义是"待在你现在的位置"，**任何钳位都会凭空造出一个
-  // PD 项**。真机踩过（2026-10-05）：激活时 j4 被软限位钳掉 0.176 rad ⇒ kp=25 下
-  // PD=4.4 > torque_max=3.5 ⇒ **拒发 ⇒ FATAL ⇒ 整条链起不来**。POS_VEL 的保持帧
-  // 早就故意绕过钳位（陷阱 #21），MIT 的保持帧也要同样处理。
-  double prepare_frame_raw(double joint_pos) const;
 
   // ── 发送（每条只发一帧）──
-  void set_pos_vel(double joint_pos, double vlim);   // 仅 mode 2
-  // 仅 mode 1。`tau` 是**关节侧** N·m（内部只乘 direction，不加 offset）。
-  // `torque_max` 不是空时先按**预测总力矩**钳 `tau_ff`（见 clamp_mit_torque）。
-  // bypass_soft_limits=true ⇒ 目标**不做软限位钳位**（见 prepare_frame_raw）。
-  // 只给"保持当前位置"这种帧用；轨迹/点动一律保持默认 false。
-  void set_mit(double kp, double kd, double joint_pos, double dq = 0.0, double tau = 0.0,
-    bool bypass_soft_limits = false);
+  void set_pos_vel(double joint_pos, double vlim);
   void enable();     // 命令帧 + 保持帧（用电机侧实测位置，绝不朝零位冲）
   void disable();
 
@@ -120,15 +100,8 @@ public:
   void assert_healthy() const;       // 只查 ERR；故障 ⇒ 先失能再抛
 
 private:
-  // 按 `torque_max` 钳 MIT 的 `tau_ff`。入参与返回都是**电机侧**量。
-  // 判定本身在 `dm_frame_plan.hpp` 的 `clamp_mit_torque()`（纯函数、可单测）；
-  // 这里只负责"取缓存状态 + 按判定结果抛异常/打限流日志"。
-  double clamp_mit_torque(double kp, double kd, double q_des_motor, double dq_des_motor,
-    double tau_ff_motor) const;
-
   MotorBus & bus_;
   JointConfig cfg_;
-  mutable double clamp_warn_at_ = -kClampWarnInterval;   // 首次钳位一定打日志
 };
 
 }  // namespace motor_driver_hardware

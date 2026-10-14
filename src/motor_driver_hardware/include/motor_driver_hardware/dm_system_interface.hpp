@@ -1,27 +1,23 @@
 // dm_system_interface.hpp —— ros2_control 的 `SystemInterface` 插件（把 C++ 核接到真机）。
 //
 // **这一层的职责**（LAYERS §2）：串口与帧 I/O、把上层给的目标**装配成 CAN 帧**、使能/失能（电气动作）、
-// 反馈 → 状态接口、**物理**边界（PMAX / `torque_max`）、喂 500 ms 看门狗、ERR 上报。
+// 反馈 → 状态接口、**物理**边界（PMAX）、喂 500 ms 看门狗、ERR 上报。
 // **不做**：控制律（τ_g / 摩擦 / 积分 / 守卫策略）、轨迹、模型软限位、业务流程 —— 那些属于控制层/运动层。
 //
-// 三层坐标系（**这是本文件最容易看错的地方**）：
-//     URDF / 模型坐标  ←sign/zero_shift→  我们的关节坐标 q_ours  ←direction/offset→  电机 p_m
-//   - ros2_control 的**命令与状态接口都是模型坐标**（和 URDF、JTC 一致）；
-//   - `dm_joint` 的"关节侧"是 **q_ours**（本项目标定的那一套，软限位也在这一套里）；
-//   - 换算常量：`sign`/`zero_shift` 来自 arm_description/config/align.yaml，
-//     `direction`/`offset` 来自 motor_driver/config/joint.yaml —— 由 xacro 变成 <param> 传进来。
+// **只有一种控制模式：POS_VEL（`0x0A = 2`）**（2026-10-14 决定，砍掉整个 MIT 路径）：
+//   - 位置给固件闭环（固件自带积分，静态精度最好）；
+//   - MIT 曾经用来做重力前馈，但：① 折叠位的重力由**机械结构**承载（实测：失能 5 s 零漂移、
+//     torque 全在 ±0.02 N·m 量化噪声内）⇒ 那条前馈在折叠位是空转；② 本链不需要关节力矩。
+//   - ⚠️ `dm_frames::mit_frame` 与 Python 侧 `joint.py` 的 MIT **保留不动**（协议只有一个真源，
+//     两份实现要继续逐字节咬住），砍掉的只是 **C++ 的控制路径**。
 //
-// 两种控制模式由 **`effort` 命令接口的 NaN 语义**选（D-L1，见 docs/LAYERS.md §4 与 dm_frame_plan.hpp）：
-//   - `effort` 是 NaN（没有控制器声索力矩）⇒ **POS_VEL**：位置给固件闭环，静态精度最好；
-//   - `effort` 是有限值（控制器在写力矩）  ⇒ **MIT**：硬件的 PD（`kp_hold`/`kd_hold`）**加上**
-//     `effort` 当 `tau_ff`（D-L2：控制器只写前馈量，PD 留在硬件层）。
-//   模式可以**运行期切换**（控制器起停 ⇒ 模式必然变），由 `advance_mode_fsm()` 一次切一台。
-//   ⚠️ `gravity_ff` 参数只决定"**没有控制器时**预置哪一种模式"（见 parse_params），不再是整链开关。
+// `effort` 命令接口**保留为空插槽**：本层永远不读它（现在没有力矩路径），这样将来若要加力矩
+// 控制器，不必改 URDF/xacro。导出的 effort **状态**接口仍报电机反馈里的**电流估计**。
 //
 // 安全设计（都是真机踩出来的，别删）：
-//   1. **命令是 NaN 就发"保持"**（目标是**使能那一刻锁定**的位置）：ros2_control 里没被写过的
+//   1. **命令是 NaN 就发"保持"**（目标是**使能那一刻锁定**的电机侧位置）：ros2_control 里没被写过的
 //      命令接口就是 NaN，当 0 处理 = 一使能就朝零位冲。锁定而不是"每圈重读实测值"，是因为后者没有
-//      回复力 —— 重力能把关节慢慢压走（陷阱 #38，2026-10-05 真机实测 20s 掉 0.0027 rad）；
+//      回复力 —— 重力能把关节慢慢压走（陷阱 #38）；
 //   2. `write()` 每圈给**所有**关节发帧：不发帧的会被电机侧 500ms 看门狗打成锁存 ERR=13（只能断电清）；
 //   3. `enable_on_activate=false`（默认）时**不发任何控制帧**，只发 0x7FF 刷新帧读状态 ⇒ 可做"只读"验收；
 //   4. `on_deactivate()` **全部失能**；`read()` 里 ERR 不是 0/1 ⇒ 返回 ERROR 让 CM 停控制器。
@@ -47,12 +43,15 @@
 #include <vector>
 
 #include "motor_driver_hardware/dm_bus.hpp"
-#include "motor_driver_hardware/dm_frame_plan.hpp"
 #include "motor_driver_hardware/dm_joint.hpp"
 #include "motor_driver_hardware/dm_serial.hpp"
 
 namespace motor_driver_hardware
 {
+
+// CTRL_MODE 寄存器（`0x0A`，RAM）的唯一取值。要改回 MIT 就得在这里加一个枚举值，
+// 并把 `dm_joint` 的 `set_mit` 与 `dm_gravity` 一起恢复 —— 不是只改这一个数。
+constexpr uint32_t kCtrlModePosVel = 2;   // 1 = MIT / 2 = 位置速度 / 3 = 速度 / 4 = 力位混控
 
 class DmSystemInterface : public hardware_interface::SystemInterface
 {
@@ -116,10 +115,6 @@ private:
     double zero_shift = 0.0;
     std::optional<std::array<double, 4>> pid;         // KP_ASR/KI_ASR/KP_APR/KI_APR；空 = 不写 PID
     std::unique_ptr<Joint> joint;
-    // MIT 的保持增益（D-L2：**留在硬件层** —— "这台电机怎么调"）。控制器只写 `effort` 前馈量，
-    // PD 由硬件在自己的 100 Hz 里叠上去。
-    double kp_hold = 0.0;
-    double kd_hold = 0.0;
   };
 
   // ── 运行期状态：每周期都会变的东西（与"静态参数"分开，便于一眼看出谁是状态）──
@@ -127,10 +122,9 @@ private:
   {
     int missing_streak = 0;                           // 连续多少圈没反馈
     uint8_t err_warned = 0;                           // 只读模式下"这个故障码已提示过"
-    // 使能那一刻锁定的保持目标。`hold_pos` 是**电机侧**（POS_VEL 保持帧要它），
-    // `hold_ours` 是**关节侧**同一点（MIT 保持帧要它）。两者别混用。
+    // 使能那一刻锁定的保持目标（**电机侧**）。POS_VEL 的保持帧直接用它发，
+    // 不换算、不钳位 —— 钳了就不是"保持"（陷阱 #21）。
     std::optional<double> hold_pos;
-    std::optional<double> hold_ours;
   };
 
   // ── 运行期使能（M9.2，设计见 docs/MANAGE_ARCH.md §5）────────────────────────
@@ -158,43 +152,18 @@ private:
                                            // **~70 ms**（6 台 × 寄存器往返 ~12 ms，2026-10-11），
                                            // 给 3 s 只是"CM 的 update 停了"时别把服务挂死。
 
-  // ── 运行期模式切换（D-L1 的必然结果：控制器起停 ⇒ 模式变）────────────────────
-  // 每个控制器周期重新算一次**期望模式**（`pick_mode(effort)`）；与**已提交**的模式不同就切，
-  // 一次切一台（一次 `0x0A` 写 ≈12 ms）。
-  // ⚠️ 切换**必须补一帧原模式的保持帧**：`0x0A` 是运行期写，若不补，那一刻"在飞的目标"会被
-  //    电机侧清零（陷阱 #2 同源）⇒ 先从"保持当前位置"起步，两种模式的参考点都是当前实测位置，
-  //    切过去时 PD 误差 ≈ 0 ⇒ **无跳变**。
-  // ⚠️ **没有 `enable_req_` 时也允许切**（激活时就是靠它写 `0x0A`），这与运行期使能状态机不冲突：
-  //    它只在 `enable_req_ != 0` 时跑，且那时 `advance_mode_fsm()` 不会被执行。
-  void advance_mode_fsm();
-  // 写入期望模式：一次一台（一次寄存器往返）= 运行期路径。
-  void write_mode_one(std::size_t i, ControlMode mode);
-  // 逐台写一遍（on_activate 用）。**不是 RT 路径**：那里本来就在阻塞地等电机上线，
-  // 一次写完整臂是原行为（6 台 × ~12 ms）。
-  void write_mode_all();
-
   // ── 使能序列的两块积木（on_activate 与运行期状态机**共用同一份**，别写两遍）──
-  void enable_all_and_latch();              // 全部使能 + 锁保持目标
+  void write_mode_one(std::size_t i);       // ① 单台写 0x0A=2（+ 可选写 PID）
+  void enable_all_and_latch();              // ② 全部使能 + 锁保持目标 + 补保持帧
   // 记结果：先写原因（加锁）再置原子量 ⇒ 读到 result≠0 时原因一定已就绪。
   void set_enable_result(int v, const std::string & why);
-
-  // ── 当前控制模式（`committed_mode_` 是"真的写进 0x0A 的那个"；空 = 本轮还没提交过）──
-  // 单独一个数组：模式是**每条关节各自**的事（一台不同不影响别的 5 台）。
-  std::vector<ControlMode> committed_mode_;
-  std::vector<ControlMode> pending_mode_;
-  std::vector<char> mode_done_;
-  std::size_t mode_step_ = 0;
 
   // ── 模型坐标 ⇄ 我们的关节坐标（换算公式的真源在 dm_joint.hpp，这里只套每关节的 sign/δ）──
   double model_to_ours(std::size_t i, double q_urdf) const;
   double ours_to_model(std::size_t i, double q_ours) const;
 
-  // ── 两条装配路径（`write()` 按模式分派；只负责装配帧，不做决策、不算控制律）──
-  hardware_interface::return_type send_pos_vel_frames();
-  hardware_interface::return_type send_mit_frames();
-  // 所有关节补一帧**各自当前模式**的保持帧。返回是否**每台都发成功**
-  // （模式切换前用它可以 best effort，使能后用它的返回值判成败）。
-  bool send_hold_frames_all();
+  // ── POS_VEL 装配路径 ──
+  hardware_interface::return_type write_pos_vel();
 
   // ── 参数解析 ──
   bool parse_params(const hardware_interface::HardwareInfo & info);   // 失败返回 false（已打日志）
@@ -219,12 +188,8 @@ private:
   // effort（模型坐标 N·m）：来自电机反馈的**电流估计**，不是力矩传感器。只当量级参考。
   std::vector<double> hw_efforts_;
   std::vector<double> hw_commands_;
-  // velocity 命令接口（模型坐标 rad/s）：MIT 下当 `dq_des` 用，POS_VEL 路径不看它。
-  // 两条链都导出它 —— ros2_controllers.yaml 是 mock/真机共用的，少一个接口 JTC 会配置失败。
-  std::vector<double> hw_vel_commands_;
-  // effort 命令接口（模型坐标 N·m）—— **本层选模式的唯一依据**（D-L1）：
-  //   NaN = 没有控制器声索力矩 ⇒ 发 POS_VEL；有限 = 有控制器在写 ⇒ 发 MIT 且把它当 `tau_ff`。
-  //   默认 NaN；`gravity_ff=true` 时预置 0.0（使能即进 MIT，且前馈为 0 —— 控制律不在本层）。
+  // **空插槽**：`effort` 命令接口。本层永远不读它（没有力矩路径），导出只是为了让将来加力矩
+  // 控制器时不必改 URDF/xacro。永远是 NaN。
   std::vector<double> hw_effort_commands_;
 
   SerialIo * injected_io_ = nullptr;                  // 测试注入（不拥有）
@@ -237,9 +202,6 @@ private:
   bool enable_on_activate_ = false;                   // 默认**只读**
   double vlim_ = 1.0;                                 // POS_VEL 速度上限（rad/s）
   int fail_streak_limit_ = 10;                        // 连续多少圈收不到反馈就报错
-  // ⚠️ 这只是"没有控制器时**预置**哪一种模式"（false⇒POS_VEL / true⇒MIT+`effort`=0），
-  //    **不是**整链开关：真正的模式由 `effort` 接口每周期决定（D-L1）。控制律不在这条路径上。
-  bool gravity_ff_ = false;
 };
 
 }  // namespace motor_driver_hardware

@@ -1,10 +1,10 @@
-// test_iface_wiring.cpp —— 插件的**接线**测试（LAYERS §8.1 ②）：验证插件真的按 dm_frame_plan 的
-// 决策去读写串口，以及使能/保持/故障这几条**不可能只靠纯函数覆盖**的路径。
+// test_iface_wiring.cpp —— 插件的**接线**测试（LAYERS §8.1 ②）：验证插件真的按约定的顺序
+// 去读写串口，以及使能/保持/故障这几条**不可能只靠纯函数覆盖**的路径。
 //
 // 假串口在这里退化成**记录器**：只记 `write()` 收到了什么；另配一台最小"假电机"回答刷新帧与
 // 寄存器帧（否则 on_activate 的 sync_states 会等满 8 秒）。
-// ⚠️ 本文件**不测控制律** —— τ_g / 摩擦 / 积分 / 守卫已经不在这层了（见 LAYERS §7 #1）。
-//    那批用例随控制律迁去 `arm_controllers/test/`（R2）。
+// ⚠️ 本文件**不测控制律**，也**不测 MIT** —— 2026-10-14 起 C++ 侧只走 POS_VEL（`0x0A=2`）。
+//    MIT 帧的构造仍在协议层（`dm_frames::mit_frame`），由 `test_dm_frames` 与 Python 逐字节对拍。
 #include <gtest/gtest.h>
 
 #include <hardware_interface/component_parser.hpp>
@@ -238,14 +238,12 @@ hardware_interface::HardwareInfo make_info(bool enable_on_activate)
     {"motor_id", "2"}, {"motor_type", "4340P"}, {"direction", "-1"}, {"offset", "1.594229"},
     {"p_max", "12.5"}, {"v_max", "10.0"}, {"t_max", "28.0"},
     {"position_min", "-0.25"}, {"position_max", "2.188275"},
-    {"sign", "-1"}, {"zero_shift", "-0.191649"},
-    {"torque_max", "12.0"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"}}));
+    {"sign", "-1"}, {"zero_shift", "-0.191649"}}));
   info.joints.push_back(make_joint("joint6", {
     {"motor_id", "6"}, {"motor_type", "4310"}, {"direction", "1"}, {"offset", "2.010141"},
     {"p_max", "12.5"}, {"v_max", "30.0"}, {"t_max", "10.0"},
     {"position_min", "-3.141593"}, {"position_max", "3.141593"},
-    {"sign", "1"}, {"zero_shift", "1.782591"},
-    {"torque_max", "3.5"}, {"kp_hold", "7.0"}, {"kd_hold", "0.8"}}));
+    {"sign", "1"}, {"zero_shift", "1.782591"}}));
   return info;
 }
 
@@ -303,16 +301,16 @@ TEST(IfaceWiring, ReadOnlySendsNoControlFrames)
   }
 }
 
-// ② 激活（MIT 预置）：写模式寄存器 → 使能帧 → 补**真实** MIT 保持帧（陷阱 #41）
-TEST(IfaceWiring, ActivationWritesModeThenEnablesWithMitHold)
+// ② 激活：写模式寄存器 0x0A=2 → 使能帧 → 补保持帧（POS_VEL）
+TEST(IfaceWiring, ActivationWritesModeThenEnablesAndHolds)
 {
   RecorderIo io;
   md::DmSystemInterface iface(&io);
-  hardware_interface::HardwareInfo info = make_info(/*enable_on_activate=*/true);
-  info.hardware_parameters["gravity_ff"] = "true";     // 预置 MIT（effort=0）
-  ASSERT_EQ(init_and_activate(iface, info), CallbackReturn::SUCCESS);
+  ASSERT_EQ(init_and_activate(iface, make_info(/*enable_on_activate=*/true)),
+    CallbackReturn::SUCCESS);
 
-  // ① 两台各写了一次 0x0A=1（MIT 预置），且**在使能帧之前**（顺序不变量）
+  // ① 两台各写了一次 0x0A=2，且**在使能帧之前**（顺序不变量：先切模式再使能，
+  //    否则使能瞬间电机还在旧模式，补的保持帧会发错）
   std::size_t n_mode = 0;
   std::size_t last_mode_at = 0;
   std::size_t first_enable_at = io.frames.size();
@@ -321,33 +319,30 @@ TEST(IfaceWiring, ActivationWritesModeThenEnablesWithMitHold)
     if (f.is_reg_write(0x0A)) {
       ++n_mode;
       last_mode_at = i;
-      EXPECT_EQ(f.reg_raw_byte(), 1) << "预置 MIT 却没有写 0x0A=1";
+      EXPECT_EQ(f.reg_raw_byte(), 2) << "本链只走 POS_VEL，必须写 0x0A=2";
     }
     if (f.is_enable_cmd() && f.d(7) == md::kCmdEnable && first_enable_at == io.frames.size()) {
       first_enable_at = i;
     }
   }
   EXPECT_EQ(n_mode, 2u) << "激活时没有逐台写 0x0A";
-  EXPECT_LT(last_mode_at, first_enable_at) << "写 0x0A 必须在使能帧之前（否则补的保持帧是错的）";
+  EXPECT_LT(last_mode_at, first_enable_at) << "写 0x0A 必须在使能帧之前";
 
   // ② 两台各一条使能帧
   std::size_t n_enable = 0;
   for (const auto & f : io.frames) {if (f.is_enable_cmd() && f.d(7) == md::kCmdEnable) {++n_enable;}}
   EXPECT_EQ(n_enable, 2u);
 
-  // ③ 使能之后补的是**真实** MIT 保持帧（位置 = 当前实测位置）—— 不是零增益帧。
-  //    ⚠️ `Joint::enable()` 自己会先发一条**零增益** MIT 帧（出力恒 0，陷阱 #41 的那一段），
-  //       所以要看**使能帧之后**的 MIT 帧。
-  const Frame * real_hold = nullptr;
-  for (std::size_t i = first_enable_at; i < io.frames.size(); ++i) {
-    if (io.frames[i].is_mit() && io.frames[i].can_id() == 2) {real_hold = &io.frames[i];}
+  // ③ 使能后补的保持帧是 **POS_VEL** 帧、位置 = 当前实测位置（不换算不钳位）
+  const Frame * hold = io.last_pos_vel(2);
+  ASSERT_NE(hold, nullptr) << "激活后没有补 POS_VEL 保持帧";
+  EXPECT_NEAR(hold->pos_vel_target(), reported_motor_pos(2), 0.001)
+    << "保持帧的位置不是当前实测位置";
+
+  // ④ **一个 MIT 帧都不该有**：C++ 侧的 MIT 路径已砍（协议层的 mit_frame 仍在，但没人调）
+  for (const auto & f : io.frames) {
+    EXPECT_FALSE(f.is_mit()) << "本链已砍 MIT，不该出现 MIT 帧";
   }
-  ASSERT_NE(real_hold, nullptr) << "MIT 预置下激活后没有补真实 MIT 保持帧";
-  EXPECT_NEAR(real_hold->mit_position(), reported_motor_pos(2), 0.001)
-    << "MIT 保持帧的位置不是当前实测位置";
-  // ④ 预置 MIT 时**不该有 POS_VEL 控制帧**（那说明模式判据没生效）
-  EXPECT_EQ(io.last_pos_vel(2), nullptr) << "MIT 预置下仍发了 POS_VEL 帧";
-  EXPECT_EQ(io.last_pos_vel(6), nullptr) << "MIT 预置下仍发了 POS_VEL 帧";
 }
 
 // ③ 命令是 NaN ⇒ 发的是**保持帧**，目标是"使能那一刻锁定的"位置，**不每圈重读**
@@ -357,7 +352,7 @@ TEST(IfaceWiring, HoldFrameTargetsLatchedPositionNotReread)
   RecorderIo io;
   md::DmSystemInterface iface(&io);
   ASSERT_EQ(init_and_activate(iface, make_info(/*enable_on_activate=*/true)),
-    CallbackReturn::SUCCESS);                       // 默认 gravity_ff=false ⇒ POS_VEL
+    CallbackReturn::SUCCESS);                       // 控制模式固定 POS_VEL
   const double latched = reported_motor_pos(2);
   ASSERT_NE(io.last_pos_vel(2), nullptr);
   EXPECT_NEAR(io.last_pos_vel(2)->pos_vel_target(), latched, 0.001);
@@ -373,66 +368,7 @@ TEST(IfaceWiring, HoldFrameTargetsLatchedPositionNotReread)
   EXPECT_NEAR(hold->pos_vel_target(), latched, 0.001);
 }
 
-// ④ effort 有限 ⇒ MIT 帧，且 `effort` 成为**前馈力矩**（D-L2：PD 由硬件出）
-TEST(IfaceWiring, EffortCommandBecomesMitFeedforward)
-{
-  RecorderIo io;
-  md::DmSystemInterface iface(&io);
-  ASSERT_EQ(init_and_activate(iface, make_info(/*enable_on_activate=*/true)),
-    CallbackReturn::SUCCESS);
-  io.clear();
-  set_command(iface, "joint2", hardware_interface::HW_IF_EFFORT, -0.5);
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);      // 这一帧切模式
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);      // 这一帧发 MIT
-  const Frame * mit = io.last_mit(2);
-  ASSERT_NE(mit, nullptr) << "effort 有限却没有发 MIT 帧";
-  // joint2 的 t_max = 28.0（4340P 档位），力矩字段映射范围是 ±28。
-  // ⚠️ 帧里是**电机侧**力矩 = direction × 关节侧 ⇒ joint2 的 direction=−1
-  //    ⇒ 关节侧 −0.5 对应帧里的 **+0.5**（矢量只乘 direction，不加 offset）。
-  EXPECT_NEAR(mit->mit_tau(28.0), +0.5, 28.0 / 4095.0)
-    << "effort 命令没有成为 MIT 帧的前馈力矩（注意方向符号）";
-
-  // 把 effort 收回 NaN ⇒ **退回 POS_VEL**（控制器失活的免费回落）
-  set_command(iface, "joint2", hardware_interface::HW_IF_EFFORT, kNaN);
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);      // 这一帧切模式
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
-  EXPECT_NE(io.last_pos_vel(2), nullptr) << "effort 回到 NaN 后没有回落 POS_VEL";
-}
-
-// ⑤ 运行期模式切换：一次一台写寄存器，**每周期不混发控制帧**
-TEST(IfaceWiring, ModeSwitchWritesOneRegisterPerCycleAndSendsNoControlFrame)
-{
-  RecorderIo io;
-  md::DmSystemInterface iface(&io);
-  ASSERT_EQ(init_and_activate(iface, make_info(/*enable_on_activate=*/true)),
-    CallbackReturn::SUCCESS);                       // 默认 POS_VEL；0x0A=2 已在激活时写过
-  io.clear();
-  set_command(iface, "joint2", hardware_interface::HW_IF_EFFORT, 0.0);
-  set_command(iface, "joint6", hardware_interface::HW_IF_EFFORT, 0.0);
-
-  // 第一周期：**只有**一条 0x0A 寄存器写；同时给所有关节补了**原模式（POS_VEL）的保持帧**
-  //（看门狗要求每圈给所有已使能关节喂帧 ⇒ 切模式期间不能"什么都不发"）。
-  //⚠️ 那些 POS_VEL 帧是**切换前的参考点保护**（在飞的目标不丢），不是"切错了模式"。
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
-  auto first = io.slice(0);
-  EXPECT_EQ(count_reg_writes(first, 0x0A), 1u) << "一个周期写了多于一台的模式寄存器";
-  std::size_t pos_vel_frames = 0;
-  for (const auto & f : first) {
-    if (f.is_pos_vel()) {++pos_vel_frames;}
-    EXPECT_FALSE(f.is_mit()) << "还没切完就发了 MIT 帧（电机那边还在旧模式，帧会被静默丢掉）";
-  }
-  EXPECT_EQ(pos_vel_frames, 2u) << "切模式期间没有给所有关节补保持帧（看门狗会把它打掉）";
-  // 第二周期：写第二台
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
-  EXPECT_EQ(count_reg_writes(io.slice(0), 0x0A), 2u) << "第二台没有在第二个周期切";
-  // 第三周期：切换完毕 ⇒ 发 MIT 帧（PD 误差 ≈ 0 ⇒ 前馈就是 0）
-  ASSERT_EQ(iface.write(kT0, kDt), return_type::OK);
-  const Frame * mit2 = io.last_mit(2);
-  ASSERT_NE(mit2, nullptr) << "模式切换完成后没有发 MIT 帧";
-  EXPECT_NEAR(mit2->mit_tau(28.0), 0.0, 28.0 / 4095.0);
-}
-
-// ⑥ 故障：已使能时 ERR≠0/1 ⇒ read() 报 ERROR（让 CM 停控制器）；只读时只告警不中断
+// ④ 故障：已使能时 ERR≠0/1 ⇒ read() 报 ERROR（让 CM 停控制器）；只读时只告警不中断
 TEST(IfaceWiring, FaultInArmedModeReportsErrorButIsToleratedWhenReadOnly)
 {
   // 只读：容忍（一台故障不该把整条只读链拖死，否则看不见别的关节）
