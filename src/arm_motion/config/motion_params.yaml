@@ -1,0 +1,47 @@
+# 运动参数 —— 服务端默认值（MOTION_ARCH §6.3 / §7.3 / §7.4）。
+#
+# ⚠️ 首轮真机必须保守。这个臂是**桌面级**、行程小、且折叠位就在机械限位上，
+#    快速度缩放不会带来任何收益，只会把风险放大。
+
+/**:
+  ros__parameters:
+    # ── 规划 ──────────────────────────────────────────────────────────
+    planning_group: "arm"                    # SRDF 里的规划组名
+    # 规划超时的"无响应"保护：move_group 自己的规划时间上限之外，本层再套一层。
+    # 超了 ⇒ error 4（PLANNING_FAILED），不是执行超时。
+    planning_timeout_sec: 5.0
+    # 笛卡尔直线的完成度阈值（仅 TARGET_POSE + linear=true 用到）；fraction < 它 ⇒ error 5
+    cartesian_fraction_min: 0.95
+
+    # ── 缩放（真机安全，见 MOTION_ARCH §6.3）───────────────────────────
+    # Goal 里给了 (0,1] 的值就用 Goal 的；<=0 或没给 ⇒ 用这里。
+    # ⚠️ 必须保守：首轮真机建议 0.05~0.1。速度越接近 1，
+    #    位置环的期望滞后越大（POS_VEL 下固件自己限流，但到达残差会变大）。
+    default_velocity_scaling: 0.10
+    default_acceleration_scaling: 0.10
+
+    # ── 执行与验证 ────────────────────────────────────────────────────
+    # 执行超时（覆盖 EXECUTING + VERIFYING；不包括规划阶段）。Goal.timeout_sec 给了就优先。
+    exec_timeout_sec: 30.0
+    # 执行完等多久让 /joint_states 刷新再比残差（非阻塞轮询，MOTION_ARCH §3.3）
+    verify_settle_sec: 0.30
+    # 残差阈值：JTC 报 SUCCEEDED 不等于到位（POS_VEL 有稳态残差、MIT 有扰动/kp 的死区）。
+    # 超限 ⇒ error 8，但**不失能、不挪动** —— 臂就在那里保持（硬件仍 ACTIVE）。
+    max_residual_rad: 0.05
+    # 取消后等确认的上限（超时不再等，直接报"未确认"，陷阱 #60）
+    cancel_confirm_timeout_sec: 1.0
+
+    # ── 状态机 ────────────────────────────────────────────────────────
+    tick_ms: 50.0                            # 状态机推进周期（与 MOTION_ARCH §3.3 一致）
+    # 拿不到 /joint_states 时的等待上限 ⇒ error 12（START_STATE_INVALID）
+    state_wait_sec: 2.0
+
+    # ── 数据 ──────────────────────────────────────────────────────────
+    # 命名目标表路径；空 ⇒ 用 share/arm_motion/config/named_targets.yaml
+    named_targets_file: ""
+
+    # ── 接口名（留成参数便于 mock 链与真机共用）────────────────────────
+    move_group_action: "/move_action"
+    cartesian_path_service: "/compute_cartesian_path"
+    jtc_action: "/arm_controller/follow_joint_trajectory"
+    joint_states_topic: "/joint_states"

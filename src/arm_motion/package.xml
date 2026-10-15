@@ -22,6 +22,9 @@
   <!-- 关节限位（模型坐标）：由 arm_description 构建期从 joint.yaml + align.yaml 生成并导出。
        这里是**护栏**的唯一真源（JTC 不校验限位，越界会顶在机械硬限位上堵转，见陷阱 #59）。 -->
   <depend>arm_description</depend>
+  <!-- 命名目标表（named_targets.yaml）的解析。用 yaml-cpp 而不是 ROS 参数：
+       位姿是**数据**不是参数，改一个放置点不该要求改 launch（D-M5）。 -->
+  <depend>yaml-cpp</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 

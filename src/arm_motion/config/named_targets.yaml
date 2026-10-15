@@ -1,0 +1,38 @@
+# 命名目标表 —— 常用位姿的**唯一真源**（MOTION_ARCH §5）。
+#
+# 为什么用 YAML 而不是 ROS 参数：位姿是**数据**不是参数，改一个放置点不该要求改 launch；
+# YAML 还能带注释（"这个点是标定出来的"），参数数组不能（D-M5）。
+#
+# 约定：
+#   - 关节位置是**模型坐标** rad（与 URDF / joint_limits.hpp / joint_states 同一套）；
+#   - frame_id 只能是 base_link（本层 TF 依赖面越小越好，视觉侧负责变换过来）；
+#   - 加载期就会校验：字段合法性、关节数、**逐个关节查限位**。
+#     任一不合格 ⇒ 节点启动即失败（宁可起不来，也别带着越界目标跑）。
+#   - type: joints ⇒ 需要 positions（6 个数，顺序 = joint_limits.hpp 的 kJointNames）
+#     type: pose   ⇒ 需要 position（3 个数，m）；rpy（3 个数，rad）可选，缺省 = 0
+#   - 写错字段名（例如 position 少个 s）会**启动报错**，不会静默失效。
+
+frame_id: base_link        # 仅允许 base_link
+tip_link: gripper_tcp      # Goal.tip_link 为空时的默认末端
+
+targets:
+  # 折叠位（park）—— 模型坐标，与 arm_manage/config/arm_manage.yaml 的 park_pose 同源。
+  # ⚠️ 单一真源问题：目前 park 同时存在于 arm_manage.yaml 与 safe_park_node.cpp 的
+  #    kDefaultParkPose。R4（管理层迁到 ExecuteMotion）时**一次性收敛到本文件**，
+  #    在那之前两处必须一起改（见 MOTION_ARCH §5.3）。
+  park:
+    type: joints
+    positions: [1.4724, 0.0008, -0.0233, 0.0027, 0.0069, 0.0149]
+
+  # 一个"张开一点"的中间姿态：j2/j3 抬起、j4 立起。用于验证关节目标通路。
+  # ⚠️ 值必须落在模型限位内（j1 的限位是 [1.392202, 1.626143]，所以别写 0）。
+  home:
+    type: joints
+    positions: [1.4724, -0.5000, -0.5000, 0.3000, 0.0000, 0.0000]
+
+  # 示例位姿目标（type: pose）。⚠️ 本轮 arm_motion 的 TARGET_POSE **尚未实现**，
+  # 这里保留是为了让加载器与校验路径有真实数据可测；位姿类型不做限位校验（交给 IK）。
+  place_a:
+    type: pose
+    position: [0.20, -0.10, 0.15]
+    rpy: [3.14159, 0.0, 0.0]

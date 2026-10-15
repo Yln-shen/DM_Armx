@@ -20,6 +20,8 @@ find_package(sensor_msgs REQUIRED)
 # 关节限位（模型坐标）：arm_description 构建期从 joint.yaml + align.yaml 生成并导出。
 # 它是**护栏的唯一真源**（JTC 不校验限位，越界会顶在机械硬限位上堵转，见陷阱 #59）。
 find_package(arm_description REQUIRED)
+# 命名目标表解析（纯数据，无 ROS 依赖 ⇒ 加载器可脱离 ROS 单测）
+find_package(yaml-cpp REQUIRED)
 
 # ⚠️ robostack 里 rclcpp 的传递依赖（-lcap / -llttng-ust）在 $CONDA_PREFIX/lib，而 pixi 激活
 #    **不设 LIBRARY_PATH** ⇒ 链接**可执行文件**（这里的 gtest）会报「找不到 -lcap」。
@@ -28,12 +30,15 @@ if(DEFINED ENV{CONDA_PREFIX})
   link_directories($ENV{CONDA_PREFIX}/lib)
 endif()
 
-add_library(arm_motion SHARED src/motion_client.cpp)
+# `named_targets.cpp` 刻意不依赖 rclcpp（只依赖 yaml-cpp + arm_description 的限位头）
+# ⇒ 它的单测不需要节点/串口；和 MotionClient 编在同一个库里只是省一个 target。
+add_library(arm_motion SHARED src/motion_client.cpp src/named_targets.cpp)
 target_include_directories(arm_motion PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
 target_link_libraries(arm_motion
   arm_description::arm_description
+  yaml-cpp::yaml-cpp
   rclcpp::rclcpp
   rclcpp_action::rclcpp_action
   ${action_msgs_TARGETS}
@@ -48,6 +53,8 @@ install(TARGETS arm_motion EXPORT export_arm_motion
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
+# 命名目标表与运动参数是**数据**，装到 share/ 下供 launch 用
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -55,9 +62,17 @@ if(BUILD_TESTING)
   # 等不到 action server / 等不到状态 / 越界拒绝（一帧不发）。自带 main（要 rclcpp::init）。
   ament_add_gtest(test_motion_client test/test_motion_client.cpp)
   target_link_libraries(test_motion_client arm_motion)
+
+  # 命名目标表：**纯逻辑**（写临时 YAML → 加载 → 看校验结果），不需要 rclcpp。
+  # 覆盖：正常加载 / 关节名顺序错 / 越界 / 未知字段 / 类型错 / NaN / frame 错 / 缺 targets。
+  # 用例需要真实文件路径 ⇒ 用 `NAMED_TARGETS_TEST_DIR` 指到源码目录（构建期写死，不落盘）。
+  ament_add_gtest(test_named_targets test/test_named_targets.cpp)
+  target_link_libraries(test_named_targets arm_motion)
+  target_compile_definitions(test_named_targets PRIVATE
+    ARM_MOTION_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
 endif()
 
 ament_export_targets(export_arm_motion HAS_LIBRARY_TARGET)
 ament_export_dependencies(
-  ament_cmake rclcpp rclcpp_action action_msgs control_msgs trajectory_msgs sensor_msgs arm_description)
+  ament_cmake rclcpp rclcpp_action action_msgs control_msgs trajectory_msgs sensor_msgs arm_description yaml-cpp)
 ament_package()
