@@ -11,8 +11,9 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 # ── C++ 核：协议 + 串口 + 总线 + 关节 + 帧装配决策（**不依赖 rclcpp**）──
-# ⚠️ 这里**没有**控制律，也**没有** pinocchio（LAYERS §7 #1）：重力/摩擦/积分是控制层的活，
-#    它们经 `effort` 命令接口送进来。本库只负责"把上层给的目标装配成 CAN 帧"。
+# ⚠️ 这里**没有**控制律，也**没有** pinocchio：本层只负责"把上层给的目标装配成 CAN 帧"，
+#    而且**只有 POS_VEL 一条路径**（MIT 已砍，见 docs/LAYERS.md §2/§4）。
+#    `effort` 命令接口保留为**空插槽**（将来做柔顺/力控时才需要控制律，那时再在本层加）。
 add_library(dm_hardware
   src/dm_frames.cpp
   src/dm_serial.cpp

@@ -44,8 +44,9 @@ add_custom_target(arm_identified_urdf ALL DEPENDS "${IDENT_URDF}")
 install(FILES "${IDENT_URDF}" DESTINATION share/${PROJECT_NAME}/urdf)
 
 # ── 带夹爪的辨识版：给"以后真装上夹爪"那条链用 ──
-# ⚠️ R1 起硬件层不再有 `dyn_model:=` 参数（动力学模型归**控制层**读，见 docs/LAYERS.md §6）；
-#    这份 URDF 仍然生成并安装，等控制层的重力补偿控制器来用它。
+# ⚠️ 硬件层从来没有 `dyn_model:=` 参数（动力学模型归**控制层**读，见 docs/LAYERS.md §6）；
+#    这份 URDF 仍然生成并安装 —— 目前**没有运行期消费者**（控制层是空位、MIT 已砍），
+#    但它是辨识成果的真源，将来做柔顺/力控时要读它。
 # 空载那份（arm_identified.urdf）的 `link6 = 0.7718` 是**空载**辨识值，夹爪当时不在台上；
 # 这份把 `use_gripper:=true` 的几何一并展开，夹爪那几个 link 的质量/质心由
 # gravity_identified.yaml 的 `gripper:` 段给（上游 CAD 名义值，**没辨识过**，只当占位）。
