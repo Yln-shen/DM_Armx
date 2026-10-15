@@ -1,0 +1,46 @@
+# ExecuteMotion —— 的运动接口层**唯一**对外契约（D-M1）。
+#
+# 设计说明见 docs/MOTION_ARCH.md §4（字段语义、错误码表、坐标系约定）。
+# 三种目标用 `target_type` 分派，而不是三个 action：互斥/超时/取消/错误码只有一套，
+# 业务层只学一个接口。
+#
+# 坐标与单位：关节位置是**模型坐标** rad（与 URDF / joint_limits.hpp / joint_states 同一套，
+# 见 AGENTS §5 三层坐标）；位姿长度 m、角度 rad，frame_id 必须是 base_link。
+
+# ── Goal ─────────────────────────────────────────────
+uint8 TARGET_JOINTS = 0    # 关节空间：MoveIt 关节约束 → 规划 → 执行
+uint8 TARGET_POSE   = 1    # 笛卡尔位姿：IK + 规划（可要求直线）⚠️ 本轮未实现，见 message 里的说明
+uint8 TARGET_NAMED  = 2    # 命名目标：查 named_targets.yaml
+uint8 target_type
+
+# TARGET_JOINTS
+string[] joint_names                  # 必须与 joint_limits.hpp 的顺序一致（按名字比，不按下标）
+float64[] joint_positions             # 模型坐标 rad
+
+# TARGET_POSE
+geometry_msgs/PoseStamped target_pose  # frame_id 必须 "base_link"
+
+# TARGET_NAMED
+string target_name
+
+# 通用
+string  tip_link                      # 空 ⇒ 用 named_targets.yaml 的默认（gripper_tcp）
+bool    linear                        # true ⇒ 笛卡尔直线（仅 TARGET_POSE 有意义）
+float64 max_velocity_scaling          # (0,1]；<=0 ⇒ 用服务端默认（见 MOTION_ARCH §6.3）
+float64 max_acceleration_scaling      # (0,1]；<=0 ⇒ 用服务端默认
+float64 timeout_sec                   # 0 ⇒ 用服务端默认
+bool    preempt                       # false ⇒ 忙时拒绝（error 10）；true ⇒ 抢占（D-M4）
+
+---
+# ── Result ───────────────────────────────────────────
+bool    success
+uint16  error_code                    # 见 MOTION_ARCH §4.3 的错误码表
+string  message                       # 人可读，含失败的具体关节/数值
+float64 elapsed_sec                   # 从收到 goal 到出结果
+float64 max_residual_rad              # 执行后实测关节残差（成功路径也填；拿不到状态 ⇒ NaN）
+
+---
+# ── Feedback ─────────────────────────────────────────
+string phase                          # 阶段名（VALIDATING / PLANNING / EXECUTING / ...）
+float64 progress                      # 0~1（执行阶段按轨迹时间估算，其余阶段 0）
+geometry_msgs/PoseStamped current_pose # 当前末端位姿（未实现前为空）

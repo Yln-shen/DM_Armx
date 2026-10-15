@@ -18,6 +18,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/HardwareStatus.msg"
   "msg/ArmStatus.msg"
   "action/MoveToPose.action"
+  # 运动接口层的**唯一**对外契约（D-M1，设计见 docs/MOTION_ARCH.md §4）。
+  # ⚠️ 只用 geometry_msgs + builtin，所以 DEPENDENCIES 不用改。
+  "action/ExecuteMotion.action"
   # ── 管理层（arm_manage）的对外接口；插件级两个是**内部接口**，正常只由 arm_manage 调用 ──
   # 见 docs/MANAGE_ARCH.md §4.1：M-6（对外只有 3 个服务、不做状态查询服务）
   "srv/SetEnabled.srv"              # 插件：运行期使能/失能（M-1，因为 enable_on_activate 是构建期参数）
