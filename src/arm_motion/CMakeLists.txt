@@ -22,6 +22,12 @@ find_package(sensor_msgs REQUIRED)
 find_package(arm_description REQUIRED)
 # 命名目标表解析（纯数据，无 ROS 依赖 ⇒ 加载器可脱离 ROS 单测）
 find_package(yaml-cpp REQUIRED)
+# 规划接口（D-M3：用原生 action/srv，**不链** moveit_ros_planning_interface）
+find_package(moveit_msgs REQUIRED)
+# 本层对外的接口契约（ExecuteMotion action）
+find_package(arm_msgs REQUIRED)
+# 运行时查本包的 share 目录（拿 named_targets.yaml 的默认路径）
+find_package(ament_index_cpp REQUIRED)
 
 # ⚠️ robostack 里 rclcpp 的传递依赖（-lcap / -llttng-ust）在 $CONDA_PREFIX/lib，而 pixi 激活
 #    **不设 LIBRARY_PATH** ⇒ 链接**可执行文件**（这里的 gtest）会报「找不到 -lcap」。
@@ -32,7 +38,11 @@ endif()
 
 # `named_targets.cpp` 刻意不依赖 rclcpp（只依赖 yaml-cpp + arm_description 的限位头）
 # ⇒ 它的单测不需要节点/串口；和 MotionClient 编在同一个库里只是省一个 target。
-add_library(arm_motion SHARED src/motion_client.cpp src/named_targets.cpp)
+add_library(arm_motion SHARED
+  src/motion_client.cpp
+  src/named_targets.cpp
+  src/trajectory_utils.cpp
+  src/motion_server.cpp)
 target_include_directories(arm_motion PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
@@ -44,10 +54,21 @@ target_link_libraries(arm_motion
   ${action_msgs_TARGETS}
   ${control_msgs_TARGETS}
   ${trajectory_msgs_TARGETS}
-  ${sensor_msgs_TARGETS})
+  ${sensor_msgs_TARGETS}
+  # ⚠️ 用**导出 target**（`arm_msgs::arm_msgs`）而不是 `${arm_msgs_TARGETS}`：
+  #    前者带 INTERFACE_INCLUDE_DIRECTORIES（给到 -I），后者只提供 typesupport 库 ⇒
+  #    `#include <arm_msgs/action/execute_motion.hpp>` 会找不到头。
+  #    （`arm_manage` 也是这么链的，照抄它。）
+  arm_msgs::arm_msgs
+  ${moveit_msgs_TARGETS})
 
 # 只 ament_export_include_directories 不够：那样下游 find_package 得到空配置，
 # 既拿不到 -I 也**建立不了构建顺序**（arm_application 会先于本包编译）。⇒ export target。
+# 可执行节点（只做装配：读参数 → 加载命名目标 → 建 server → spin）
+add_executable(motion_server_node src/motion_server_node.cpp)
+target_link_libraries(motion_server_node arm_motion rclcpp::rclcpp ament_index_cpp::ament_index_cpp)
+install(TARGETS motion_server_node DESTINATION lib/${PROJECT_NAME})
+
 install(TARGETS arm_motion EXPORT export_arm_motion
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -70,9 +91,14 @@ if(BUILD_TESTING)
   target_link_libraries(test_named_targets arm_motion)
   target_compile_definitions(test_named_targets PRIVATE
     ARM_MOTION_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test")
+
+  # 轨迹护栏：逐点查限位 / 名字 / 维度 / 时间单调 / 残差 / 按名字重排。纯逻辑，不需要 rclcpp。
+  ament_add_gtest(test_trajectory_utils test/test_trajectory_utils.cpp)
+  target_link_libraries(test_trajectory_utils arm_motion)
 endif()
 
 ament_export_targets(export_arm_motion HAS_LIBRARY_TARGET)
 ament_export_dependencies(
-  ament_cmake rclcpp rclcpp_action action_msgs control_msgs trajectory_msgs sensor_msgs arm_description yaml-cpp)
+  ament_cmake rclcpp rclcpp_action action_msgs control_msgs trajectory_msgs sensor_msgs arm_description
+  yaml-cpp moveit_msgs arm_msgs ament_index_cpp)
 ament_package()

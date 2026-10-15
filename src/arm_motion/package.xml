@@ -25,6 +25,11 @@
   <!-- 命名目标表（named_targets.yaml）的解析。用 yaml-cpp 而不是 ROS 参数：
        位姿是**数据**不是参数，改一个放置点不该要求改 launch（D-M5）。 -->
   <depend>yaml-cpp</depend>
+  <!-- 规划接口：用原生 action/srv（D-M3 不用阻塞的 MoveGroupInterface） -->
+  <depend>moveit_msgs</depend>
+  <!-- 本层对外接口（ExecuteMotion action） -->
+  <depend>arm_msgs</depend>
+  <depend>ament_index_cpp</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 
